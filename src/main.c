@@ -51,7 +51,7 @@ int box64_inprocessgpu = 0;
 int box64_malloc_hack = 0;
 int box64_dynarec_test = 0;
 int box64_maxcpu = 0;
-#if defined(SD845) || defined(SD888) || defined(SD8G2) || defined(TEGRAX1)
+#if defined(SD845) || defined(SD888) || defined(SD8G2) || defined(TEGRAX1) || defined(TERMUX_GLIBC)
 int box64_mmap32 = 1;
 #else
 int box64_mmap32 = 0;
@@ -148,7 +148,7 @@ int box64_novulkan = 0;
 int box64_showsegv = 0;
 int box64_showbt = 0;
 int box64_isglibc234 = 0;
-#ifdef BAD_SIGNAL
+#if defined BAD_SIGNAL
 int box64_futex_waitv = 0;
 #else
 int box64_futex_waitv = 1;
@@ -1215,7 +1215,7 @@ void LoadEnvVars(box64context_t *context)
     }
     // check BOX64_LD_LIBRARY_PATH and load it
     LoadEnvPath(&context->box64_ld_lib, ".:lib:lib64:x86_64:bin64:libs64", "BOX64_LD_LIBRARY_PATH");
-    #ifndef TERMUX
+    #if !defined TERMUX && !defined TERMUX_GLIBC
     if(FileExist("/lib/x86_64-linux-gnu", 0))
         AddPath("/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
     if(FileExist("/usr/lib/x86_64-linux-gnu", 0))
@@ -1224,6 +1224,8 @@ void LoadEnvVars(box64context_t *context)
         AddPath("/usr/x86_64-linux-gnu/lib", &context->box64_ld_lib, 1);
     #else
     //TODO: Add Termux Library Path - Lily
+    if(FileExist("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", 0))
+    	AddPath("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
     if(FileExist("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", 0))
         AddPath("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
     #endif
@@ -1554,10 +1556,12 @@ static void add_argv(const char* what) {
 
 static void load_rcfiles()
 {
-    #ifndef TERMUX
+    #if !defined TERMUX && !defined TERMUX_GLIBC
     if(FileExist("/etc/box64.box64rc", IS_FILE))
         LoadRCFile("/etc/box64.box64rc");
     #else
+    if(FileExist("/data/data/com.termux/files/usr/glibc/etc/box64.box64rc", IS_FILE))
+    	LoadRCFile("/data/data/com.termux/files/usr/glibc/etc/box64.box64rc");
     if(FileExist("/data/data/com.termux/files/usr/etc/box64.box64rc", IS_FILE))
         LoadRCFile("/data/data/com.termux/files/usr/etc/box64.box64rc");
     #endif
