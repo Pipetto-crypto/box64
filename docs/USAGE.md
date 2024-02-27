@@ -346,6 +346,11 @@ Define x86_64 bash to launch script
  This mode can be usefullwhen programs redirect all console output to a file (like Unity3D Games)
  * 3 : Launch `lldb` when a segfault, bus error or illegal instruction signal is trapped, attached to the offending process and go in an endless loop, waiting.
 
+#### BOX64_RCFILE *
+Define a custom rc file
+ * yyyy
+ Will use yyyy as a rc file. yyyy needs to be a full path to a valid rc file
+
 #### BOX64_NORCFILES
 If the env var exist, no rc files (like /etc/box64.box64rc and ~/.box64rc) will be loaded
 

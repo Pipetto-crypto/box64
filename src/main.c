@@ -1576,6 +1576,11 @@ static void load_rcfiles()
         if(FileExist(tmp, IS_FILE))
             LoadRCFile(tmp);
     }
+    p = getenv("BOX64_RCFILE");
+    if(p) {
+		if(FileExist(p, IS_FILE))
+			LoadRCFile(p);
+    }
 }
 
 #ifndef STATICBUILD
