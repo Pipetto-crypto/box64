@@ -671,6 +671,7 @@ if(TERMUX)
         "${BOX64_ROOT}/src/wrapped/wrappediconv.c"
         "${BOX64_ROOT}/src/wrapped/wrappedtermuxexec.c"
         "${BOX64_ROOT}/src/wrapped/wrappedandroidsupport.c"
+        "${BOX64_ROOT}/src/wrapped/wrappedandroidspawn.c"
     )
 endif()
 
