@@ -48,7 +48,7 @@ void EXPORT my___libc_init(x64emu_t* emu, void* raw_args , void (*onexit)(void) 
     emu->quit = 1; // finished!
 }
 #else
-int32_t EXPORT my___libc_start_main(x64emu_t* emu, int *(main) (int, char * *, char * *), int argc, char * * ubp_av, void (*init) (void), void (*fini) (void), void (*rtld_fini) (void), void (* stack_end))
+int32_t EXPORT my___libc_start_main(x64emu_t* emu, int (*main) (int, char * *, char * *), int argc, char * * ubp_av, void (*init) (void), void (*fini) (void), void (*rtld_fini) (void), void (* stack_end))
 {
     (void)argc; (void)ubp_av; (void)fini; (void)rtld_fini; (void)stack_end;
 
@@ -1780,6 +1780,35 @@ reg64_t* GetEw16off(x64emu_t *emu, uintptr_t* addr, rex_t rex, uint8_t v, uintpt
     }
 }
 
+reg64_t* GetEd16off(x64emu_t *emu, uintptr_t* addr, rex_t rex, uint8_t v, uintptr_t offset)
+{
+    (void)rex;
+
+    uint32_t m = v&0xC7;    // filter Ed
+    if(m>=0xC0) {
+         return &emu->regs[(m&0x07)];
+    } else {
+        uint32_t base = 0;
+        switch(m&7) {
+            case 0: base = R_BX+R_SI; break;
+            case 1: base = R_BX+R_DI; break;
+            case 2: base = R_BP+R_SI; break;
+            case 3: base = R_BP+R_DI; break;
+            case 4: base =      R_SI; break;
+            case 5: base =      R_DI; break;
+            case 6: base =      R_BP; break;
+            case 7: base =      R_BX; break;
+        }
+        switch((m>>6)&3) {
+            case 0: if((m&7)==6) base = F16S(addr); break;
+            case 1: base += F8S(addr); break;
+            case 2: base += F16S(addr); break;
+            // case 3 is C0..C7, already dealt with
+        }
+        return (reg64_t*)(base+offset);
+    }
+}
+
 reg64_t* TestEw16off(x64test_t *test, uintptr_t* addr, rex_t rex, uint8_t v, uintptr_t offset)
 {
     (void)rex;
@@ -1808,6 +1837,39 @@ reg64_t* TestEw16off(x64test_t *test, uintptr_t* addr, rex_t rex, uint8_t v, uin
         }
         test->memsize = 2;
         *(uint16_t*)test->mem = *(uint16_t*)(base+offset);
+        test->memaddr = (uintptr_t)(base+offset);
+        return (reg64_t*)test->mem;
+    }
+}
+
+reg64_t* TestEd16off(x64test_t *test, uintptr_t* addr, rex_t rex, uint8_t v, uintptr_t offset)
+{
+    (void)rex;
+    x64emu_t* emu = test->emu;
+
+    uint32_t m = v&0xC7;    // filter Ed
+    if(m>=0xC0) {
+        return &emu->regs[(m&0x07)];
+    } else {
+        uint32_t base = 0;
+        switch(m&7) {
+            case 0: base = R_BX+R_SI; break;
+            case 1: base = R_BX+R_DI; break;
+            case 2: base = R_BP+R_SI; break;
+            case 3: base = R_BP+R_DI; break;
+            case 4: base =      R_SI; break;
+            case 5: base =      R_DI; break;
+            case 6: base =      R_BP; break;
+            case 7: base =      R_BX; break;
+        }
+        switch((m>>6)&3) {
+            case 0: if((m&7)==6) base = F16S(addr); break;
+            case 1: base += F8S(addr); break;
+            case 2: base += F16S(addr); break;
+            // case 3 is C0..C7, already dealt with
+        }
+        test->memsize = 4;
+        *(uint32_t*)test->mem = *(uint32_t*)(base+offset);
         test->memaddr = (uintptr_t)(base+offset);
         return (reg64_t*)test->mem;
     }

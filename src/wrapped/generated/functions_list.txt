@@ -229,6 +229,7 @@
 #() CFpu
 #() CFpL
 #() CFpp
+#() WFpi
 #() WFpp
 #() uFEp
 #() uFii
@@ -237,6 +238,7 @@
 #() uFui
 #() uFuu
 #() uFup
+#() uFuM
 #() uFpw
 #() uFpi
 #() uFpC
@@ -336,6 +338,7 @@
 #() HFII
 #() HFll
 #() HFpi
+#() HFpp
 #() xFxx
 #() XFXX
 #() iWpi
@@ -506,6 +509,8 @@
 #() iFLpp
 #() iFpwp
 #() iFpii
+#() iFpiC
+#() iFpiW
 #() iFpiu
 #() iFpiU
 #() iFpil
@@ -568,6 +573,7 @@
 #() uFiuu
 #() uFilp
 #() uFipu
+#() uFipL
 #() uFuii
 #() uFuip
 #() uFuuu
@@ -594,6 +600,7 @@
 #() uFpLp
 #() uFppi
 #() uFppu
+#() uFppL
 #() uFppp
 #() uFbWW
 #() uFbWu
@@ -787,6 +794,7 @@
 #() vFipii
 #() vFipup
 #() vFipll
+#() vFippL
 #() vFippp
 #() vFCCCC
 #() vFWWWW
@@ -1097,6 +1105,7 @@
 #() uFuuuu
 #() uFpiip
 #() uFpipu
+#() uFpipL
 #() uFpipp
 #() uFpCCC
 #() uFpuip
@@ -1173,6 +1182,7 @@
 #() pFELpA
 #() pFEpii
 #() pFEpip
+#() pFEpuL
 #() pFEppi
 #() pFEppp
 #() pFEppV
@@ -1623,6 +1633,7 @@
 #() uFEpppp
 #() uFEpppV
 #() uFiuuuu
+#() uFiuppi
 #() uFipipp
 #() uFipLpp
 #() uFuiiii
@@ -1724,7 +1735,6 @@
 #() pFpuuup
 #() pFpuupp
 #() pFpuLpp
-#() pFpupii
 #() pFpuppu
 #() pFpuppp
 #() pFpUdii
@@ -1744,7 +1754,6 @@
 #() pFppipi
 #() pFppipp
 #() pFppWpp
-#() pFppuii
 #() pFppuip
 #() pFppuuu
 #() pFppuup
@@ -1766,6 +1775,8 @@
 #() pFbuWWW
 #() pFbuuWW
 #() pFbuuup
+#() pFbupii
+#() pFbpuii
 #() pFbpppp
 #() iWEpiup
 #() iWEpipp
@@ -2163,7 +2174,6 @@
 #() pFppippi
 #() pFppippp
 #() pFppuupp
-#() pFppupii
 #() pFppuppp
 #() pFpplplp
 #() pFpplppp
@@ -2180,6 +2190,7 @@
 #() pFbuuwwu
 #() pFbuuuuu
 #() pFbuuUUU
+#() pFbpupii
 #() iWEpuuip
 #() iWEppppp
 #() iWpiiiip
@@ -2413,6 +2424,7 @@
 #() pFpiiiiid
 #() pFpiiippp
 #() pFpiiUdii
+#() pFpiipppp
 #() pFpipippp
 #() pFpWppWpp
 #() pFpuLpipp
@@ -2478,6 +2490,7 @@
 #() vFEpppppuu
 #() vFiiiiuuip
 #() vFiilliilp
+#() vFiilluulp
 #() vFiupuiuup
 #() vFiupuuuup
 #() vFuiiiiiii
@@ -3088,6 +3101,11 @@ wrappedbz2:
 - iFpiii:
   - BZ2_bzCompressInit
 wrappedcairo:
+- pFp:
+  - cairo_xcb_device_get_connection
+- iFpppp:
+  - cairo_set_user_data
+  - cairo_surface_set_user_data
 wrappedcairogobject:
 wrappedcap:
 wrappedcrashhandler:
@@ -3303,8 +3321,10 @@ wrappedflac:
 wrappedfontconfig:
 - pFpV:
   - FcObjectSetBuild
+  - FcPatternBuild
 - pFpA:
   - FcObjectSetVaBuild
+  - FcPatternVaBuild
 wrappedfreebl3:
 wrappedfreetype:
 - iFpp:
@@ -3436,6 +3456,7 @@ wrappedgio2:
   - g_dbus_connection_signal_subscribe
 - vFpppppppiippp:
   - g_dbus_connection_call
+wrappedglesv2:
 wrappedglib2:
 - vFp:
   - g_atexit
@@ -4029,7 +4050,6 @@ wrappedlibc:
   - __cxa_pure_virtual
   - __stack_chk_fail
 - vFi:
-  - _exit
   - exit
 - vFp:
   - _ITM_deregisterTMCloneTable
@@ -4106,7 +4126,9 @@ wrappedlibc:
   - printf
   - wprintf
 - iFpA:
+  - __isoc99_vscanf
   - vprintf
+  - vscanf
   - vwprintf
 - iFSp:
   - _IO_file_stat
@@ -4365,10 +4387,14 @@ wrappedlibgl:
   - glDebugMessageCallbackAMD
   - glDebugMessageCallbackARB
   - glDebugMessageCallbackKHR
+- iFpp:
+  - eglDebugMessageControlKHR
 - vFipp:
   - glProgramCallbackMESA
 - vFppi:
   - glXSwapIntervalEXT
+- vFppp:
+  - eglSetBlobCacheFuncsANDROID
 wrappedlibglu:
 - vFpip:
   - gluNurbsCallback
@@ -4384,6 +4410,8 @@ wrappedlibharfbuzz:
   - hb_font_funcs_destroy
 - pFp:
   - hb_unicode_funcs_reference
+- pFpp:
+  - hb_ft_face_create
 - vFppp:
   - hb_font_set_funcs_data
 - pFppp:
@@ -4784,6 +4812,8 @@ wrappedlibx11:
   - XESetError
   - XESetEventToWire
   - XESetWireToEvent
+- pFpuL:
+  - _XGetRequest
 - iFpppp:
   - XCheckIfEvent
   - XIfEvent
@@ -5487,6 +5517,8 @@ wrappedvulkan:
   - vkDestroyCommandPool
   - vkDestroyCuFunctionNVX
   - vkDestroyCuModuleNVX
+  - vkDestroyCudaFunctionNV
+  - vkDestroyCudaModuleNV
   - vkDestroyDeferredOperationKHR
   - vkDestroyDescriptorPool
   - vkDestroyDescriptorSetLayout
@@ -5538,6 +5570,8 @@ wrappedvulkan:
   - vkCreateCommandPool
   - vkCreateCuFunctionNVX
   - vkCreateCuModuleNVX
+  - vkCreateCudaFunctionNV
+  - vkCreateCudaModuleNV
   - vkCreateDebugReportCallbackEXT
   - vkCreateDebugUtilsMessengerEXT
   - vkCreateDescriptorPool

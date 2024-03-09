@@ -177,7 +177,7 @@ static int SymbolMatch(elfheader_t* h, uint32_t i, int ver, const char* vername,
         return 1;
     if(ver==1 && version<2)
         return 1;
-    if(ver<2 && version>2 && flags==0)  // flag is not WEAK, so global works
+    if(ver<2 && version>1 && flags==0)  // flag is not WEAK, so global works
         return 1;
     if(ver<2 || !symvername)
         return 0;
@@ -187,9 +187,9 @@ static int SymbolMatch(elfheader_t* h, uint32_t i, int ver, const char* vername,
 uint32_t old_elf_hash(const char* name)
 {
     uint32_t h = 0, g;
-    for (unsigned char c = *name; c; c = *++name) {
+    for(unsigned char c = *name; c; c = *++name) {
         h = (h << 4) + c;
-        if (g = h & 0xf0000000) {
+        if((g = (h & 0xf0000000))) {
             h ^= g >> 24;
         }
         h &= ~g;

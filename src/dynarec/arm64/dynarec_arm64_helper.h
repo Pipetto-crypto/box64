@@ -426,7 +426,7 @@
     if(MODREG) {                                                                                        \
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
-        SMREAD();                                                                                       \
+        if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, D);  \
         a = fpu_get_scratch(dyn);                                                                       \
         VLD128(a, ed, fixedaddress);                                                                    \
@@ -445,7 +445,7 @@
     if(MODREG) {                                                                                        \
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
-        SMREAD();                                                                                       \
+        if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
         a = fpu_get_scratch(dyn);                                                                       \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<3, 7, rex, NULL, 0, D);   \
         VLD64(a, ed, fixedaddress);                                                                     \
@@ -459,7 +459,7 @@
     if(MODREG) {                                                                                        \
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
-        SMREAD();                                                                                       \
+        if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
         a = fpu_get_scratch(dyn);                                                                       \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<2, 3, rex, NULL, 0, D);   \
         VLD32(a, ed, fixedaddress);                                                                     \
@@ -473,7 +473,7 @@
     if(MODREG) {                                                                                        \
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
-        SMREAD();                                                                                       \
+        if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
         a = fpu_get_scratch(dyn);                                                                       \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<1, 1, rex, NULL, 0, D);   \
         VLD16(a, ed, fixedaddress);                                                                     \
@@ -1130,6 +1130,9 @@ void* arm64_next(x64emu_t* emu, uintptr_t addr);
 
 #define CacheTransform       STEPNAME(CacheTransform)
 
+#define arm64_move32        STEPNAME(arm64_move32)
+#define arm64_move64        STEPNAME(arm64_move64)
+
 /* setup r2 to address pointed by */
 uintptr_t geted(dynarec_arm_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, uint8_t* ed, uint8_t hint, int64_t* fixaddress, int* unscaled, int absmax, uint32_t mask, rex_t rex, int* l, int s, int delta);
 
@@ -1282,6 +1285,9 @@ void x87_restoreround(dynarec_arm_t* dyn, int ninst, int s1);
 int sse_setround(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 
 void CacheTransform(dynarec_arm_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3);
+
+void arm64_move32(dynarec_arm_t* dyn, int ninst, int reg, uint32_t val);
+void arm64_move64(dynarec_arm_t* dyn, int ninst, int reg, uint64_t val);
 
 #if STEP < 2
 #define CHECK_CACHE()   0

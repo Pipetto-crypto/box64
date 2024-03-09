@@ -1833,8 +1833,12 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         ASRx(x4, gd, 63);
                         CMPSx_REG(x3, x4);
                         CSETw(x3, cNE);
-                        BFIw(xFlags, x3, F_CF, 1);
-                        BFIw(xFlags, x3, F_OF, 1);
+                        IFX(X_CF) {
+                            BFIw(xFlags, x3, F_CF, 1);
+                        }
+                        IFX(X_OF) {
+                            BFIw(xFlags, x3, F_OF, 1);
+                        }
                     }
                 } else {
                     MULxw(gd, gd, ed);
@@ -1843,21 +1847,25 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 // 32bits imul
                 UFLAG_IF {
                     SMULL(gd, gd, ed);
+                    LSRx(x3, gd, 32);
+                    MOVw_REG(gd, gd);
                     IFX(X_PEND) {
                         UFLAG_RES(gd);
-                        LSRx(x3, gd, 32);
                         UFLAG_OP1(x3);
                         UFLAG_DF(x4, d_imul32);
                     } else IFX(X_CF|X_OF) {
                         SET_DFNONE(x4);
                     }
                     IFX(X_CF|X_OF) {
-                        ASRx(x3, gd, 31);
                         ASRw(x4, gd, 31);
                         CMPSw_REG(x3, x4);
                         CSETw(x3, cNE);
-                        BFIw(xFlags, x3, F_CF, 1);
-                        BFIw(xFlags, x3, F_OF, 1);
+                        IFX(X_CF) {
+                            BFIw(xFlags, x3, F_CF, 1);
+                        }
+                        IFX(X_OF) {
+                            BFIw(xFlags, x3, F_OF, 1);
+                        }
                     }
                     if(box64_dynarec_test) {
                         // to avoid noise during test
@@ -1866,7 +1874,6 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         BFCw(xFlags, F_ZF, 1);
                         BFCw(xFlags, F_SF, 1);
                     }
-                    MOVw_REG(gd, gd);
                 } else {
                     MULxw(gd, gd, ed);
                 }
@@ -2473,7 +2480,20 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             GETEM(v1, 0);
             URHADD_8(v0, v0, v1);
             break;
-
+        case 0xE1:
+            INST_NAME("PSRAW Gm,Em");
+            nextop = F8;
+            GETGM(d0);
+            GETEM(d1, 0);
+            v0 = fpu_get_scratch(dyn);
+            v1 = fpu_get_scratch(dyn);
+            UQXTN_32(v0, d1);
+            MOVI_32(v1, 15);
+            UMIN_32(v0, v0, v1);    // limit to 0 .. +15 values
+            NEG_32(v0, v0);
+            VDUP_16(v0, v0, 0);    // only the low 8bits will be used anyway
+            SSHL_16(d0, d0, v0);
+            break;
         case 0xE2:
             INST_NAME("PSRAD Gm,Em");
             nextop = F8;

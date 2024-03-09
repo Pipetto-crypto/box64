@@ -88,6 +88,11 @@
 #define cLE 0b1101
 #define c__ 0b1110
 
+int convert_bitmask(uint64_t bitmask);
+#define convert_bitmask_w(A)    convert_bitmask(((uint64_t)(A) << 32) + (uint32_t)(A))
+#define convert_bitmask_x(A)    convert_bitmask((uint64_t)A)
+#define convert_bitmask_xw(A)   convert_bitmask(rex.w?((uint64_t)(A)):(((uint64_t)(A) << 32) + (uint32_t)(A)))
+
 #define invCond(cond)   ((cond)^0b0001)
 
 // MOVZ
@@ -111,23 +116,8 @@
 #define MOVKw(Rd, imm16)                    EMIT(MOVK_gen(0, 0, ((uint16_t)(imm16))&0xffff, Rd))
 #define MOVKw_LSL(Rd, imm16, shift)         EMIT(MOVK_gen(0, (shift)/16, ((uint16_t)(imm16))&0xffff, Rd))
 
-// This macro will give a -Wsign-compare warning, probably bug #38341
-#define MOV32w(Rd, imm32) \
-    if(~((uint32_t)(imm32))<0xffffu) {                                      \
-        MOVNw(Rd, (~(uint32_t)(imm32))&0xffff);                             \
-    } else {                                                                \
-        MOVZw(Rd, (imm32)&0xffff);                                          \
-        if((imm32)&0xffff0000) {MOVKw_LSL(Rd, ((imm32)>>16)&0xffff, 16);}   \
-    }
-#define MOV64x(Rd, imm64) \
-    if(~((uint64_t)(imm64))<0xffff) {                                                                       \
-        MOVNx(Rd, (~(uint64_t)(imm64))&0xffff);                                                             \
-    } else {                                                                                                \
-        MOVZx(Rd, ((uint64_t)(imm64))&0xffff);                                                              \
-        if(((uint64_t)(imm64))&0xffff0000) {MOVKx_LSL(Rd, (((uint64_t)(imm64))>>16)&0xffff, 16);}           \
-        if(((uint64_t)(imm64))&0xffff00000000LL) {MOVKx_LSL(Rd, (((uint64_t)(imm64))>>32)&0xffff, 32);}      \
-        if(((uint64_t)(imm64))&0xffff000000000000LL) {MOVKx_LSL(Rd, (((uint64_t)(imm64))>>48)&0xffff, 48);}  \
-    }
+#define MOV32w(Rd, imm32) arm64_move32(dyn, ninst, Rd, imm32)
+#define MOV64x(Rd, imm64) arm64_move64(dyn, ninst, Rd, imm64)
 
 #define MOV64xw(Rd, imm64)   if(rex.w) {MOV64x(Rd, imm64);} else {MOV32w(Rd, imm64);}
 #define MOV64z(Rd, imm64)    if(rex.is32bits) {MOV32w(Rd, imm64);} else {MOV64x(Rd, imm64);}
@@ -513,18 +503,24 @@
 // logic to get the mask is ... convoluted... list of possible value there: https://gist.github.com/dinfuehr/51a01ac58c0b23e4de9aac313ed6a06a
 #define ANDx_mask(Rd, Rn, N, immr, imms)    EMIT(LOGIC_gen(1, 0b00, N, immr, imms, Rn, Rd))
 #define ANDw_mask(Rd, Rn, immr, imms)       EMIT(LOGIC_gen(0, 0b00, 0, immr, imms, Rn, Rd))
+#define ANDxw_mask(Rd, Rn, N, immr, imms)   EMIT(LOGIC_gen(rex.w, 0b00, rex.w?(N):0, immr, imms, Rn, Rd))
 #define ANDSx_mask(Rd, Rn, N, immr, imms)   EMIT(LOGIC_gen(1, 0b11, N, immr, imms, Rn, Rd))
 #define ANDSw_mask(Rd, Rn, immr, imms)      EMIT(LOGIC_gen(0, 0b11, 0, immr, imms, Rn, Rd))
+#define ANDSxw_mask(Rd, Rn, N, immr, imms)  EMIT(LOGIC_gen(rex.w, 0b11, rex.w?(N):0, immr, imms, Rn, Rd))
 #define ORRx_mask(Rd, Rn, N, immr, imms)    EMIT(LOGIC_gen(1, 0b01, N, immr, imms, Rn, Rd))
 #define ORRw_mask(Rd, Rn, immr, imms)       EMIT(LOGIC_gen(0, 0b01, 0, immr, imms, Rn, Rd))
+#define ORRxw_mask(Rd, Rn, N, immr, imms)   EMIT(LOGIC_gen(rex.w, 0b01, rex.w?(N):0, immr, imms, Rn, Rd))
 #define EORx_mask(Rd, Rn, N, immr, imms)    EMIT(LOGIC_gen(1, 0b10, N, immr, imms, Rn, Rd))
 #define EORw_mask(Rd, Rn, immr, imms)       EMIT(LOGIC_gen(0, 0b10, 0, immr, imms, Rn, Rd))
+#define EORxw_mask(Rd, Rn, N, immr, imms)   EMIT(LOGIC_gen(rex.w, 0b10, rex.w?(N):0, immr, imms, Rn, Rd))
 #define TSTx_mask(Rn, N, immr, imms)        ANDSx_mask(xZR, Rn, N, immr, imms)
 #define TSTw_mask(Rn, immr, imms)           ANDSw_mask(wZR, Rn, immr, imms)
+#define TSTxw_mask(Rn, N, immr, imms)       ANDSxw_mask(xZR, Rn, N, immr, imms)
 
 #define LOGIC_REG_gen(sf, opc, shift, N, Rm, imm6, Rn, Rd)    ((sf)<<31 | (opc)<<29 | 0b01010<<24 | (shift)<<22 | (N)<<21 | (Rm)<<16 | (imm6)<<10 | (Rn)<<5 | (Rd))
 #define ANDx_REG(Rd, Rn, Rm)            EMIT(LOGIC_REG_gen(1, 0b00, 0b00, 0, Rm, 0, Rn, Rd))
 #define ANDw_REG(Rd, Rn, Rm)            EMIT(LOGIC_REG_gen(0, 0b00, 0b00, 0, Rm, 0, Rn, Rd))
+#define ANDw_REG_LSR(Rd, Rn, Rm, lsr)   EMIT(LOGIC_REG_gen(0, 0b00, 0b01, 0, Rm, lsr, Rn, Rd))
 #define ANDxw_REG(Rd, Rn, Rm)           EMIT(LOGIC_REG_gen(rex.w, 0b00, 0b00, 0, Rm, 0, Rn, Rd))
 #define ANDSx_REG(Rd, Rn, Rm)           EMIT(LOGIC_REG_gen(1, 0b11, 0b00, 0, Rm, 0, Rn, Rd))
 #define ANDSw_REG(Rd, Rn, Rm)           EMIT(LOGIC_REG_gen(0, 0b11, 0b00, 0, Rm, 0, Rn, Rd))

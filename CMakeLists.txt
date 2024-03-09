@@ -55,12 +55,14 @@ if(LARCH64)
     set(NOALIGN OFF CACHE BOOL "")
     set(ARM_DYNAREC OFF CACHE BOOL "")
     set(RV64_DYNAREC OFF CACHE BOOL "")
+    set(LARCH64_DYNAREC ON CACHE BOOL "")
 endif()
 if(RV64)
     set(LD80BITS OFF CACHE BOOL "")
     set(NOALIGN OFF CACHE BOOL "")
     set(ARM_DYNAREC OFF CACHE BOOL "")
     set(RV64_DYNAREC ON CACHE BOOL "")
+    set(LARCH64_DYNAREC OFF CACHE BOOL "")
     set(PAGE16K OFF CACHE BOOL "")
 endif()
 if(PPC64LE)
@@ -68,6 +70,7 @@ if(PPC64LE)
     set(NOALIGN OFF CACHE BOOL "")
     set(ARM_DYNAREC OFF CACHE BOOL "")
     set(RV64_DYNAREC OFF CACHE BOOL "")
+    set(LARCH64_DYNAREC OFF CACHE BOOL "")
     set(PAGE16K OFF CACHE BOOL "")
 endif()
 if(RPI5ARM64PS16K)
@@ -78,6 +81,7 @@ if(RK3399 OR RK3588 OR ODROIDN2 OR RPI3ARM64 OR RPI4ARM64 OR RPI5ARM64 OR RK3326
     set(NOALIGN OFF CACHE BOOL "")
     set(ARM_DYNAREC ON CACHE BOOL "")
     set(RV64_DYNAREC OFF CACHE BOOL "")
+    set(LARCH64_DYNAREC OFF CACHE BOOL "")
 endif()
 if(RK3399 OR RK3588 OR ODROIDN2 OR RPI3ARM64 OR RPI4ARM64 OR RK3326 OR TEGRAX1 OR TEGRA_T194 OR TEGRA_T234 OR PHYTIUM OR SD845 OR SD888 OR SD8G2 OR LX2160A OR ADLINK)
     set(PAGE16K OFF CACHE BOOL "")
@@ -105,6 +109,7 @@ option(LD80BITS "Set to ON if host device have 80bits long double (i.e. i386)" $
 option(NOALIGN "Set to ON if host device doesn't need re-align (i.e. i386)" ${NOALIGN})
 option(ARM_DYNAREC "Set to ON to use ARM Dynamic Recompilation" ${ARM_DYNAREC})
 option(RV64_DYNAREC "Set to ON to use RISC-V Dynamic Recompilation" ${RV64_DYNAREC})
+option(LARCH64_DYNAREC "Set to ON to use LOONGARCH64 Dynamic Recompilation" ${LARCH64_DYNAREC})
 option(PAGE8K "Set to ON if host device have PageSize of 8K (instead of 4K)" ${PAGE8K})
 option(PAGE16K "Set to ON if host device have PageSize of 16K (instead of 4K)" ${PAGE16K})
 option(PAGE64K "Set to ON if host device have PageSize of 64K (instead of 4K)" ${PAGE64K})
@@ -208,7 +213,7 @@ elseif(M1)
     add_definitions(-pipe -march=armv8.5-a+simd+crypto)
     set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.5-a+simd+crypto")
 elseif(LARCH64)
-    add_definitions(-DLA464)
+    add_definitions(-DLA64)
     add_definitions(-pipe -march=loongarch64)
     set(CMAKE_ASM_FLAGS  "-pipe -march=loongarch64")
 elseif(RV64)
@@ -303,6 +308,12 @@ elseif(RV64_DYNAREC)
     add_definitions(-DRV64)
     enable_language(ASM)
     include_directories("${BOX64_ROOT}/src/dynarec/rv64")
+    set(DYNAREC ON)
+elseif(LARCH64_DYNAREC)
+    add_definitions(-DDYNAREC)
+    add_definitions(-DLA64)
+    enable_language(ASM)
+    include_directories("${BOX64_ROOT}/src/dynarec/la64")
     set(DYNAREC ON)
 else()
     set(DYNAREC OFF)
@@ -470,6 +481,7 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedgdkpixbuf2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedgdkx112.c"
     "${BOX64_ROOT}/src/wrapped/wrappedgio2.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedglesv2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedglib2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedgmodule2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedgmp.c"
@@ -726,6 +738,7 @@ if(ARM_DYNAREC)
         ${DYNAREC_SRC}
 
         "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_functions.c"
+        "${BOX64_ROOT}/src/dynarec/arm64/arm64_immenc.c"
         "${BOX64_ROOT}/src/dynarec/arm64/arm64_printer.c"
         "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_jmpnext.c"
 
@@ -816,6 +829,35 @@ if(RV64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66f0.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_f20f.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_f30f.c"
+    )
+endif()
+
+if(LARCH64_DYNAREC)
+    set(DYNAREC_SRC
+        ${DYNAREC_SRC}
+
+        "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_functions.c"
+        "${BOX64_ROOT}/src/dynarec/la64/la64_printer.c"
+        "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_jmpnext.c"
+
+        "${BOX64_ROOT}/src/dynarec/la64/la64_prolog.S"
+        "${BOX64_ROOT}/src/dynarec/la64/la64_epilog.S"
+        "${BOX64_ROOT}/src/dynarec/la64/la64_next.S"
+        "${BOX64_ROOT}/src/dynarec/la64/la64_lock.S"
+    )
+
+    set(DYNAREC_PASS
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_helper.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_emit_tests.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_emit_math.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_emit_shift.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_emit_logic.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_00.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_0f.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f30f.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_660f.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f0.c"
     )
 endif()
 

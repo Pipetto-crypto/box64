@@ -106,6 +106,8 @@ int rv64_xtheadmempair = 0;
 int rv64_xtheadfmemidx = 0;
 int rv64_xtheadmac = 0;
 int rv64_xtheadfmv = 0;
+#elif defined(LA64)
+int la64_lbt = 0;
 #endif
 #else   //DYNAREC
 int box64_dynarec = 0;
@@ -442,11 +444,20 @@ HWCAP2_ECV
         printf_log(LOG_INFO, " FRINT");
     if(arm64_afp)
         printf_log(LOG_INFO, " AFP");
-#elif defined(LA464)
-    printf_log(LOG_INFO, "Dynarec for LoongArch");
+#elif defined(LA64)
+    printf_log(LOG_INFO, "Dynarec for LoongArch ");
+    char* p = getenv("BOX64_DYNAREC_LA64NOEXT");
+    if(p == NULL || p[0] == '0') {
+        uint32_t cpucfg2 = 0, idx = 2;
+        // there are other extensions, but we don't care.
+        asm volatile("cpucfg %0, %1" : "=r"(cpucfg2) : "r"(idx));
+        if (la64_lbt = (cpucfg2 >> 18) & 0b1)
+            printf_log(LOG_INFO, "with extension LBT_X86");
+    }
 #elif defined(RV64)
     void RV64_Detect_Function();
-    if(!getenv("BOX64_DYNAREC_RV64NOEXT"))
+    char *p = getenv("BOX64_DYNAREC_RV64NOEXT");
+    if(p == NULL || p[0] == '0')
         RV64_Detect_Function();
     printf_log(LOG_INFO, "Dynarec for RISC-V ");
     printf_log(LOG_INFO, "With extension: I M A F D C");
@@ -510,6 +521,11 @@ void LoadLogEnv()
         if(!box64_nobanner)
             printf_log(LOG_INFO, "Debug level is %d\n", box64_log);
     }
+
+#if !defined(DYNAREC) && (defined(ARM64) || defined(RV64) || defined(LA64))
+    printf_log(LOG_INFO, "Warning: DynaRec is available on this host architecture, an interpreter-only build is probably not intended.\n");
+#endif
+
     p = getenv("BOX64_ROLLING_LOG");
     if(p) {
         int cycle = 0;
@@ -1007,7 +1023,7 @@ void LoadLogEnv()
                 box64_rdtsc = p[0]-'0';
         }
         if(box64_rdtsc==2) {
-            #if defined(ARM64)
+            #if defined(ARM64) || defined(RV64)
             box64_rdtsc = 0;    // allow hardxare counter
             uint64_t freq = ReadTSCFrequency(NULL);
             printf_log(LOG_INFO, "Hardware counter measured at %d Mhz, ", freq/1000);
@@ -1565,7 +1581,7 @@ static void load_rcfiles()
     if(FileExist("/data/data/com.termux/files/usr/etc/box64.box64rc", IS_FILE))
         LoadRCFile("/data/data/com.termux/files/usr/etc/box64.box64rc");
     #endif
-    
+
     else
         LoadRCFile(NULL);   // load default rcfile
     char* p = getenv("HOME");
@@ -1671,7 +1687,7 @@ int main(int argc, const char **argv, char **env) {
         if(x64) {
             prog = argv[++nextarg];
             printf_log(LOG_INFO, "BOX64: Wine preloader detected, loading \"%s\" directly\n", prog);
-            //wine_preloaded = 1;
+            wine_preloaded = 1;
         }
     }
     #ifndef STATICBUILD
@@ -1686,14 +1702,15 @@ int main(int argc, const char **argv, char **env) {
     int wine_steam = 0;
     // check if this is wine
     if(!strcmp(prog, "wine64")
-     || !strcmp(prog, "wine64-development") 
-     || !strcmp(prog, "wine") 
+     || !strcmp(prog, "wine64-development")
+     || !strcmp(prog, "wine")
      || (strrchr(prog, '/') && !strcmp(strrchr(prog,'/'), "/wine"))
      || (strrchr(prog, '/') && !strcmp(strrchr(prog,'/'), "/wine64"))) {
         const char* prereserve = getenv("WINEPRELOADRESERVE");
         printf_log(LOG_INFO, "BOX64: Wine64 detected, WINEPRELOADRESERVE=\"%s\"\n", prereserve?prereserve:"");
-        if(wine_preloaded)
+        if(wine_preloaded) {
             wine_prereserve(prereserve);
+        }
         // special case for winedbg, doesn't work anyway
         if(argv[nextarg+1] && strstr(argv[nextarg+1], "winedbg")==argv[nextarg+1]) {
             if(getenv("BOX64_WINEDBG")) {
@@ -2089,7 +2106,7 @@ int main(int argc, const char **argv, char **env) {
         if(!wineinfo) {printf_log(LOG_NONE, "Warning, Symbol wine_main_preload_info not found\n");}
         else {
             *(void**)wineinfo = get_wine_prereserve();
-            printf_log(LOG_DEBUG, "WINE wine_main_preload_info found and updated\n");
+            printf_log(LOG_DEBUG, "WINE wine_main_preload_info found and updated %p -> %p\n", get_wine_prereserve(), *(void**)wineinfo);
         }
         #ifdef DYNAREC
         dynarec_wine_prereserve();

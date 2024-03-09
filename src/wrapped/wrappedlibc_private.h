@@ -321,7 +321,7 @@ GOM(execv, iFEpp)
 GOM(execve, iFEppp)
 GOM(execvp, iFEpp)
 GOW(execvpe, iFppp)
-GOM(_exit, vFEi)
+GO(_exit, vFi)  // immediate exit
 GOM(exit, vFEi)
 GOW(_Exit, vFi)
 GO(explicit_bzero, vFpL)
@@ -986,7 +986,7 @@ GOM(__isoc99_sscanf, iFEppV)
 GOM(__isoc99_swscanf, iFEppV)
 GOM(__isoc99_vfscanf, iFEppA)
 //GO(__isoc99_vfwscanf, iFppA)
-//GO(__isoc99_vscanf, iFpA)
+GOM(__isoc99_vscanf, iFEpA)
 GOM(__isoc99_vsscanf, iFEppA)
 GOM(__isoc99_vswscanf, iFEppA)
 //GO(__isoc99_vwscanf, iFpA)
@@ -2173,7 +2173,7 @@ GO(vhangup, iFv)
 GO(vmsplice, lFipLu)
 GOM(vprintf, iFEpA)
 GOM(__vprintf_chk, iFEvpp)
-//GOW(vscanf, iFpA)
+GOWM(vscanf, iFEpA)
 GOWM(__vsnprintf, iFEpLpA)
 GOWM(vsnprintf, iFEpLpA)
 GOM(__vsnprintf_chk, iFEpLiLpp)
@@ -2246,7 +2246,7 @@ GO(wcsstr, pFpp)
 GO(wcstod, dFpp)
 //GO(__wcstod_internal, 
 //GO(__wcstod_l, 
-//GOW(wcstod_l, dFpp!)
+GOW(wcstod_l, dFppp)
 GO(wcstof, fFpp)
 GO(wcstof128, DFpp)
 //GO(__wcstof128_internal, 
@@ -2271,7 +2271,7 @@ GO(wcstold, DFpp)
 //GOW(wcstold_l, DFpp!)
 //GO(__wcstol_internal, 
 //GO(__wcstol_l, 
-//GOW(wcstol_l, lFppi!)
+GOW(wcstol_l, lFppip)
 GOW(wcstoll, IFppi)
 //GO(__wcstoll_internal, 
 //GOW(__wcstoll_l, 
@@ -2282,7 +2282,7 @@ GOW(wcstoq, IFppi)
 GO(wcstoul, LFppi)
 //GO(__wcstoul_internal, 
 //GO(__wcstoul_l, 
-//GOW(wcstoul_l, LFppi!)
+GOW(wcstoul_l, LFppip)
 GOW(wcstoull, UFppi)
 //GO(__wcstoull_internal, 
 //GOW(__wcstoull_l, 

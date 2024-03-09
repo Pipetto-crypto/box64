@@ -941,9 +941,9 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             switch((nextop>>3)&7) {
                 case 0:
                     INST_NAME("ROL Ew, Ib");
-                    u8 = geted_ib(dyn, addr, ninst, nextop)&15;
-                    if(u8) {
-                        SETFLAGS(X_CF|((u8==1)?X_OF:0), SF_SUBSET_PENDING);
+                    u8 = geted_ib(dyn, addr, ninst, nextop) & 15;
+                    if (u8) {
+                        SETFLAGS(X_CF | X_OF, SF_SUBSET_PENDING);
                         GETEW(x1, 1);
                         u8 = F8;
                         emit_rol16c(dyn, ninst, x1, u8, x4, x5);
@@ -955,9 +955,9 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     break;
                 case 1:
                     INST_NAME("ROR Ew, Ib");
-                    u8 = geted_ib(dyn, addr, ninst, nextop)&15;
-                    if(geted_ib(dyn, addr, ninst, nextop)&15) {
-                        SETFLAGS(X_CF|((u8==1)?X_OF:0), SF_SUBSET_PENDING);
+                    u8 = geted_ib(dyn, addr, ninst, nextop) & 15;
+                    if (geted_ib(dyn, addr, ninst, nextop) & 15) {
+                        SETFLAGS(X_CF | X_OF, SF_SUBSET_PENDING);
                         GETEW(x1, 1);
                         u8 = F8;
                         emit_ror16c(dyn, ninst, x1, u8, x4, x5);
@@ -971,12 +971,8 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("RCL Ew, Ib");
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     READFLAGS(X_CF);
-                    u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
-                    if(u8==1) {
-                        SETFLAGS(X_OF|X_CF, SF_SET);
-                    } else {
-                        SETFLAGS(X_CF, SF_SET);
-                    }
+                    u8 = geted_ib(dyn, addr, ninst, nextop) & 0x1f;
+                    SETFLAGS(X_OF | X_CF, SF_SET);
                     GETEW(x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
@@ -987,12 +983,8 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("RCR Ew, Ib");
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     READFLAGS(X_CF);
-                    u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
-                    if(u8==1) {
-                        SETFLAGS(X_OF|X_CF, SF_SET);
-                    } else {
-                        SETFLAGS(X_CF, SF_SET);
-                    }
+                    u8 = geted_ib(dyn, addr, ninst, nextop) & 0x1f;
+                    SETFLAGS(X_OF | X_CF, SF_SET);
                     GETEW(x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
@@ -1002,8 +994,8 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 case 4:
                 case 6:
                     INST_NAME("SHL Ew, Ib");
-                    if(geted_ib(dyn, addr, ninst, nextop)&0x1f) {
-                        SETFLAGS(X_ALL, SF_SET_PENDING);    // some flags are left undefined
+                    if (geted_ib(dyn, addr, ninst, nextop) & 0x1f) {
+                        SETFLAGS(X_ALL, SF_SET_PENDING); // some flags are left undefined
                         GETEW(x1, 0);
                         u8 = (F8)&0x1f;
                         emit_shl16c(dyn, ninst, x1, u8, x5, x4);
@@ -1014,9 +1006,9 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     }
                     break;
                 case 5:
-                    INST_NAME("SHR Ed, Ib");
-                    if(geted_ib(dyn, addr, ninst, nextop)&0x1f) {
-                        SETFLAGS(X_ALL, SF_SET_PENDING);    // some flags are left undefined
+                    INST_NAME("SHR Ew, Ib");
+                    if (geted_ib(dyn, addr, ninst, nextop) & 0x1f) {
+                        SETFLAGS(X_ALL, SF_SET_PENDING); // some flags are left undefined
                         GETEW(x1, 0);
                         u8 = (F8)&0x1f;
                         emit_shr16c(dyn, ninst, x1, u8, x5, x4);
@@ -1027,9 +1019,9 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     }
                     break;
                 case 7:
-                    INST_NAME("SAR Ed, Ib");
-                    if(geted_ib(dyn, addr, ninst, nextop)&0x1f) {
-                        SETFLAGS(X_ALL, SF_SET_PENDING);    // some flags are left undefined
+                    INST_NAME("SAR Ew, Ib");
+                    if (geted_ib(dyn, addr, ninst, nextop) & 0x1f) {
+                        SETFLAGS(X_ALL, SF_SET_PENDING); // some flags are left undefined
                         GETSEW(x1, 0);
                         u8 = (F8)&0x1f;
                         emit_sar16c(dyn, ninst, x1, u8, x5, x4);
@@ -1342,6 +1334,18 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     BFIz(xRDX, x4, 0, 16);
                     break;
             }
+            break;
+        case 0xF8:
+            INST_NAME("CLC");
+            SETFLAGS(X_CF, SF_SUBSET);
+            SET_DFNONE(x1);
+            BFCx(xFlags, F_CF, 1);
+            break;
+        case 0xF9:
+            INST_NAME("STC");
+            SETFLAGS(X_CF, SF_SUBSET);
+            SET_DFNONE(x1);
+            ORRx_mask(xFlags, xFlags, 1, 0, 0); // xFlags | 1
             break;
 
         case 0xFF:

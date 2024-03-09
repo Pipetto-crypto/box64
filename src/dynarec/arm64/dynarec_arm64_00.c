@@ -822,7 +822,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
         case 0x69:
             INST_NAME("IMUL Gd, Ed, Id");
-            SETFLAGS(X_ALL, SF_PENDING);
+            SETFLAGS(X_ALL, SF_SET_PENDING);
             nextop = F8;
             GETGD;
             GETED(4);
@@ -833,9 +833,28 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 UFLAG_IF {
                     SMULH(x3, ed, x4);
                     MULx(gd, ed, x4);
-                    UFLAG_OP1(x3);
-                    UFLAG_RES(gd);
-                    UFLAG_DF(x3, d_imul64);
+                    IFX(X_PEND) {
+                        UFLAG_OP1(x3);
+                        UFLAG_RES(gd);
+                        UFLAG_DF(x1, d_imul64);
+                    } else {
+                        SET_DFNONE(x1);
+                    }
+                    IFX(X_ZF | X_PF | X_AF | X_SF) {
+                        MOV32w(x1, (1<<F_ZF)|(1<<F_AF)|(1<<F_PF)|(1<<F_SF));
+                        BICw(xFlags, xFlags, x1);
+                    }
+                    IFX(X_CF | X_OF) {
+                        ASRx(x4, gd, 63);
+                        CMPSx_REG(x3, x4);
+                        CSETw(x1, cNE);
+                        IFX(X_CF) {
+                            BFIw(xFlags, x1, F_CF, 1);
+                        }
+                        IFX(X_OF) {
+                            BFIw(xFlags, x1, F_OF, 1);
+                        }
+                    }
                 } else {
                     MULxw(gd, ed, x4);
                 }
@@ -843,11 +862,30 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 // 32bits imul
                 UFLAG_IF {
                     SMULL(gd, ed, x4);
-                    UFLAG_RES(gd);
                     LSRx(x3, gd, 32);
                     MOVw_REG(gd, gd);
-                    UFLAG_OP1(x3);
-                    UFLAG_DF(x3, d_imul32);
+                    IFX(X_PEND) {
+                        UFLAG_RES(gd);
+                        UFLAG_OP1(x3);
+                        UFLAG_DF(x1, d_imul32);
+                    } else {
+                        SET_DFNONE(x1);
+                    }
+                    IFX(X_ZF | X_PF | X_AF | X_SF) {
+                        MOV32w(x1, (1<<F_ZF)|(1<<F_AF)|(1<<F_PF)|(1<<F_SF));
+                        BICw(xFlags, xFlags, x1);
+                    }
+                    IFX(X_CF | X_OF) {
+                        ASRw(x4, gd, 31);
+                        CMPSw_REG(x3, x4);
+                        CSETw(x1, cNE);
+                        IFX(X_CF) {
+                            BFIw(xFlags, x1, F_CF, 1);
+                        }
+                        IFX(X_OF) {
+                            BFIw(xFlags, x1, F_OF, 1);
+                        }
+                    }
                 } else {
                     MULxw(gd, ed, x4);
                 }
@@ -863,7 +901,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
         case 0x6B:
             INST_NAME("IMUL Gd, Ed, Ib");
-            SETFLAGS(X_ALL, SF_PENDING);
+            SETFLAGS(X_ALL, SF_SET_PENDING);
             nextop = F8;
             GETGD;
             GETED(1);
@@ -874,9 +912,28 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 UFLAG_IF {
                     SMULH(x3, ed, x4);
                     MULx(gd, ed, x4);
-                    UFLAG_OP1(x3);
-                    UFLAG_RES(gd);
-                    UFLAG_DF(x3, d_imul64);
+                    IFX(X_PEND) {
+                        UFLAG_OP1(x3);
+                        UFLAG_RES(gd);
+                        UFLAG_DF(x1, d_imul64);
+                    } else {
+                        SET_DFNONE(x1);
+                    }
+                    IFX(X_ZF | X_PF | X_AF | X_SF) {
+                        MOV32w(x1, (1<<F_ZF)|(1<<F_AF)|(1<<F_PF)|(1<<F_SF));
+                        BICw(xFlags, xFlags, x1);
+                    }
+                    IFX(X_CF | X_OF) {
+                        ASRx(x4, gd, 63);
+                        CMPSx_REG(x3, x4);
+                        CSETw(x1, cNE);
+                        IFX(X_CF) {
+                            BFIw(xFlags, x1, F_CF, 1);
+                        }
+                        IFX(X_OF) {
+                            BFIw(xFlags, x1, F_OF, 1);
+                        }
+                    }
                 } else {
                     MULxw(gd, ed, x4);
                 }
@@ -884,11 +941,30 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 // 32bits imul
                 UFLAG_IF {
                     SMULL(gd, ed, x4);
-                    UFLAG_RES(gd);
                     LSRx(x3, gd, 32);
-                    UFLAG_OP1(x3);
-                    UFLAG_DF(x3, d_imul32);
                     MOVw_REG(gd, gd);
+                    IFX(X_PEND) {
+                        UFLAG_RES(gd);
+                        UFLAG_OP1(x3);
+                        UFLAG_DF(x1, d_imul32);
+                    } else {
+                        SET_DFNONE(x1);
+                    }
+                    IFX(X_ZF | X_PF | X_AF | X_SF) {
+                        MOV32w(x1, (1<<F_ZF)|(1<<F_AF)|(1<<F_PF)|(1<<F_SF));
+                        BICw(xFlags, xFlags, x1);
+                    }
+                    IFX(X_CF | X_OF) {
+                        ASRw(x4, gd, 31);
+                        CMPSw_REG(x3, x4);
+                        CSETw(x1, cNE);
+                        IFX(X_CF) {
+                            BFIw(xFlags, x1, F_CF, 1);
+                        }
+                        IFX(X_OF) {
+                            BFIw(xFlags, x1, F_OF, 1);
+                        }
+                    }
                 } else {
                     MULxw(gd, ed, x4);
                 }
@@ -1388,10 +1464,11 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
 
         case 0x98:
-            INST_NAME("CWDE");
             if(rex.w) {
+                INST_NAME("CDQE");
                 SXTWx(xRAX, xRAX);
             } else {
+                INST_NAME("CWDE");
                 SXTHw(xRAX, xRAX);
             }
             break;
@@ -1407,16 +1484,15 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             INST_NAME("PUSHF");
             READFLAGS(X_ALL);
             PUSH1z(xFlags);
-            SMWRITE();
             break;
         case 0x9D:
             INST_NAME("POPF");
             SETFLAGS(X_ALL, SF_SET);
-            SMREAD();
             POP1z(xFlags);
             MOV32w(x1, 0x3F7FD7);
             ANDw_REG(xFlags, xFlags, x1);
-            ORRw_mask(xFlags, xFlags, 0b011111, 0);   //mask=0x00000002
+            MOV32w(x1, 0x202);
+            ORRw_REG(xFlags, xFlags, x1);
             SET_DFNONE(x1);
             if(box64_wine) {    // should this be done all the time?
                 TBZ_NEXT(xFlags, F_TF);
@@ -1429,8 +1505,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF, SF_SUBSET);
             MOV32w(x2, 0b11010101);
             BICw_REG(xFlags, xFlags, x2);
-            UBFXw(x1, xRAX, 8, 8);
-            ANDw_REG(x1, x1, x2);
+            ANDw_REG_LSR(x1, x2, xRAX, 8);
             ORRw_REG(xFlags, xFlags, x1);
             SET_DFNONE(x1);
             break;
@@ -1446,7 +1521,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             else
                 u64 = F64;
             MOV64z(x1, u64);
-            if(isLockAddress(u64)) lock=1; else lock = 0;
+            lock=isLockAddress(u64);
             SMREADLOCK(lock);
             LDRB_U12(x2, x1, 0);
             BFIx(xRAX, x2, 0, 8);
@@ -1458,7 +1533,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             else
                 u64 = F64;
             MOV64z(x1, u64);
-            if(isLockAddress(u64)) lock=1; else lock = 0;
+            lock=isLockAddress(u64);
             SMREADLOCK(lock);
             LDRxw_U12(xRAX, x1, 0);
             break;
@@ -1469,7 +1544,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             else
                 u64 = F64;
             MOV64z(x1, u64);
-            if(isLockAddress(u64)) lock=1; else lock = 0;
+            lock=isLockAddress(u64);
             WILLWRITELOCK(lock);
             STRB_U12(xRAX, x1, 0);
             SMWRITELOCK(lock);
@@ -1481,7 +1556,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             else
                 u64 = F64;
             MOV64z(x1, u64);
-            if(isLockAddress(u64)) lock=1; else lock = 0;
+            lock=isLockAddress(u64);
             WILLWRITELOCK(lock);
             STRxw_U12(xRAX, x1, 0);
             SMWRITELOCK(lock);
@@ -1856,7 +1931,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROL Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|((u8==1)?X_OF:0), SF_SUBSET_PENDING);
+                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
                         GETEB(x1, 1);
                         u8 = F8&0x1f;
                         emit_rol8c(dyn, ninst, x1, u8, x4, x5);
@@ -1870,7 +1945,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROR Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|((u8==1)?X_OF:0), SF_SUBSET_PENDING);
+                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
                         GETEB(x1, 1);
                         u8 = F8&0x1f;
                         emit_ror8c(dyn, ninst, x1, u8, x4, x5);
@@ -1915,7 +1990,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("SHL Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF|((u8==1)?X_OF:0), (u8==1)?SF_SET_PENDING:SF_SUBSET_PENDING);
+                        SETFLAGS(X_ALL, SF_SET_PENDING);
                         GETEB(x1, 1);
                         u8 = (F8)&0x1f;
                         emit_shl8c(dyn, ninst, ed, u8, x4, x5);
@@ -1929,7 +2004,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("SHR Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF|((u8==1)?X_OF:0), (u8==1)?SF_SET_PENDING:SF_SUBSET_PENDING);
+                        SETFLAGS(X_ALL, SF_SET_PENDING);
                         GETEB(x1, 1);
                         u8 = (F8)&0x1f;
                         emit_shr8c(dyn, ninst, ed, u8, x4, x5);
@@ -1943,7 +2018,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("SAR Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF|((u8==1)?X_OF:0), (u8==1)?SF_SET_PENDING:SF_SUBSET_PENDING);
+                        SETFLAGS(X_ALL, SF_SET_PENDING);
                         GETSEB(x1, 1);
                         u8 = (F8)&0x1f;
                         emit_sar8c(dyn, ninst, ed, u8, x4, x5);
@@ -1962,7 +2037,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROL Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|((u8==1)?X_OF:0), SF_SUBSET_PENDING);
+                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_rol32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -1981,7 +2056,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROR Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|((u8==1)?X_OF:0), SF_SUBSET_PENDING);
+                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_ror32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -2001,11 +2076,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     READFLAGS(X_CF);
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
-                    if(u8==1) {
-                        SETFLAGS(X_OF|X_CF, SF_SET);
-                    } else {
-                        SETFLAGS(X_CF, SF_SET);
-                    }
+                    SETFLAGS(X_OF|X_CF, SF_SET);
                     GETEDW(x4, x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
@@ -2017,11 +2088,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     READFLAGS(X_CF);
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
-                    if(u8==1) {
-                        SETFLAGS(X_OF|X_CF, SF_SET);
-                    } else {
-                        SETFLAGS(X_CF, SF_SET);
-                    }
+                    SETFLAGS(X_OF|X_CF, SF_SET);
                     GETEDW(x4, x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
@@ -2033,7 +2100,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("SHL Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF|((u8==1)?X_OF:0), (u8==1)?SF_SET_PENDING:SF_SUBSET_PENDING);
+                        SETFLAGS(X_ALL, SF_SET_PENDING);
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_shl32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -2052,7 +2119,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("SHR Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF|((u8==1)?X_OF:0), (u8==1)?SF_SET_PENDING:SF_SUBSET_PENDING);
+                        SETFLAGS(X_ALL, SF_SET_PENDING);
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_shr32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -2071,7 +2138,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("SAR Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|X_PF|X_AF|X_ZF|X_SF|((u8==1)?X_OF:0), (u8==1)?SF_SET_PENDING:SF_SUBSET_PENDING);
+                        SETFLAGS(X_ALL, SF_SET_PENDING);
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_sar32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -2281,6 +2348,8 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     STORE_XEMU_CALL(xRIP);
                     CALL(native_int3, -1);
                     LOAD_XEMU_CALL(xRIP);
+                    *need_epilog = 0;
+                    *ok = 0;
                 }
                 break;
             }
@@ -2487,12 +2556,10 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         MAYSETFLAGS();
                     UFLAG_IF {
                         TSTw_mask(xRCX, 0, 0b00100);  //mask=0x00000001f
+                        B_NEXT(cEQ);
                     }
                     ANDw_mask(x2, xRCX, 0, 0b00010);  //mask=0x000000007
                     GETEB(x1, 0);
-                    UFLAG_IF {
-                        B_NEXT(cEQ);
-                    }
                     ORRw_REG_LSL(ed, ed, ed, 8);
                     LSRw_REG(ed, ed, x2);
                     EBBACK;
