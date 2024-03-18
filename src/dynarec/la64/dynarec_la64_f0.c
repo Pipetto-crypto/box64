@@ -55,6 +55,44 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0x0F:
             nextop = F8;
             switch (nextop) {
+                case 0xB1:
+                    switch (rep) {
+                        case 0:
+                            INST_NAME("LOCK CMPXCHG Ed, Gd");
+                            SETFLAGS(X_ALL, SF_SET_PENDING);
+                            nextop = F8;
+                            GETGD;
+                            if (MODREG) {
+                                ed = TO_LA64((nextop & 7) + (rex.b << 3));
+                                wback = 0;
+                                UFLAG_IF { emit_cmp32(dyn, ninst, rex, xRAX, ed, x3, x4, x5, x6); }
+                                MV(x1, ed); // save value
+                                SUB_D(x2, x1, xRAX);
+                                BNE_MARK2(x2, xZR);
+                                MV(ed, gd);
+                                MARK2;
+                                MVxw(xRAX, x1);
+                            } else {
+                                SMDMB();
+                                addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
+                                MARKLOCK;
+                                MV(x4, gd);
+                                LLxw(x1, wback, 0);
+                                SUBxw(x3, x1, xRAX);
+                                BNEZ_MARK(x3);
+                                // EAX == Ed
+                                SCxw(x4, wback, 0);
+                                BEQZ_MARKLOCK(x4);
+                                MARK;
+                                UFLAG_IF { emit_cmp32(dyn, ninst, rex, xRAX, x1, x3, x4, x5, x6); }
+                                MVxw(xRAX, x1);
+                                SMDMB();
+                            }
+                            break;
+                        default:
+                            DEFAULT;
+                    }
+                    break;
                 case 0xC1:
                     switch (rep) {
                         case 0:
@@ -86,6 +124,53 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                             break;
                         default:
                             DEFAULT;
+                    }
+                    break;
+                default:
+                    DEFAULT;
+            }
+            break;
+        case 0x81:
+        case 0x83:
+            nextop = F8;
+            SMDMB();
+            switch ((nextop >> 3) & 7) {
+                case 0: // ADD
+                    if (opcode == 0x81) {
+                        INST_NAME("LOCK ADD Ed, Id");
+                    } else {
+                        INST_NAME("LOCK ADD Ed, Ib");
+                    }
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    if (MODREG) {
+                        if (opcode == 0x81)
+                            i64 = F32S;
+                        else
+                            i64 = F8S;
+                        ed = TO_LA64((nextop & 7) + (rex.b << 3));
+                        emit_add32c(dyn, ninst, rex, ed, i64, x3, x4, x5, x6);
+                    } else {
+                        addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, (opcode == 0x81) ? 4 : 1);
+                        if (opcode == 0x81)
+                            i64 = F32S;
+                        else
+                            i64 = F8S;
+                        if (i64 < -2048 || i64 >= 2048) {
+                            MOV64xw(x3, i64);
+                        }
+                        MARKLOCK;
+                        LLxw(x1, wback, 0);
+                        if (i64 >= -2048 && i64 < 2048) {
+                            ADDIxw(x4, x1, i64);
+                        } else {
+                            ADDxw(x4, x1, x4);
+                        }
+                        SCxw(x4, wback, 0);
+                        BEQZ_MARKLOCK(x4);
+                        IFX(X_ALL | X_PEND) {
+                            emit_add32c(dyn, ninst, rex, x1, i64, x3, x4, x5, x6);
+                        }
+                        SMDMB();
                     }
                     break;
                 default:

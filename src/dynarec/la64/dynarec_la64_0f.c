@@ -186,6 +186,26 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             LD_D(xRDX, xEmu, offsetof(x64emu_t, regs[_DX]));
             LD_D(xRBX, xEmu, offsetof(x64emu_t, regs[_BX]));
             break;
+        case 0xB6:
+            INST_NAME("MOVZX Gd, Eb");
+            nextop = F8;
+            GETGD;
+            if (MODREG) {
+                if (rex.rex) {
+                    eb1 = TO_LA64((nextop & 7) + (rex.b << 3));
+                    eb2 = 0;
+                } else {
+                    ed = (nextop & 7);
+                    eb1 = TO_LA64(ed & 3); // Ax, Cx, Dx or Bx
+                    eb2 = (ed & 4) >> 2;   // L or H
+                }
+                BSTRPICK_D(gd, eb1, eb2 * 8 + 7, eb2 * 8);
+            } else {
+                SMREAD();
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, 0);
+                LD_BU(gd, ed, fixedaddress);
+            }
+            break;
         case 0xB7:
             INST_NAME("MOVZX Gd, Ew");
             nextop = F8;
@@ -198,6 +218,28 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, 0);
                 LD_HU(gd, ed, fixedaddress);
             }
+            break;
+        case 0xBE:
+            INST_NAME("MOVSX Gd, Eb");
+            nextop = F8;
+            GETGD;
+            if (MODREG) {
+                if (rex.rex) {
+                    wback = TO_LA64((nextop & 7) + (rex.b << 3));
+                    wb2 = 0;
+                } else {
+                    wback = (nextop & 7);
+                    wb2 = (wback >> 2) * 8;
+                    wback = TO_LA64(wback & 3);
+                }
+                BSTRPICK_D(gd, wback, wb2 + 7, wb2);
+                EXT_W_B(gd, gd);
+            } else {
+                SMREAD();
+                addr = geted(dyn, addr, ninst, nextop, &ed, x3, x1, &fixedaddress, rex, NULL, 1, 0);
+                LD_B(gd, ed, fixedaddress);
+            }
+            if (!rex.w) ZEROUP(gd);
             break;
         default:
             DEFAULT;

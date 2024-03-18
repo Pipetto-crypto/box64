@@ -254,6 +254,14 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETED(0);
             emit_cmp32(dyn, ninst, rex, ed, gd, x3, x4, x5, x6);
             break;
+        case 0x3B:
+            INST_NAME("CMP Gd, Ed");
+            SETFLAGS(X_ALL, SF_SET_PENDING);
+            nextop = F8;
+            GETGD;
+            GETED(0);
+            emit_cmp32(dyn, ninst, rex, gd, ed, x3, x4, x5, x6);
+            break;
         case 0x3D:
             INST_NAME("CMP EAX, Id");
             SETFLAGS(X_ALL, SF_SET_PENDING);
@@ -515,7 +523,7 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 BSTRINS_D(eb1, gd, eb2 * 8 + 7, eb2 * 8);
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, &lock, 1, 0);
-                ST_B(gb1, ed, fixedaddress);
+                ST_B(gd, ed, fixedaddress);
                 SMWRITELOCK(lock);
             }
             break;
@@ -587,6 +595,13 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 EXT_W_H(xRAX, xRAX);
                 ZEROUP(xRAX);
             }
+            break;
+        case 0xA0:
+            INST_NAME("MOV AL,Ob");
+            if(rex.is32bits) u64 = F32; else u64 = F64;
+            MOV64z(x1, u64);
+            LD_BU(x2, x1, 0);
+            BSTRINS_D(xRAX, x2, 7, 0);
             break;
         case 0xA8:
             INST_NAME("TEST AL, Ib");

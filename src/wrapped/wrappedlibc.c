@@ -1627,7 +1627,7 @@ void CreateCPUInfoFile(int fd)
         P;
         sprintf(buff, "bogomips\t: %g\n", getBogoMips());
         P;
-        sprintf(buff, "flags\t\t: fpu cx8 sep ht cmov clflush mmx sse sse2 syscall tsc lahf_lm ssse3 ht tm lm fma fxsr cpuid pclmulqdq cx16 aes movbe pni sse4_1 sse4_2 lzcnt popcnt\n");
+        sprintf(buff, "flags\t\t: fpu cx8 sep ht cmov clflush mmx sse sse2 syscall tsc lahf_lm ssse3 ht tm lm fxsr cpuid pclmulqdq cx16 aes movbe pni sse4_1 sse4_2 lzcnt popcnt\n");
         P;
         sprintf(buff, "address sizes\t: 48 bits physical, 48 bits virtual\n");
         P;
@@ -3440,7 +3440,8 @@ static void* timed_exit_thread(void* a)
 {
     // this is a workaround for some NVidia drivers on ARM64 that may freeze at exit
     // waiting on a pthread_cond_destroy
-    usleep(500000); // wait 1/2 a second
+    usleep(5000000); // wait 5 seconds
+    printf_log(LOG_DEBUG, "Too late, forced exit...\n");
     _exit(box64_exit_code); // force exit, something is wrong
 }
 

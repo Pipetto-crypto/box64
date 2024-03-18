@@ -36,6 +36,8 @@
 #include "symbols.h"
 #include "rcfile.h"
 #include "emu/x64run_private.h"
+#include "elfs/elfloader_private.h"
+#include "library.h"
 
 box64context_t *my_context = NULL;
 int box64_quit = 0;
@@ -48,9 +50,12 @@ uintptr_t box64_pagesize;
 uintptr_t box64_load_addr = 0;
 int box64_nosandbox = 0;
 int box64_inprocessgpu = 0;
+int box64_cefdisablegpu = 0;
+int box64_cefdisablegpucompositor = 0;
 int box64_malloc_hack = 0;
 int box64_dynarec_test = 0;
 int box64_maxcpu = 0;
+int box64_maxcpu_immutable = 0;
 #if defined(SD845) || defined(SD888) || defined(SD8G2) || defined(TEGRAX1) || defined(TERMUX_GLIBC) || defined(TERMUX)
 int box64_mmap32 = 1;
 #else
@@ -58,6 +63,7 @@ int box64_mmap32 = 0;
 #endif
 int box64_ignoreint3 = 0;
 int box64_rdtsc = 0;
+uint8_t box64_rdtsc_shift = 0;
 #ifdef DYNAREC
 int box64_dynarec = 1;
 int box64_dynarec_dump = 0;
@@ -1016,39 +1022,54 @@ void LoadLogEnv()
         if(box64_ignoreint3)
             printf_log(LOG_INFO, "Will silently ignore INT3 in the code\n");
     }
-    p = getenv("BOX64_RDTSC");
-        if(p) {
-        if(strlen(p)==1) {
-            if(p[0]>='0' && p[0]<='0'+2)
-                box64_rdtsc = p[0]-'0';
-        }
-        if(box64_rdtsc==2) {
-            #if defined(ARM64) || defined(RV64)
-            box64_rdtsc = 0;    // allow hardxare counter
-            uint64_t freq = ReadTSCFrequency(NULL);
-            printf_log(LOG_INFO, "Hardware counter measured at %d Mhz, ", freq/1000);
-            if(freq>1000000000) {
-                printf_log(LOG_INFO, "keeping it\n");
-            } else {
-                box64_rdtsc = 1;
-                printf_log(LOG_INFO, "not using it\n");
-            }
-            #else
-            box64_rdtsc = 1;
-            printf_log(LOG_INFO, "Will use time-based emulation for rdtsc, even if hardware counter are available\n");
-            #endif
-        } else if(box64_rdtsc)
-            printf_log(LOG_INFO, "Will use time-based emulation for rdtsc, even if hardware counter are available\n");
-    }
+    // grab pagesize
     box64_pagesize = sysconf(_SC_PAGESIZE);
     if(!box64_pagesize)
         box64_pagesize = 4096;
 #ifdef DYNAREC
+    // grab cpu extensions for dynarec usage
     GatherDynarecExtensions();
 #endif
+    // grab cpu name
     int ncpu = getNCpu();
     const char* cpuname = getCpuName();
     printf_log(LOG_INFO, " PageSize:%zd Running on %s with %d Cores\n", box64_pagesize, cpuname, ncpu);
+    // grab and calibrate hardware counter
+    int hardware  = 0;
+    #if defined(ARM64) || defined(RV64)
+    hardware = 1;
+    box64_rdtsc = 0;    // allow hardxare counter
+    #else
+    box64_rdtsc = 1;
+    printf_log(LOG_INFO, "Will use time-based emulation for rdtsc, even if hardware counter are available\n");
+    #endif
+    uint64_t freq = ReadTSCFrequency(NULL);
+    if(freq<1000000) {
+        box64_rdtsc = 1;
+        if(hardware) printf_log(LOG_INFO, "Hardware counter to slow (%d kHz), not using it\n", freq/1000);
+        hardware = 0;
+        freq = ReadTSCFrequency(NULL);
+    }
+    uint64_t efreq = freq;
+    while(efreq<500000000) {    // minium 500MHz
+        ++box64_rdtsc_shift;
+        efreq = freq<<box64_rdtsc_shift;
+    }
+    printf_log(LOG_INFO, "Will use %s counter measured at ", box64_rdtsc?"Software":"Hardware");
+    int ghz = freq>=1000000000LL;
+    if(ghz) freq/=100000000LL; else freq/=100000;
+    if(ghz) printf_log(LOG_INFO, "%d.%d GHz", freq/10, freq%10);
+    if(!ghz & freq>=1000) printf_log(LOG_INFO, "%d MHz", freq/10);
+    if(!ghz & freq<1000) printf_log(LOG_INFO, "%d.%d MHz", freq/10, freq%10);
+    if(box64_rdtsc_shift) {
+        printf_log(LOG_INFO, " emulating ");
+        ghz = efreq>=1000000000LL;
+        if(ghz) efreq/=100000000LL; else efreq/=100000;
+        if(ghz) printf_log(LOG_INFO, "%d.%d GHz", efreq/10, efreq%10);
+        if(!ghz & efreq>=1000) printf_log(LOG_INFO, "%d MHz", efreq/10);
+        if(!ghz & efreq<1000) printf_log(LOG_INFO, "%d.%d MHz", efreq/10, efreq%10);
+    }
+    printf_log(LOG_INFO, "\n");
 }
 
 EXPORTDYN
@@ -1181,7 +1202,6 @@ void PrintFlags() {
     printf(" BOX64_ENV1='XXX=yyyy' will add XXX=yyyy env. var. and continue with BOX86_ENV2 ... until var doesn't exist\n");
     printf(" BOX64_JITGDB with 1 to launch \"gdb\" when a segfault is trapped, attached to the offending process\n");
     printf(" BOX64_MMAP32=1 to use 32bits address space mmap in priority for external mmap as soon a 32bits process are detected (default for Snapdragon build)\n");
-    printf(" BOX64_RDTSC to use a monotonic timer for rdtsc even if hardware counter are available (or check if precision is >=1Ghz for 2)\n");
 }
 
 void PrintHelp() {
@@ -1481,9 +1501,6 @@ void endBox64()
     // then call all the fini
     dynarec_log(LOG_DEBUG, "endBox64() called\n");
     box64_quit = 1;
-    #ifndef STATICBUILD
-    endMallocHook();
-    #endif
     x64emu_t* emu = thread_get_emu();
     void startTimedExit();
     startTimedExit();
@@ -1492,50 +1509,18 @@ void endBox64()
     CallAllCleanup(emu);
     printf_log(LOG_DEBUG, "Calling fini for all loaded elfs and unload native libs\n");
     RunElfFini(my_context->elfs[0], emu);
-    FreeLibrarian(&my_context->local_maplib, emu);    // unload all libs
-    FreeLibrarian(&my_context->maplib, emu);    // unload all libs
     void closeAllDLOpenned();
     closeAllDLOpenned();    // close residual dlopenned libs
-    #if 0
-    // waiting for all thread except this one to finish
-    int this_thread = GetTID();
-    int pid = getpid();
-    int running = 1;
-    int attempt = 0;
-    printf_log(LOG_DEBUG, "Waiting for all threads to finish before unloading box64context\n");
-    while(running) {
-        DIR *proc_dir;
-        char dirname[100];
-        snprintf(dirname, sizeof dirname, "/proc/self/task");
-        proc_dir = opendir(dirname);
-        running = 0;
-        if (proc_dir)
-        {
-            struct dirent *entry;
-            while ((entry = readdir(proc_dir)) != NULL && !running)
-            {
-                if(entry->d_name[0] == '.')
-                    continue;
-
-                int tid = atoi(entry->d_name);
-                // tid != pthread_t, so no pthread functions are available here
-                if(tid!=this_thread) {
-                    if(attempt>4000) {
-                        printf_log(LOG_INFO, "Stop waiting for remaining thread %04d\n", tid);
-                        // enough wait, exit
-                        _exit(box64_exit_code);
-                    } else {
-                        running = 1;
-                        ++attempt;
-                        sched_yield();
-                    }
-                }
-            }
-            closedir(proc_dir);
-        }
-    }
-    #endif
+    // unload needed libs
+    needed_libs_t* needed = my_context->elfs[0]->needed;
+    printf_log(LOG_DEBUG, "Unloaded main elf: Will Dec RefCount of %d libs\n", needed?needed->size:0);
+    if(needed)
+        for(int i=0; i<needed->size; ++i)
+            DecRefCount(&needed->libs[i], emu);
     // all done, free context
+    #ifndef STATICBUILD
+    endMallocHook();
+    #endif
     FreeBox64Context(&my_context);
     #ifdef DYNAREC
     // disable dynarec now
@@ -1564,6 +1549,7 @@ static void add_argv(const char* what) {
         if(!strcmp(my_context->argv[i], what))
             there = 1;
     if(!there) {
+        printf_log(LOG_INFO, "Inserting \"%s\" to the argments\n", what);
         my_context->argv = (char**)box_realloc(my_context->argv, (my_context->argc+1)*sizeof(char*));
         my_context->argv[my_context->argc] = box_strdup(what);
         my_context->argc++;
@@ -1699,7 +1685,7 @@ int main(int argc, const char **argv, char **env) {
     #endif
     int ld_libs_args = -1;
     int is_custom_gstreamer = 0;
-    int wine_steam = 0;
+    const char* wine_prog = NULL;
     // check if this is wine
     if(!strcmp(prog, "wine64")
      || !strcmp(prog, "wine64-development")
@@ -1737,23 +1723,20 @@ int main(int argc, const char **argv, char **env) {
                 box64_custom_gstreamer = box_strdup(tmp);
             }
         }
-        // if program being called is wine_steam (rudimentary check...) and if no other argument are there
-        if(argv[nextarg+1] && argv[nextarg+1][0]!='-' /*&& argc==(nextarg+2)*/) {
-            if(!strcasecmp(argv[nextarg+1], "steam.exe"))
-                wine_steam = 1;
-            else if(!strcasecmp(argv[nextarg+1], "steam"))
-                wine_steam = 1;
-            if(!wine_steam) {
-                const char* pp = strrchr(argv[nextarg+1], '/');
-                if(pp && !strcasecmp(pp+1, "steam.exe"))
-                    wine_steam = 1;
-                else {
-                    pp = strrchr(argv[nextarg+1], '\\');
-                    if(pp && !strcasecmp(pp+1, "steam.exe"))
-                        wine_steam = 1;
-                }
+        // Try to get the name of the exe being run, to ApplyParams laters
+        if(argv[nextarg+1] && argv[nextarg+1][0]!='-' && strlen(argv[nextarg+1])>4 && !strcasecmp(argv[nextarg+1]+strlen(argv[nextarg+1])-4, ".exe")) {
+            const char* pp = strrchr(argv[nextarg+1], '/');
+            if(pp)
+                wine_prog = pp+1;
+            else {
+                pp = strrchr(argv[nextarg+1], '\\');
+                if(pp)
+                    wine_prog = pp+1;
+                else
+                    wine_prog = argv[nextarg+1];
             }
         }
+        if(wine_prog) printf_log(LOG_INFO, "BOX64: Detected running wine with \"%s\"\n", wine_prog);
     } else if(strstr(prog, "ld-musl-x86_64.so.1")) {
     // check if ld-musl-x86_64.so.1 is used
         printf_log(LOG_INFO, "BOX64: ld-musl detected. Trying to workaround and use system ld-linux\n");
@@ -1888,6 +1871,12 @@ int main(int argc, const char **argv, char **env) {
     }*/
     ApplyParams("*");   // [*] is a special setting for all process
     ApplyParams(prgname);
+    if(box64_wine && wine_prog) {
+        ApplyParams(wine_prog);
+        wine_prog = NULL;
+    }
+    if(box64_wine)
+        box64_maxcpu_immutable = 1; // cannot change once wine is loaded
 
     for(int i=1; i<my_context->argc; ++i) {
         my_context->argv[i] = box_strdup(argv[i+nextarg]);
@@ -1901,13 +1890,13 @@ int main(int argc, const char **argv, char **env) {
     {
         add_argv("--in-process-gpu");
     }
-    if(wine_steam) {
-        printf_log(LOG_INFO, "Steam.exe detected, adding -cef-single-process -cef-in-process-gpu -cef-disable-sandbox -no-cef-sandbox -cef-disable-breakpad to parameters");
-        add_argv("-cef-single-process");
-        add_argv("-cef-in-process-gpu");
-        add_argv("-cef-disable-sandbox");
-        add_argv("-no-cef-sandbox");
-        add_argv("-cef-disable-breakpad");
+    if(box64_cefdisablegpu)
+    {
+        add_argv("-cef-disable-gpu");
+    }
+    if(box64_cefdisablegpucompositor)
+    {
+        add_argv("-cef-disable-gpu-compositor");
     }
 
     // check if file exist
