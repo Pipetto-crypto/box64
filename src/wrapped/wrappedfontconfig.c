@@ -66,6 +66,14 @@ EXPORT void* my_FcPatternBuild(x64emu_t* emu, void* pattern, uint64_t* b)
     return my->FcPatternVaBuild(pattern, VARARGS);
 }
 
+#ifdef ANDROID
+
+#define NEEDED_LIBS "libexpat.so.1", "libfreetype.so"
+
+#else
+
 #define NEEDED_LIBS "libexpat.so.1", "libfreetype.so.6"
+
+#endif
 
 #include "wrappedlib_init.h"
