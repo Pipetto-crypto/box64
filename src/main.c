@@ -83,6 +83,8 @@ int box64_dynarec_tbb = 1;
 int box64_dynarec_wait = 1;
 int box64_dynarec_missing = 0;
 int box64_dynarec_aligned_atomics = 0;
+int box64_dynarec_safepreset = 0;
+int box64_dynarec_unsafepreset = 0;
 uintptr_t box64_nodynarec_start = 0;
 uintptr_t box64_nodynarec_end = 0;
 #ifdef ARM64
@@ -605,6 +607,41 @@ void LoadLogEnv()
         if(box64_dynarec_forced)
             printf_log(LOG_INFO, "Dynarec is forced on all addresses\n");
     }
+    p = getenv("BOX64_DYNAREC_SAFEPRESET");
+    if(p) {
+        if(strlen(p)==1) {
+            if(p[0]>='0' && p[0]<='1')
+                box64_dynarec_safepreset = p[0]-'0';
+        }
+        if(box64_dynarec_safepreset){
+         	box64_dynarec_strongmem = 1;
+        	box64_dynarec_x87double = 1;
+        	box64_dynarec_fastnan = 0;
+        	box64_dynarec_bigblock = 0;
+        	box64_dynarec_fastround = 0;
+        	box64_dynarec_safeflags = 2;
+        	box64_dynarec_callret = 0;
+        	box64_dynarec_div0 = 1;
+            printf_log(LOG_INFO, "Dynarec will default to a safe configuration preset\n");
+        }
+    }
+    p = getenv("BOX64_DYNAREC_UNSAFEPRESET");
+    if(p) {
+        if(strlen(p)==1) {
+            if(p[0]>='0' && p[0]<='1')
+                box64_dynarec_unsafepreset = p[0]-'0';
+        }
+        if(box64_dynarec_unsafepreset)
+            box64_dynarec_bigblock = 2;
+            box64_dynarec_strongmem = 0;
+            box64_dynarec_x87double = 0;
+            box64_dynarec_fastnan = 1;
+            box64_dynarec_fastround = 1;
+            box64_dynarec_safeflags = 1;
+            box64_dynarec_callret = 1;
+            box64_dynarec_div0 = 0;
+            printf_log(LOG_INFO, "Dynarec will default to an unsafe configuration preset\n");
+    }  
     p = getenv("BOX64_DYNAREC_BIGBLOCK");
     if(p) {
         if(strlen(p)==1) {
@@ -1622,6 +1659,7 @@ int main(int argc, const char **argv, char **env) {
     if(!getenv("BOX64_NORCFILES")) {
         load_rcfiles();
     }
+    	
     char* bashpath = NULL;
     {
         char* p = getenv("BOX64_BASH");

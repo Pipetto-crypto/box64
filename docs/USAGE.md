@@ -151,6 +151,16 @@ Dynarec will compare it's execution with the interpreter (super slow, only for t
  * 0 : No comparison
  * 1 : Each opcode runs on interepter and on Dynarec, and regs and memory are compared and print if different
 
+### BOX64_DYNAREC_SAFEPRESET *
+Enables/Disables a safe preset for Box64's Dynarec.
+ * 0 : Disable the safe preset (Default.)
+ * 1 : Enable the safe preset
+
+### BOX64_DYNAREC_UNSAFEPRESET *
+Enables/Disables a safe preset for Box64's Dynarec.
+ * 0 : Disable the unsafe preset (Default.)
+ * 1 : Enable the unsafe preset
+
 #### BOX64_DYNAREC_BIGBLOCK *
 Enables/Disables Box64's Dynarec building BigBlock.
  * 0 : Don't try to build block as big as possible (can help program using lots of thread and a JIT, like C#/Unity) (Default when libmonobdwgc-2.0.so is loaded)
