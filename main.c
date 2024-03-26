@@ -1,24 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <limits.h>
-#include <errno.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <signal.h>
-#include <sys/syscall.h>
-#include <sys/mman.h>
-#include <pthread.h>
-#include <sys/prctl.h>
-#include <stdarg.h>
-#ifdef DYNAREC
-#ifdef ARM64
-#include <linux/auxvec.h>
-#include <asm/hwcap.h>
-#endif
-#endif
-
+#include "core.h"
 #include "build_info.h"
 #include "debug.h"
 #include "fileutils.h"
@@ -38,7 +18,6 @@
 #include "emu/x64run_private.h"
 #include "elfs/elfloader_private.h"
 #include "library.h"
-#include "core.h"
 
 box64context_t *my_context = NULL;
 int box64_quit = 0;
@@ -159,7 +138,7 @@ int box64_novulkan = 0;
 int box64_showsegv = 0;
 int box64_showbt = 0;
 int box64_isglibc234 = 0;
-#ifdef BAD_SIGNAL
+#if defined BAD_SIGNAL
 int box64_futex_waitv = 0;
 #else
 int box64_futex_waitv = 1;
@@ -615,14 +594,14 @@ void LoadLogEnv()
                 box64_dynarec_safepreset = p[0]-'0';
         }
         if(box64_dynarec_safepreset){
-            box64_dynarec_strongmem = 1;
-            box64_dynarec_x87double = 1;
-            box64_dynarec_fastnan = 0;
-            box64_dynarec_bigblock = 0;
-            box64_dynarec_fastround = 0;
-            box64_dynarec_safeflags = 2;
-            box64_dynarec_callret = 0;
-            box64_dynarec_div0 = 1;
+         	box64_dynarec_strongmem = 1;
+        	box64_dynarec_x87double = 1;
+        	box64_dynarec_fastnan = 0;
+        	box64_dynarec_bigblock = 0;
+        	box64_dynarec_fastround = 0;
+        	box64_dynarec_safeflags = 2;
+        	box64_dynarec_callret = 0;
+        	box64_dynarec_div0 = 1;
             printf_log(LOG_INFO, "Dynarec will default to a safe configuration preset\n");
         }
     }
@@ -642,7 +621,7 @@ void LoadLogEnv()
             box64_dynarec_callret = 1;
             box64_dynarec_div0 = 0;
             printf_log(LOG_INFO, "Dynarec will default to an unsafe configuration preset\n");
-    }
+    }  
     p = getenv("BOX64_DYNAREC_BIGBLOCK");
     if(p) {
         if(strlen(p)==1) {
@@ -1097,15 +1076,15 @@ void LoadLogEnv()
     int ghz = freq>=1000000000LL;
     if(ghz) freq/=100000000LL; else freq/=100000;
     if(ghz) printf_log(LOG_INFO, "%d.%d GHz", freq/10, freq%10);
-    if(!ghz && (freq>=1000)) printf_log(LOG_INFO, "%d MHz", freq/10);
-    if(!ghz && (freq<1000)) printf_log(LOG_INFO, "%d.%d MHz", freq/10, freq%10);
+    if(!ghz & freq>=1000) printf_log(LOG_INFO, "%d MHz", freq/10);
+    if(!ghz & freq<1000) printf_log(LOG_INFO, "%d.%d MHz", freq/10, freq%10);
     if(box64_rdtsc_shift) {
         printf_log(LOG_INFO, " emulating ");
         ghz = efreq>=1000000000LL;
         if(ghz) efreq/=100000000LL; else efreq/=100000;
         if(ghz) printf_log(LOG_INFO, "%d.%d GHz", efreq/10, efreq%10);
-        if(!ghz && (efreq>=1000)) printf_log(LOG_INFO, "%d MHz", efreq/10);
-        if(!ghz && (efreq<1000)) printf_log(LOG_INFO, "%d.%d MHz", efreq/10, efreq%10);
+        if(!ghz & efreq>=1000) printf_log(LOG_INFO, "%d MHz", efreq/10);
+        if(!ghz & efreq<1000) printf_log(LOG_INFO, "%d.%d MHz", efreq/10, efreq%10);
     }
     printf_log(LOG_INFO, "\n");
 }
@@ -1299,7 +1278,7 @@ void LoadEnvVars(box64context_t *context)
     #else
     //TODO: Add Termux Library Path - Lily
     if(FileExist("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", 0))
-        AddPath("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
+    	AddPath("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
     if(FileExist("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", 0))
         AddPath("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
     #endif
@@ -1601,7 +1580,7 @@ static void load_rcfiles()
         LoadRCFile("/etc/box64.box64rc");
     #else
     if(FileExist("/data/data/com.termux/files/usr/glibc/etc/box64.box64rc", IS_FILE))
-        LoadRCFile("/data/data/com.termux/files/usr/glibc/etc/box64.box64rc");
+    	LoadRCFile("/data/data/com.termux/files/usr/glibc/etc/box64.box64rc");
     if(FileExist("/data/data/com.termux/files/usr/etc/box64.box64rc", IS_FILE))
         LoadRCFile("/data/data/com.termux/files/usr/etc/box64.box64rc");
     #endif
@@ -1616,48 +1595,26 @@ static void load_rcfiles()
         if(FileExist(tmp, IS_FILE))
             LoadRCFile(tmp);
     }
+    p = getenv("BOX64_RCFILE");
+    if(p) {
+		if(FileExist(p, IS_FILE))
+			LoadRCFile(p);
+    }
 }
 
 #ifndef STATICBUILD
 void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog);
 #endif
 extern char** environ;
+int main(int argc, const char **argv, char **env) {
 
-
-int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elfheader_t** elfheader, int exec)
-{
-    #ifndef STATICBUILD
-    init_malloc_hook();
-    #endif
-    init_auxval(argc, argv, environ?environ:env);
-    // analogue to QEMU_VERSION in qemu-user-mode emulation
-    if(getenv("BOX64_VERSION")) {
-        PrintBox64Version();
-        exit(0);
-    }
-    // trying to open and load 1st arg
-    if(argc==1) {
-        /*PrintBox64Version();
-        PrintHelp();
-        return 1;*/
-        printf("BOX64: Missing operand after 'box64'\n");
-        printf("See 'box64 --help' for more information.\n");
-        exit(0);
-    }
-    if(argc>1 && !strcmp(argv[1], "/usr/bin/gdb") && getenv("BOX64_TRACE_FILE"))
-        exit(0);
-    // uname -m is redirected to box64 -m
-    if(argc==2 && (!strcmp(argv[1], "-m") || !strcmp(argv[1], "-p") || !strcmp(argv[1], "-i")))
-    {
-        printf("x86_64\n");
-        exit(0);
-    }
 
     // check BOX64_LOG debug level
     LoadLogEnv();
     if(!getenv("BOX64_NORCFILES")) {
         load_rcfiles();
     }
+    	
     char* bashpath = NULL;
     {
         char* p = getenv("BOX64_BASH");
@@ -1941,277 +1898,12 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         free_contextargv();
         FreeBox64Context(&my_context);
         FreeCollection(&ld_preload);
+
+    x64emu_t* emu = NULL;
+    elfheader_t* elf_header = NULL;
+    if (initialize(argc, argv, env, &emu, &elf_header, 1)) {
         return -1;
     }
-    if(!FileExist(my_context->argv[0], IS_FILE|IS_EXECUTABLE)) {
-        printf_log(LOG_NONE, "Error: %s is not an executable file.\n", my_context->argv[0]);
-        free_contextargv();
-        FreeBox64Context(&my_context);
-        FreeCollection(&ld_preload);
-        return -1;
-    }
-    if(!(my_context->fullpath = box_realpath(my_context->argv[0], NULL)))
-        my_context->fullpath = box_strdup(my_context->argv[0]);
-    if(getenv("BOX64_ARG0"))
-        my_context->argv[0] = box_strdup(getenv("BOX64_ARG0"));
-    FILE *f = fopen(my_context->fullpath, "rb");
-    if(!f) {
-        printf_log(LOG_NONE, "Error: Cannot open %s\n", my_context->fullpath);
-        free_contextargv();
-        FreeBox64Context(&my_context);
-        FreeCollection(&ld_preload);
-        return -1;
-    }
-    elfheader_t *elf_header = LoadAndCheckElfHeader(f, my_context->fullpath, 1);
-    if(!elf_header) {
-        int x86 = my_context->box86path?FileIsX86ELF(my_context->fullpath):0;
-        int script = my_context->bashpath?FileIsShell(my_context->fullpath):0;
-        printf_log(LOG_NONE, "Error: Reading elf header of %s, Try to launch %s instead\n", my_context->fullpath, x86?"using box86":(script?"using bash":"natively"));
-        fclose(f);
-        FreeCollection(&ld_preload);
-        int ret;
-        if(x86) {
-            // duplicate the array and insert 1st arg as box86
-            const char** newargv = (const char**)box_calloc(my_context->argc+2, sizeof(char*));
-            newargv[0] = my_context->box86path;
-            for(int i=0; i<my_context->argc; ++i)
-                newargv[i+1] = my_context->argv[i];
-            ret = execvp(newargv[0], (char * const*)newargv);
-        } else if (script) {
-            // duplicate the array and insert 1st arg as box64, 2nd is bash
-            const char** newargv = (const char**)box_calloc(my_context->argc+3, sizeof(char*));
-            newargv[0] = my_context->box64path;
-            newargv[1] = my_context->bashpath;
-            for(int i=0; i<my_context->argc; ++i)
-                newargv[i+2] = my_context->argv[i];
-            ret = execvp(newargv[0], (char * const*)newargv);
-        } else {
-            const char** newargv = (const char**)box_calloc(my_context->argc+1, sizeof(char*));
-            for(int i=0; i<my_context->argc; ++i)
-                newargv[i] = my_context->argv[i];
-            ret = execvp(newargv[0], (char * const*)newargv);
-        }
-        free_contextargv();
-        FreeBox64Context(&my_context);
-        return ret;
-    }
-    AddElfHeader(my_context, elf_header);
-    *elfheader = elf_header;
 
-    if(CalcLoadAddr(elf_header)) {
-        printf_log(LOG_NONE, "Error: Reading elf header of %s\n", my_context->fullpath);
-        FreeElfHeader(&elf_header);
-        free_contextargv();
-        FreeBox64Context(&my_context);
-        FreeCollection(&ld_preload);
-        return -1;
-    }
-    // allocate memory and load elf
-    if(AllocLoadElfMemory(my_context, elf_header, 1)) {
-        printf_log(LOG_NONE, "Error: Loading elf %s\n", my_context->fullpath);
-        FreeElfHeader(&elf_header);
-        free_contextargv();
-        FreeBox64Context(&my_context);
-        FreeCollection(&ld_preload);
-        return -1;
-    }
-    if(ElfCheckIfUseTCMallocMinimal(elf_header)) {
-        if(!box64_tcmalloc_minimal) {
-            // need to reload with tcmalloc_minimal as a LD_PRELOAD!
-            printf_log(LOG_INFO, "BOX64: tcmalloc_minimal.so.4 used. Reloading box64 with the lib preladed\n");
-            // need to get a new envv variable. so first count it and check if LD_PRELOAD is there
-            int preload=(getenv("LD_PRELOAD"))?1:0;
-            int nenv = 0;
-            while(env[nenv]) nenv++;
-            // alloc + "LD_PRELOAD" if needd + last NULL ending
-            char** newenv = (char**)box_calloc(nenv+1+((preload)?0:1), sizeof(char*));
-            // copy strings
-            for (int i=0; i<nenv; ++i)
-                newenv[i] = box_strdup(env[i]);
-            // add ld_preload
-            if(preload) {
-                // find the line
-                int l = 0;
-                while(l<nenv) {
-                    if(strstr(newenv[l], "LD_PRELOAD=")==newenv[l]) {
-                        // found it!
-                        char *old = newenv[l];
-                        newenv[l] = (char*)box_calloc(strlen(old)+strlen("libtcmalloc_minimal.so.4:")+1, sizeof(char));
-                        strcpy(newenv[l], "LD_PRELOAD=libtcmalloc_minimal.so.4:");
-                        strcat(newenv[l], old + strlen("LD_PRELOAD="));
-                        box_free(old);
-                        // done, end loop
-                        l = nenv;
-                    } else ++l;
-                }
-            } else {
-                //move last one
-                newenv[nenv] = box_strdup(newenv[nenv-1]);
-                box_free(newenv[nenv-1]);
-                newenv[nenv-1] = box_strdup("LD_PRELOAD=libtcmalloc_minimal.so.4");
-            }
-            // duplicate argv too
-            char** newargv = box_calloc(argc+1, sizeof(char*));
-            int narg = 0;
-            while(argv[narg]) {newargv[narg] = box_strdup(argv[narg]); narg++;}
-            // launch with new env...
-            if(execve(newargv[0], newargv, newenv)<0)
-                printf_log(LOG_NONE, "Failed to relaunch. Error is %d/%s\n", errno, strerror(errno));
-        } else {
-            printf_log(LOG_INFO, "BOX64: Using tcmalloc_minimal.so.4, and it's in the LD_PRELOAD command\n");
-        }
-    }
-#if defined(RPI) || defined(RK3399) || defined(RK3326)
-    // before launching emulation, let's check if this is a mojosetup from GOG
-    if (((strstr(prog, "bin/linux/x86_64/mojosetup") && getenv("MOJOSETUP_BASE")) || strstr(prog, ".mojosetup/mojosetup"))
-       && getenv("GTK2_RC_FILES")) {
-        sanitize_mojosetup_gtk_background();
-    }
-#endif
-    // change process name
-    {
-        char* p = strrchr(my_context->fullpath, '/');
-        if(p)
-            ++p;
-        else
-            p = my_context->fullpath;
-        if(prctl(PR_SET_NAME, p)==-1)
-            printf_log(LOG_NONE, "Error setting process name (%s)\n", strerror(errno));
-        else
-            printf_log(LOG_INFO, "Rename process to \"%s\"\n", p);
-        if(strcmp(prgname, p))
-            ApplyParams(p);
-        // and now all change the argv (so libs libs mesa find the correct program names)
-        char* endp = (char*)argv[argc-1];
-        while(*endp)
-            ++endp;    // find last argv[] address
-        uintptr_t diff = prog - argv[0]; // this is the difference we need to compensate
-        for(p=(char*)prog; p<=endp; ++p)
-            *(p - diff) = *p;  // copy all element at argv[nextarg] to argv[0]
-        memset(endp - diff, 0, diff); // fill reminder with NULL
-        for(int i=nextarg; i<argc; ++i)
-            argv[i] -= diff;    // adjust strings
-        my_context->orig_argc = argc;
-        my_context->orig_argv = (char**)argv;
-    }
-    box64_isglibc234 = GetNeededVersionForLib(elf_header, "libc.so.6", "GLIBC_2.34");
-    if(box64_isglibc234)
-        printf_log(LOG_DEBUG, "Program linked with GLIBC 2.34+\n");
-    // get and alloc stack size and align
-    if(CalcStackSize(my_context)) {
-        printf_log(LOG_NONE, "Error: Allocating stack\n");
-        free_contextargv();
-        FreeBox64Context(&my_context);
-        FreeCollection(&ld_preload);
-        return -1;
-    }
-    // init x86_64 emu
-    x64emu_t *emu = NewX64Emu(my_context, my_context->ep, (uintptr_t)my_context->stack, my_context->stacksz, 0);
-    // stack setup is much more complicated then just that!
-    SetupInitialStack(emu); // starting here, the argv[] don't need free anymore
-    SetupX64Emu(emu, NULL);
-    SetRSI(emu, my_context->argc);
-    SetRDX(emu, (uint64_t)my_context->argv);
-    SetRCX(emu, (uint64_t)my_context->envv);
-    SetRBP(emu, 0); // Frame pointer so to "No more frame pointer"
-
-    // child fork to handle traces
-    pthread_atfork(NULL, NULL, my_child_fork);
-
-    thread_set_emu(emu);
-
-    // export symbols
-    AddSymbols(my_context->maplib, elf_header);
-    if(wine_preloaded) {
-        uintptr_t wineinfo = 0;
-        int ver = -1, veropt = 0;
-        const char* vername = NULL;
-        if(!ElfGetGlobalSymbolStartEnd(elf_header, &wineinfo, NULL, "wine_main_preload_info", &ver, &vername, 1, &veropt))
-            if(!ElfGetWeakSymbolStartEnd(elf_header, &wineinfo, NULL, "wine_main_preload_info", &ver, &vername, 1, &veropt))
-                ElfGetLocalSymbolStartEnd(elf_header, &wineinfo, NULL, "wine_main_preload_info", &ver, &vername, 1, &veropt);
-        if(!wineinfo) {printf_log(LOG_NONE, "Warning, Symbol wine_main_preload_info not found\n");}
-        else {
-            *(void**)wineinfo = get_wine_prereserve();
-            printf_log(LOG_DEBUG, "WINE wine_main_preload_info found and updated %p -> %p\n", get_wine_prereserve(), *(void**)wineinfo);
-        }
-        #ifdef DYNAREC
-        dynarec_wine_prereserve();
-        #endif
-    }
-    AddMainElfToLinkmap(elf_header);
-    // pre-load lib if needed
-    if(ld_preload.size) {
-        my_context->preload = new_neededlib(0);
-        for(int i=0; i<ld_preload.size; ++i) {
-            needed_libs_t* tmp = new_neededlib(1);
-            tmp->names[0] = ld_preload.paths[i];
-            if(AddNeededLib(my_context->maplib, 0, 0, 0, tmp, elf_header, my_context, emu)) {
-                printf_log(LOG_INFO, "Warning, cannot pre-load %s\n", tmp->names[0]);
-                RemoveNeededLib(my_context->maplib, 0, tmp, my_context, emu);
-            } else {
-                for(int j=0; j<tmp->size; ++j)
-                    add1lib_neededlib(my_context->preload, tmp->libs[j], tmp->names[j]);
-            }
-            free_neededlib(tmp);
-        }
-    }
-    FreeCollection(&ld_preload);
-    // Call librarian to load all dependant elf
-    if(LoadNeededLibs(elf_header, my_context->maplib, 0, 0, 0, my_context, emu)) {
-        printf_log(LOG_NONE, "Error: Loading needed libs in elf %s\n", my_context->argv[0]);
-        FreeBox64Context(&my_context);
-        return -1;
-    }
-    // reloc...
-    printf_log(LOG_DEBUG, "And now export symbols / relocation for %s...\n", ElfName(elf_header));
-    if(RelocateElf(my_context->maplib, NULL, 0, 0, elf_header)) {
-        printf_log(LOG_NONE, "Error: Relocating symbols in elf %s\n", my_context->argv[0]);
-        FreeBox64Context(&my_context);
-        return -1;
-    }
-    // and handle PLT
-    RelocateElfPlt(my_context->maplib, NULL, 0, 0, elf_header);
-    // deferred init
-    setupTraceInit();
-    RunDeferredElfInit(emu);
-    // update TLS of main elf
-    RefreshElfTLS(elf_header);
-    // do some special case check, _IO_2_1_stderr_ and friends, that are setup by libc, but it's already done here, so need to do a copy
-    ResetSpecialCaseMainElf(elf_header);
-    // init...
-    setupTrace();
-
-    *emulator = emu;
-
-    return 0;
-}
-
-int emulate(x64emu_t* emu, elfheader_t* elf_header)
-{
-    // get entrypoint
-    my_context->ep = GetEntryPoint(my_context->maplib, elf_header);
-
-    atexit(endBox64);
-    loadProtectionFromMap();
-
-    // emulate!
-    printf_log(LOG_DEBUG, "Start x64emu on Main\n");
-    // Stack is ready, with stacked: NULL env NULL argv argc
-    SetRIP(emu, my_context->ep);
-    ResetFlags(emu);
-    Push64(emu, my_context->exit_bridge);  // push to pop it just after
-    SetRDX(emu, Pop64(emu));    // RDX is exit function
-    Run(emu, 0);
-    // Get EAX
-    int ret = GetEAX(emu);
-    printf_log(LOG_DEBUG, "Emulation finished, EAX=%d\n", ret);
-    endBox64();
-#ifdef HAVE_TRACE
-    if(trace_func)  {
-        box_free(trace_func);
-        trace_func = NULL;
-    }
-#endif
-
-    return ret;
+    return emulate(emu, elf_header);
 }
