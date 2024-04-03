@@ -767,8 +767,13 @@ EXPORT void* my_gst_plugin_load_file(x64emu_t* emu, const char* filename, void**
 static void register_plugins_from_folder(x64emu_t* emu, const char* folder)
 {
     if(!folder) {
-        printf_log(/*LOG_DEBUG*/LOG_INFO, "BOX64 didn't detect any custom gstreamer-1.0 folder");
-        return;
+    	char* gst_plugin_path = getenv("GST_PLUGIN_PATH");
+    	if(gst_plugin_path)
+    		folder = gst_plugin_path;
+        else{
+        	printf_log(/*LOG_DEBUG*/LOG_INFO, "BOX64 didn't detect any custom gstreamer-1.0 folder");
+        	return;
+        }
     }
     DIR *d;
     struct dirent *dir;
