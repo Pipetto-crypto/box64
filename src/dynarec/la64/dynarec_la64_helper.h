@@ -174,13 +174,37 @@
     gd = i;                                                   \
     BSTRPICK_D(gd, gb1, gb2 + 7, gb2);
 
+// Get GX as a quad (might use x1)
+#define GETGX(a, w)                             \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = sse_get_reg(dyn, ninst, x1, gd, w)
+
+
+#define GETGX_empty(a)                          \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = sse_get_reg_empty(dyn, ninst, x1, gd)
+
+// Get EX as a quad, (x1 is used)
+#define GETEX(a, w, D)                                                                       \
+    if (MODREG) {                                                                            \
+        a = sse_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), w);                     \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x3, x2, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        VLD(a, ed, fixedaddress);                                                            \
+    }
+
 // Write gb (gd) back to original register / memory, using s1 as scratch
-#define GBBACK(s1) BSTRINS_D(gb1, gd, gb2 + 7, gb2);
+#define GBBACK() BSTRINS_D(gb1, gd, gb2 + 7, gb2);
+
+// Generic get GD, but reg value in gd (R_RAX is not added)
+#define GETG gd = ((nextop & 0x38) >> 3) + (rex.r << 3)
 
 // Write eb (ed) back to original register / memory, using s1 as scratch
-#define EBBACK(s1, c)                       \
+#define EBBACK()                            \
     if (wb1) {                              \
-        SUB_D(ed, wback, fixedaddress);     \
+        ST_B(ed, wback, fixedaddress);      \
         SMWRITE();                          \
     } else {                                \
         BSTRINS_D(wback, ed, wb2 + 7, wb2); \
@@ -523,6 +547,8 @@ void* la64_next(x64emu_t* emu, uintptr_t addr);
 
 #define x87_forget       STEPNAME(x87_forget)
 #define sse_purge07cache STEPNAME(sse_purge07cache)
+#define sse_get_reg       STEPNAME(sse_get_reg)
+#define sse_get_reg_empty STEPNAME(sse_get_reg_empty)
 
 #define fpu_pushcache       STEPNAME(fpu_pushcache)
 #define fpu_popcache        STEPNAME(fpu_popcache)
@@ -595,6 +621,10 @@ void x87_forget(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st);
 // SSE/SSE2 helpers
 // purge the XMM0..XMM7 cache (before function call)
 void sse_purge07cache(dynarec_la64_t* dyn, int ninst, int s1);
+// get lsx register for a SSE reg, create the entry if needed
+int sse_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int a, int forwrite);
+// get lsx register for an SSE reg, but don't try to synch it if it needed to be created
+int sse_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int a);
 
 void CacheTransform(dynarec_la64_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3);
 
