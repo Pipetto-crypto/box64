@@ -55,6 +55,13 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             FAKEED;
             break;
+        case 0x61:
+            INST_NAME("PUNPCKLWD Gx,Ex");
+            nextop = F8;
+            GETGX(v0, 1);
+            GETEX(q0, 0, 0);
+            VILVL_H(v0, q0, v0);
+            break;
         case 0x6C:
             INST_NAME("PUNPCKLQDQ Gx,Ex");
             nextop = F8;
@@ -104,6 +111,47 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, 0);
                 VLD(v0, ed, fixedaddress);
+            }
+            break;
+        case 0xBE:
+            INST_NAME("MOVSX Gw, Eb");
+            nextop = F8;
+            GETGD;
+            if (MODREG) {
+                if (rex.rex) {
+                    ed = TO_LA64((nextop & 7) + (rex.b << 3));
+                    eb1 = ed;
+                    eb2 = 0;
+                } else {
+                    ed = (nextop & 7);
+                    eb1 = TO_LA64(ed & 3); // Ax, Cx, Dx or Bx
+                    eb2 = (ed & 4) >> 2;   // L or H
+                }
+                if (eb2) {
+                    SRLI_D(x1, eb1, eb2 * 8);
+                    EXT_W_B(x1, x1);
+                } else {
+                    EXT_W_B(x1, eb1);
+                }
+            } else {
+                SMREAD();
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, x4, &fixedaddress, rex, NULL, 1, 0);
+                LD_B(x1, ed, fixedaddress);
+            }
+            BSTRINS_D(gd, x1, 15, 0);
+            break;
+        case 0xD6:
+            INST_NAME("MOVQ Ex, Gx");
+            nextop = F8;
+            GETGX(v0, 0);
+            if (MODREG) {
+                v1 = sse_get_reg_empty(dyn, ninst, x1, (nextop & 7) + (rex.b << 3));
+                VXOR_V(v1, v1, v1);
+                VEXTRINS_D(v1, v0, 0);
+            } else {
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, x3, &fixedaddress, rex, NULL, 1, 0);
+                FST_D(v0, ed, fixedaddress);
+                SMWRITE2();
             }
             break;
         case 0xEF:

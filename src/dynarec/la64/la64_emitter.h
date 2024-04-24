@@ -207,6 +207,9 @@ f24-f31  fs0-fs7   Static registers                Callee
 #define LLxw(rd, rj, imm) EMIT(type_2RI14(0b00100000 | (rex.w ? 0b10 : 0b00), imm >> 2, rj, rd))
 #define SCxw(rd, rj, imm) EMIT(type_2RI14(0b00100001 | (rex.w ? 0b10 : 0b00), imm >> 2, rj, rd))
 
+// DBAR hint
+#define DBAR(hint) EMIT(type_hint(0b00111000011100100, hint))
+
 // GR[rd] = GR[rj] & GR[rk]
 #define AND(rd, rj, rk) EMIT(type_3R(0b00000000000101001, rk, rj, rd))
 // GR[rd] = GR[rj] | GR[rk]
@@ -247,7 +250,7 @@ f24-f31  fs0-fs7   Static registers                Callee
 // GR[rd] = SRL(GR[rj][63:0], GR[rk][5:0])
 #define SRL_D(rd, rj, rk) EMIT(type_3R(0b00000000000110010, rk, rj, rd))
 // GR[rd] = SRA(GR[rj][63:0], GR[rk][5:0])
-#define SLA_D(rd, rj, rk) EMIT(type_3R(0b00000000000110011, rk, rj, rd))
+#define SRA_D(rd, rj, rk) EMIT(type_3R(0b00000000000110011, rk, rj, rd))
 // GR[rd] = ROTR(GR[rj][63:0], GR[rk][5:0])
 #define ROTR_D(rd, rj, rk) EMIT(type_3R(0b00000000000110111, rk, rj, rd))
 
@@ -269,21 +272,55 @@ f24-f31  fs0-fs7   Static registers                Callee
 // GR[rd] = ROTR(GR[rj][31:0], imm5) (Rotate To Right)
 #define ROTRI_W(rd, rj, imm5) EMIT(type_2RI5(0b00000000010011001, imm5, rj, rd))
 
+#define SRAxw(rd, rj, rk)      \
+    do {                       \
+        if (rex.w) {           \
+            SRA_D(rd, rj, rk); \
+        } else {               \
+            SRA_W(rd, rj, rk); \
+            ZEROUP(rd);        \
+        }                      \
+    } while (0)
+
+#define SRLxw(rd, rj, rk)      \
+    do {                       \
+        if (rex.w) {           \
+            SRL_D(rd, rj, rk); \
+        } else {               \
+            SRL_W(rd, rj, rk); \
+            ZEROUP(rd);        \
+        }                      \
+    } while (0)
+
+#define SLLxw(rd, rj, rk)      \
+    do {                       \
+        if (rex.w) {           \
+            SLL_D(rd, rj, rk); \
+        } else {               \
+            SLL_W(rd, rj, rk); \
+            ZEROUP(rd);        \
+        }                      \
+    } while (0)
+
 // Shift Left Immediate
-#define SLLIxw(rd, rs1, imm)  \
-    if (rex.w) {              \
-        SLLI_D(rd, rs1, imm); \
-    } else {                  \
-        SLLI_W(rd, rs1, imm); \
-    }
-// Shift Right Logical Immediate
-#define SRLIxw(rd, rs1, imm)      \
+#define SLLIxw(rd, rs1, imm)      \
     do {                          \
         if (rex.w) {              \
-            SRLI_D(rd, rs1, imm); \
+            SLLI_D(rd, rs1, imm); \
         } else {                  \
-            SRLI_W(rd, rs1, imm); \
+            SLLI_W(rd, rs1, imm); \
+            ZEROUP(rd);           \
         }                         \
+    } while (0)
+// Shift Right Logical Immediate
+#define SRLIxw(rd, rs1, imm)          \
+    do {                              \
+        if (rex.w) {                  \
+            SRLI_D(rd, rs1, imm);     \
+        } else {                      \
+            SRLI_W(rd, rs1, imm);     \
+            if (imm == 0) ZEROUP(rd); \
+        }                             \
     } while (0)
 
 // Shift Right Arithmetic Immediate
@@ -293,7 +330,18 @@ f24-f31  fs0-fs7   Static registers                Callee
             SRAI_D(rd, rs1, imm); \
         } else {                  \
             SRAI_W(rd, rs1, imm); \
+            ZEROUP(rd);           \
         }                         \
+    } while (0)
+
+#define ROTRIxw(rd, rs1, imm)      \
+    do {                           \
+        if (rex.w) {               \
+            ROTRI_D(rd, rs1, imm); \
+        } else {                   \
+            ROTRI_W(rd, rs1, imm); \
+            ZEROUP(rd);            \
+        }                          \
     } while (0)
 
 // rd = rj + (rk << imm6)
@@ -308,6 +356,76 @@ f24-f31  fs0-fs7   Static registers                Callee
     } while (0)
 
 #define SEXT_W(rd, rs1) SLLI_W(rd, rs1, 0)
+
+// product = signed(GR[rj][31:0]) * signed(GR[rk][31:0])
+// GR[rd] = SignExtend(product[31:0], GRLEN)
+#define MUL_W(rd, rj, rk) EMIT(type_3R(0b00000000000111000, rk, rj, rd))
+
+// product = signed(GR[rj][31:0]) * signed(GR[rk][31:0])
+// GR[rd] = SignExtend(product[63:32], GRLEN)
+#define MULH_W(rd, rj, rk) EMIT(type_3R(0b00000000000111001, rk, rj, rd))
+
+// product = unsigned(GR[rj][31:0]) * unsigned(GR[rk][31:0])
+// GR[rd] = SignExtend(product[63:32], GRLEN)
+#define MULH_WU(rd, rj, rk) EMIT(type_3R(0b00000000000111010, rk, rj, rd))
+
+// product = signed(GR[rj][63:0]) * signed(GR[rk][63:0])
+// GR[rd] = product[63:0]
+#define MUL_D(rd, rj, rk) EMIT(type_3R(0b00000000000111011, rk, rj, rd))
+
+// product = signed(GR[rj][63:0]) * signed(GR[rk][63:0])
+// GR[rd] = product[127:64]
+#define MULH_D(rd, rj, rk) EMIT(type_3R(0b00000000000111100, rk, rj, rd))
+
+// product = unsigned(GR[rj][63:0]) * unsigned(GR[rk][63:0])
+// GR[rd] = product[127:64]
+#define MULH_DU(rd, rj, rk) EMIT(type_3R(0b00000000000111101, rk, rj, rd))
+
+// product = signed(GR[rj][31:0]) * signed(GR[rk][31:0])
+// GR[rd] = product[63:0]
+#define MULW_D_W(rd, rj, rk) EMIT(type_3R(0b00000000000111110, rk, rj, rd))
+
+// product = unsigned(GR[rj][31:0]) * unsigned(GR[rk][31:0])
+// GR[rd] = product[63:0]
+#define MULW_D_WU(rd, rj, rk) EMIT(type_3R(0b00000000000111111, rk, rj, rd))
+
+// quotient = signed(GR[rj][31:0]) / signed(GR[rk][31:0])
+// GR[rd] = SignExtend(quotient[31:0], GRLEN)
+#define DIV_W(rd, rj, rk) EMIT(type_3R(0b00000000001000000, rk, rj, rd))
+
+// quotient = unsigned(GR[rj][31:0]) / unsigned(GR[rk][31:0])
+// GR[rd] = SignExtend(quotient[31:0], GRLEN)
+#define DIV_WU(rd, rj, rk) EMIT(type_3R(0b00000000001000010, rk, rj, rd))
+
+// remainder = signed(GR[rj][31:0]) % signed(GR[rk][31:0])
+// GR[rd] = SignExtend(remainder[31:0], GRLEN)
+#define MOD_W(rd, rj, rk) EMIT(type_3R(0b00000000001000001, rk, rj, rd))
+
+// remainder = unsigned(GR[rj][31:0]) % unsigned(GR[rk][31:0])
+// GR[rd] = SignExtend(remainder[31:0], GRLEN)
+#define MOD_WU(rd, rj, rk) EMIT(type_3R(0b00000000001000011, rk, rj, rd))
+
+// GR[rd] = signed(GR[rj][63:0]) / signed(GR[rk][63:0])
+#define DIV_D(rd, rj, rk) EMIT(type_3R(0b00000000001000100, rk, rj, rd))
+
+// GR[rd] = unsigned(GR[rj][63:0]) / unsigned(GR[rk][63:0])
+#define DIV_DU(rd, rj, rk) EMIT(type_3R(0b00000000001000110, rk, rj, rd))
+
+// GR[rd] = signed(GR[rj] [63:0]) % signed(GR[rk] [63:0])
+#define MOD_D(rd, rj, rk) EMIT(type_3R(0b00000000001000101, rk, rj, rd))
+
+// GR[rd] = unsigned(GR[rj] [63:0]) % unsigned(GR[rk] [63:0])
+#define MOD_DU(rd, rj, rk) EMIT(type_3R(0b00000000001000111, rk, rj, rd))
+
+#define MULxw(rd, rj, rk)      \
+    do {                       \
+        if (rex.w) {           \
+            MUL_D(rd, rj, rk); \
+        } else {               \
+            MUL_W(rd, rj, rk); \
+        }                      \
+    } while (0)
+
 
 // bstr32[31:msbw+1] = GR[rd][31: msbw+1]
 // bstr32[msbw:lsbw] = GR[rj][msbw-lsbw:0]
@@ -329,6 +447,36 @@ f24-f31  fs0-fs7   Static registers                Callee
 
 // ZERO the upper part
 #define ZEROUP(rd) BSTRINS_D(rd, xZR, 63, 32);
+
+#define CLO_W(rd, rj)     EMIT(type_2R(0b0000000000000000000100, rj, rd))
+#define CLZ_W(rd, rj)     EMIT(type_2R(0b0000000000000000000101, rj, rd))
+#define CTO_W(rd, rj)     EMIT(type_2R(0b0000000000000000000110, rj, rd))
+#define CTZ_W(rd, rj)     EMIT(type_2R(0b0000000000000000000111, rj, rd))
+#define CLO_D(rd, rj)     EMIT(type_2R(0b0000000000000000001000, rj, rd))
+#define CLZ_D(rd, rj)     EMIT(type_2R(0b0000000000000000001001, rj, rd))
+#define CTO_D(rd, rj)     EMIT(type_2R(0b0000000000000000001010, rj, rd))
+#define CTZ_D(rd, rj)     EMIT(type_2R(0b0000000000000000001011, rj, rd))
+#define REVB_2H(rd, rj)   EMIT(type_2R(0b0000000000000000001100, rj, rd))
+#define REVB_4H(rd, rj)   EMIT(type_2R(0b0000000000000000001101, rj, rd))
+#define REVB_2W(rd, rj)   EMIT(type_2R(0b0000000000000000001110, rj, rd))
+#define REVB_D(rd, rj)    EMIT(type_2R(0b0000000000000000001111, rj, rd))
+#define REVH_2W(rd, rj)   EMIT(type_2R(0b0000000000000000010000, rj, rd))
+#define REVH_D(rd, rj)    EMIT(type_2R(0b0000000000000000010001, rj, rd))
+#define BITREV_4B(rd, rj) EMIT(type_2R(0b0000000000000000010010, rj, rd))
+#define BITREV_8B(rd, rj) EMIT(type_2R(0b0000000000000000010011, rj, rd))
+#define BITREV_W(rd, rj)  EMIT(type_2R(0b0000000000000000010100, rj, rd))
+#define BITREV_D(rd, rj)  EMIT(type_2R(0b0000000000000000010101, rj, rd))
+
+#define REVBxw(rd, rj)       \
+    do {                     \
+        if (rex.w) {         \
+            REVB_D(rd, rj);  \
+        } else {             \
+            REVB_2W(rd, rj); \
+            ZEROUP(rd);      \
+        }                    \
+    } while (0)
+
 
 // GR[rd] = SignExtend(GR[rj][7:0], GRLEN)
 #define EXT_W_B(rd, rj) EMIT(type_2R(0b0000000000000000010111, rj, rd))
@@ -371,6 +519,7 @@ f24-f31  fs0-fs7   Static registers                Callee
 
 // PC = PC + SignExtend({imm26, 2'b0}, GRLEN)
 #define B(imm28) EMIT(type_I26(0b010100, ((imm28)>>2)))
+#define B__(reg1, reg2, imm28) B(imm28)
 
 #define BEQ_safe(rj, rd, imm)                      \
     if {                                           \
@@ -523,6 +672,18 @@ f24-f31  fs0-fs7   Static registers                Callee
 // paddr = AddressTranslation(vaddr)
 // MemoryStore(GR[rd][63:0], paddr, DOUBLEWORD)
 #define ST_D(rd, rj, imm12) EMIT(type_2RI12(0b0010100111, imm12, rj, rd))
+
+#define LDX_B(rd, rj, rk)  EMIT(type_3R(0b00111000000000000, rk, rj, rd))
+#define LDX_H(rd, rj, rk)  EMIT(type_3R(0b00111000000001000, rk, rj, rd))
+#define LDX_W(rd, rj, rk)  EMIT(type_3R(0b00111000000010000, rk, rj, rd))
+#define LDX_D(rd, rj, rk)  EMIT(type_3R(0b00111000000011000, rk, rj, rd))
+#define STX_B(rd, rj, rk)  EMIT(type_3R(0b00111000000100000, rk, rj, rd))
+#define STX_H(rd, rj, rk)  EMIT(type_3R(0b00111000000101000, rk, rj, rd))
+#define STX_W(rd, rj, rk)  EMIT(type_3R(0b00111000000110000, rk, rj, rd))
+#define STX_D(rd, rj, rk)  EMIT(type_3R(0b00111000000111000, rk, rj, rd))
+#define LDX_BU(rd, rj, rk) EMIT(type_3R(0b00111000001000000, rk, rj, rd))
+#define LDX_HU(rd, rj, rk) EMIT(type_3R(0b00111000001001000, rk, rj, rd))
+#define LDX_WU(rd, rj, rk) EMIT(type_3R(0b00111000001010000, rk, rj, rd))
 
 #define FLD_D(fd, rj, imm12) EMIT(type_2RI12(0b0010101110, imm12, rj, fd))
 #define FLD_S(fd, rj, imm12) EMIT(type_2RI12(0b0010101100, imm12, rj, fd))
@@ -1561,6 +1722,20 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define X64_ROTLI_D(rj, imm6)   EMIT(type_2RI6(0x55, imm6, rj, 0x17))
 #define X64_RCLI_D(rj, imm6)    EMIT(type_2RI6(0x55, imm6, rj, 0x1b))
 
+// Warning, these are LBT addons that uses LBT4.eflags internally
+#define ADC_B(rd, rj, rk) EMIT(type_3R(0x60, rk, rj, rd))
+#define ADC_H(rd, rj, rk) EMIT(type_3R(0x61, rk, rj, rd))
+#define ADC_W(rd, rj, rk) EMIT(type_3R(0x62, rk, rj, rd))
+#define ADC_D(rd, rj, rk) EMIT(type_3R(0x63, rk, rj, rd))
+#define SBC_B(rd, rj, rk) EMIT(type_3R(0x64, rk, rj, rd))
+#define SBC_H(rd, rj, rk) EMIT(type_3R(0x65, rk, rj, rd))
+#define SBC_W(rd, rj, rk) EMIT(type_3R(0x66, rk, rj, rd))
+#define SBC_D(rd, rj, rk) EMIT(type_3R(0x67, rk, rj, rd))
+#define RCR_B(rd, rj, rk) EMIT(type_3R(0x68, rk, rj, rd))
+#define RCR_H(rd, rj, rk) EMIT(type_3R(0x69, rk, rj, rd))
+#define RCR_W(rd, rj, rk) EMIT(type_3R(0x6a, rk, rj, rd))
+#define RCR_D(rd, rj, rk) EMIT(type_3R(0x6b, rk, rj, rd))
+
 ////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1577,34 +1752,21 @@ LSX instruction starts with V, LASX instruction starts with XV.
         }                                     \
     } while (0)
 
-#define MOV32w(rd, imm32) MOV32w_(rd, imm32, 1)
-// GR[rd] = imm64
-#define MOV64x(rd, imm64)                               \
-    do {                                                \
-        MOV32w_(rd, imm64, 0);                          \
-        if (((uint64_t)(imm64)) > 0xffffffffu) {        \
-            LU32I_D(rd, ((uint64_t)(imm64)) >> 32);     \
-            LU52I_D(rd, rd, ((uint64_t)(imm64)) >> 52); \
-        }                                               \
-    } while (0)
-
-#define MOV64xw(A, B)     \
-    do {                  \
-        if (rex.w) {      \
-            MOV64x(A, B); \
-        } else {          \
-            MOV32w(A, B); \
-        }                 \
-    } while (0)
-
-#define MOV64z(A, B)        \
-    do {                    \
-        if (rex.is32bits) { \
-            MOV32w(A, B);   \
-        } else {            \
-            MOV64x(A, B);   \
-        }                   \
-    } while (0)
+// MOV64x/MOV32w is quite complex, so use a function for this
+#define MOV64x(A, B) la64_move64(dyn, ninst, A, B)
+#define MOV32w(A, B) la64_move32(dyn, ninst, A, B, 1)
+#define MOV64xw(A, B) \
+    if (rex.w) {      \
+        MOV64x(A, B); \
+    } else {          \
+        MOV32w(A, B); \
+    }
+#define MOV64z(A, B)    \
+    if (rex.is32bits) { \
+        MOV32w(A, B);   \
+    } else {            \
+        MOV64x(A, B);   \
+    }
 
 // rd[63:0] = rj[63:0] (pseudo instruction)
 #define MV(rd, rj) ADDI_D(rd, rj, 0)
@@ -1668,6 +1830,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
             LD_WU(rd, rj, imm12); \
     } while (0)
 
+#define LDXxw(rd, rj, rk)       \
+    do {                        \
+        if (rex.w)              \
+            LDX_D(rd, rj, rk);  \
+        else                    \
+            LDX_WU(rd, rj, rk); \
+    } while (0)
+
 #define LDz(rd, rj, imm12)        \
     do {                          \
         if (rex.is32bits)         \
@@ -1701,6 +1871,8 @@ LSX instruction starts with V, LASX instruction starts with XV.
             ST_D(rd, rj, imm12); \
     } while (0)
 
+#define NEG_D(rd, rs1) SUB_D(rd, xZR, rs1)
+
 #define SUBxw(rd, rj, rk)      \
     do {                       \
         if (rex.w)             \
@@ -1708,6 +1880,8 @@ LSX instruction starts with V, LASX instruction starts with XV.
         else                   \
             SUB_W(rd, rj, rk); \
     } while (0)
+
+#define NEGxw(rd, rs1) SUBxw(rd, xZR, rs1)
 
 #define SUBz(rd, rj, rk)       \
     do {                       \
@@ -1760,8 +1934,5 @@ LSX instruction starts with V, LASX instruction starts with XV.
             PUSH1(reg);     \
         }                   \
     } while (0)
-
-// DBAR hint
-#define DBAR(hint) EMIT(type_hint(0b00111000011100100, hint))
 
 #endif //__ARM64_EMITTER_H__

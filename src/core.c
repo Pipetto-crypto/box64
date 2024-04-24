@@ -1089,7 +1089,7 @@ void LoadLogEnv()
         freq = ReadTSCFrequency(NULL);
     }
     uint64_t efreq = freq;
-    while(efreq<500000000) {    // minium 500MHz
+    while(efreq<2000000000) {    // minium 2GHz
         ++box64_rdtsc_shift;
         efreq = freq<<box64_rdtsc_shift;
     }

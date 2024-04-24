@@ -21,6 +21,82 @@
 #include "dynarec_la64_functions.h"
 #include "dynarec_la64_helper.h"
 
+// emit XOR8 instruction, from s1, s2, store result in s1 using s3 and s4 as scratch, s4 can be same as s2 (and so s2 destroyed)
+void emit_xor8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4)
+{
+    IFX (X_PEND) {
+        SET_DF(s4, d_xor8);
+    } else IFX (X_ALL) {
+        SET_DFNONE();
+    }
+
+    IFXA (X_ALL, la64_lbt) {
+        X64_XOR_B(s1, s2);
+    }
+
+    XOR(s1, s1, s2);
+    ANDI(s1, s1, 0xff);
+
+    IFX (X_PEND) {
+        ST_B(s1, xEmu, offsetof(x64emu_t, res));
+    }
+
+    if (la64_lbt) return;
+
+    CLEAR_FLAGS(s3);
+    IFX (X_SF) {
+        SRLI_D(s3, s1, 7);
+        BEQZ(s3, 8);
+        ORI(xFlags, xFlags, 1 << F_SF);
+    }
+    IFX (X_ZF) {
+        BNEZ(s1, 8);
+        ORI(xFlags, xFlags, 1 << F_ZF);
+    }
+    IFX (X_PF) {
+        emit_pf(dyn, ninst, s1, s3, s4);
+    }
+}
+
+// emit XOR8 instruction, from s1 , constant c, store result in s1 using s3 and s4 as scratch
+void emit_xor8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4)
+{
+    IFX (X_PEND) {
+        SET_DF(s4, d_xor8);
+    } else IFX (X_ALL) {
+        SET_DFNONE();
+    }
+
+    if (la64_lbt) {
+        IFX (X_ALL) {
+            ADDI_D(s3, xZR, c & 0xff);
+            X64_XOR_B(s1, s3);
+        }
+        XORI(s1, s1, c & 0xff);
+        IFX (X_PEND)
+            ST_B(s1, xEmu, offsetof(x64emu_t, res));
+        return;
+    }
+
+    XORI(s1, s1, c & 0xff);
+    ANDI(s1, s1, 0xff);
+    CLEAR_FLAGS(s3);
+    IFX (X_SF) {
+        SRLI_D(s3, s1, 7);
+        BEQZ(s3, 8);
+        ORI(xFlags, xFlags, 1 << F_SF);
+    }
+    IFX (X_PEND) {
+        ST_B(s1, xEmu, offsetof(x64emu_t, res));
+    }
+    IFX (X_ZF) {
+        BNEZ(s1, 8);
+        ORI(xFlags, xFlags, 1 << F_ZF);
+    }
+    IFX (X_PF) {
+        emit_pf(dyn, ninst, s1, s3, s4);
+    }
+}
 
 // emit XOR32 instruction, from s1, s2, store result in s1 using s3 and s4 as scratch
 void emit_xor32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4)
@@ -68,6 +144,73 @@ void emit_xor32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s
         ORI(xFlags, xFlags, 1 << F_ZF);
     }
     IFX(X_PF) {
+        emit_pf(dyn, ninst, s1, s3, s4);
+    }
+}
+
+
+// emit XOR32 instruction, from s1, c, store result in s1 using s3 and s4 as scratch
+void emit_xor32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4)
+{
+    IFX (X_PEND) {
+        SET_DF(s4, rex.w ? d_xor64 : d_xor32);
+    } else IFX (X_ALL) {
+        SET_DFNONE();
+    }
+
+    if (la64_lbt) {
+        IFX (X_ALL) {
+            MOV64xw(s3, c);
+            if (rex.w)
+                X64_XOR_D(s1, s3);
+            else
+                X64_XOR_W(s1, s3);
+        }
+
+        if (c >= 0 && c <= 4095) {
+            XORI(s1, s1, c);
+        } else {
+            IFX (X_ALL) {
+            } else {
+                MOV64xw(s3, c);
+            }
+            XOR(s1, s1, s3);
+        }
+        if (!rex.w) {
+            ZEROUP(s1);
+        }
+        IFX (X_PEND)
+            SDxw(s1, xEmu, offsetof(x64emu_t, res));
+        return;
+    }
+
+    if (c >= 0 && c <= 4095) {
+        XORI(s1, s1, c);
+    } else {
+        MOV64xw(s3, c);
+        XOR(s1, s1, s3);
+    }
+
+    CLEAR_FLAGS(s3);
+    // test sign bit before zeroup.
+    IFX (X_SF) {
+        if (!rex.w) SEXT_W(s1, s1);
+        BGE(s1, xZR, 8);
+        ORI(xFlags, xFlags, 1 << F_SF);
+    }
+    if (!rex.w) {
+        ZEROUP(s1);
+    }
+
+    IFX (X_PEND) {
+        SDxw(s1, xEmu, offsetof(x64emu_t, res));
+    }
+
+    IFX (X_ZF) {
+        BNEZ(s1, 8);
+        ORI(xFlags, xFlags, 1 << F_ZF);
+    }
+    IFX (X_PF) {
         emit_pf(dyn, ninst, s1, s3, s4);
     }
 }
@@ -245,7 +388,7 @@ void emit_or32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3
         SET_DFNONE();
     }
 
-    IFXA(X_ALL, la64_lbt) {
+    IFXA (X_ALL, la64_lbt) {
         if (rex.w)
             X64_OR_D(s1, s2);
         else
@@ -305,7 +448,10 @@ void emit_or32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, in
         SDxw(s1, xEmu, offsetof(x64emu_t, res));
     }
 
-    if (la64_lbt) return;
+    if (la64_lbt) {
+        if (!rex.w) ZEROUP(s1);
+        return;
+    }
 
     CLEAR_FLAGS(s3);
     // test sign bit before zeroup.
@@ -325,4 +471,48 @@ void emit_or32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, in
     IFX(X_PF) {
         emit_pf(dyn, ninst, s1, s3, s4);
     }
+}
+
+
+// emit OR8 instruction, from s1, s2, store result in s1 using s3 and s4 as scratch, s4 can be same as s2 (and so s2 destroyed)
+void emit_or8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4)
+{
+    IFX (X_PEND) {
+        SET_DF(s3, d_or8);
+    } else IFX (X_ALL) {
+        SET_DFNONE();
+    }
+
+    IFXA (X_ALL, la64_lbt) {
+        X64_OR_B(s1, s2);
+    }
+
+    OR(s1, s1, s2);
+
+    IFX (X_PEND) {
+        ST_B(s1, xEmu, offsetof(x64emu_t, res));
+    }
+
+    if (la64_lbt) return;
+
+    CLEAR_FLAGS(s3);
+    IFX (X_SF) {
+        SRLI_D(s3, s1, 7);
+        BEQZ(s3, 8);
+        ORI(xFlags, xFlags, 1 << F_SF);
+    }
+    IFX (X_ZF) {
+        BNEZ(s1, 8);
+        ORI(xFlags, xFlags, 1 << F_ZF);
+    }
+    IFX (X_PF) {
+        emit_pf(dyn, ninst, s1, s3, s4);
+    }
+}
+
+// emit OR8 instruction, from s1 , constant c, store result in s1 using s3 and s4 as scratch
+void emit_or8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s2, int s3, int s4)
+{
+    MOV32w(s2, c & 0xff);
+    emit_or8(dyn, ninst, s1, s2, s3, s4);
 }

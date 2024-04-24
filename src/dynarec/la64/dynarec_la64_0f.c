@@ -184,6 +184,21 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
 
         #undef GO
 
+        case 0x57:
+            INST_NAME("XORPS Gx, Ex");
+            nextop = F8;
+            GETG;
+            if (MODREG && ((nextop & 7) + (rex.b << 3) == gd)) {
+                // special case for XORPS Gx, Gx
+                q0 = sse_get_reg_empty(dyn, ninst, x1, gd);
+                VXOR_V(q0, q0, q0);
+            } else {
+                q0 = sse_get_reg(dyn, ninst, x1, gd, 1);
+                GETEX(q1, 0, 0);
+                VXOR_V(q0, q0, q1);
+            }
+            break;
+
         #define GO(GETFLAGS, NO, YES, F, I)                                                         \
             READFLAGS(F);                                                                           \
             i32_ = F32S;                                                                            \
@@ -261,6 +276,101 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             LD_D(xRDX, xEmu, offsetof(x64emu_t, regs[_DX]));
             LD_D(xRBX, xEmu, offsetof(x64emu_t, regs[_BX]));
             break;
+        case 0xA3:
+            INST_NAME("BT Ed, Gd");
+            SETFLAGS(X_CF, SF_SUBSET);
+            SET_DFNONE();
+            nextop = F8;
+            GETGD;
+            if (MODREG) {
+                ed = TO_LA64((nextop & 7) + (rex.b << 3));
+            } else {
+                SMREAD();
+                addr = geted(dyn, addr, ninst, nextop, &wback, x3, x1, &fixedaddress, rex, NULL, 1, 0);
+                SRAIxw(x1, gd, 5 + rex.w);        // r1 = (gd>>5)
+                ALSL_D(x3, wback, x1, 2 + rex.w); // (&ed) += r1*4;
+                LDxw(x1, x3, fixedaddress);
+                ed = x1;
+            }
+            ANDI(x2, gd, rex.w ? 0x3f : 0x1f);
+            SRLxw(x4, ed, x2);
+            if (la64_lbt)
+                X64_SET_EFLAGS(x4, X_CF);
+            else
+                BSTRINS_D(xFlags, x4, F_CF, F_CF);
+            break;
+        case 0xAF:
+            INST_NAME("IMUL Gd, Ed");
+            SETFLAGS(X_ALL, SF_PENDING);
+            nextop = F8;
+            GETGD;
+            GETED(0);
+            if (box64_dynarec_test) {
+                // avoid noise during test
+                CLEAR_FLAGS(x3);
+            }
+            if (rex.w) {
+                // 64bits imul
+                UFLAG_IF {
+                    if (la64_lbt) {
+                        X64_MUL_D(gd, ed);
+                    }
+                    MULH_D(x3, gd, ed);
+                    MUL_D(gd, gd, ed);
+                    IFX (X_PEND) {
+                        UFLAG_OP1(x3);
+                        UFLAG_RES(gd);
+                        UFLAG_DF(x3, d_imul64);
+                    } else {
+                        SET_DFNONE();
+                    }
+                    IFXA (X_CF | X_OF, !la64_lbt) {
+                        SRAI_D(x4, gd, 63);
+                        XOR(x3, x3, x4);
+                        SNEZ(x3, x3);
+                        IFX (X_CF) {
+                            BSTRINS_D(xFlags, x3, F_CF, F_CF);
+                        }
+                        IFX (X_OF) {
+                            BSTRINS_D(xFlags, x3, F_OF, F_OF);
+                        }
+                    }
+                } else {
+                    MULxw(gd, gd, ed);
+                }
+            } else {
+                // 32bits imul
+                UFLAG_IF {
+                    if (la64_lbt) {
+                        X64_MUL_W(gd, ed);
+                    }
+                    MUL_D(gd, gd, ed);
+                    SRLI_D(x3, gd, 32);
+                    SLLI_W(gd, gd, 0);
+                    IFX (X_PEND) {
+                        UFLAG_RES(gd);
+                        UFLAG_OP1(x3);
+                        UFLAG_DF(x4, d_imul32);
+                    } else IFX (X_CF | X_OF) {
+                        SET_DFNONE();
+                    }
+                    IFXA (X_CF | X_OF, !la64_lbt) {
+                        SRAI_W(x4, gd, 31);
+                        SUB_D(x3, x3, x4);
+                        SNEZ(x3, x3);
+                        IFX (X_CF) {
+                            BSTRINS_D(xFlags, x3, F_CF, F_CF);
+                        }
+                        IFX (X_OF) {
+                            BSTRINS_D(xFlags, x3, F_OF, F_OF);
+                        }
+                    }
+                } else {
+                    MULxw(gd, gd, ed);
+                }
+                ZEROUP(gd);
+            }
+            break;
         case 0xB6:
             INST_NAME("MOVZX Gd, Eb");
             nextop = F8;
@@ -294,6 +404,71 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LD_HU(gd, ed, fixedaddress);
             }
             break;
+        case 0xBC:
+            INST_NAME("BSF Gd, Ed");
+            SETFLAGS(X_ZF, SF_SUBSET);
+            SET_DFNONE();
+            nextop = F8;
+            GETED(0);
+            GETGD;
+            if (!rex.w && MODREG) {
+                AND(x4, ed, xMASK);
+                ed = x4;
+            }
+            BNE_MARK(ed, xZR);
+            if (la64_lbt) {
+                ADDI_D(x3, xZR, 1 << F_ZF);
+                X64_SET_EFLAGS(x3, X_ZF);
+            } else {
+                ORI(xFlags, xFlags, 1 << F_ZF);
+            }
+            B_NEXT_nocond;
+            MARK;
+            // gd is undefined if ed is all zeros, don't worry.
+            if (rex.w)
+                CTZ_D(gd, ed);
+            else
+                CTZ_W(gd, ed);
+            if (la64_lbt) {
+                X64_SET_EFLAGS(xZR, X_ZF);
+            } else {
+                ADDI_D(x3, xZR, ~(1 << F_ZF));
+                AND(xFlags, xFlags, x3);
+            }
+            break;
+        case 0xBD:
+            INST_NAME("BSR Gd, Ed");
+            SETFLAGS(X_ZF, SF_SUBSET);
+            SET_DFNONE();
+            nextop = F8;
+            GETED(0);
+            GETGD;
+            if (!rex.w && MODREG) {
+                AND(x4, ed, xMASK);
+                ed = x4;
+            }
+            BNE_MARK(ed, xZR);
+            if (la64_lbt) {
+                ADDI_D(x3, xZR, 1 << F_ZF);
+                X64_SET_EFLAGS(x3, X_ZF);
+            } else {
+                ORI(xFlags, xFlags, 1 << F_ZF);
+            }
+            B_NEXT_nocond;
+            MARK;
+            if (la64_lbt) {
+                X64_SET_EFLAGS(xZR, X_ZF);
+            } else {
+                ADDI_D(x3, xZR, ~(1 << F_ZF));
+                AND(xFlags, xFlags, x3);
+            }
+            if (rex.w)
+                CLZ_D(gd, ed);
+            else
+                CLZ_W(gd, ed);
+            ADDI_D(x1, xZR, rex.w ? 63 : 31);
+            SUB_D(gd, x1, gd);
+            break;
         case 0xBE:
             INST_NAME("MOVSX Gd, Eb");
             nextop = F8;
@@ -315,6 +490,18 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LD_B(gd, ed, fixedaddress);
             }
             if (!rex.w) ZEROUP(gd);
+            break;
+        case 0xC8:
+        case 0xC9:
+        case 0xCA:
+        case 0xCB:
+        case 0xCC:
+        case 0xCD:
+        case 0xCE:
+        case 0xCF:
+            INST_NAME("BSWAP Reg");
+            gd = TO_LA64((opcode & 7) + (rex.b << 3));
+            REVBxw(gd, gd);
             break;
         default:
             DEFAULT;

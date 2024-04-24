@@ -34,10 +34,12 @@ uint64_t DecodeBitMasks(int N, int imms, int immr)
     if(s==levels) return 0;
     uint64_t mask = (1LL<<(s+1))-1;
     if(r) { // rotate
-         mask=(mask>>r)|(mask<<(e-r));
-         mask&=((1LL<<e)-1);
+        mask=(mask>>r)|(mask<<(e-r));
+        if(e<64) {
+            mask&=((1LL<<e)-1);
+        }
     }
-    while (e<64) {  // replicate
+    while(e<64) {  // replicate
         mask|=(mask<<e);
         e<<=1;
     }
@@ -1572,6 +1574,17 @@ const char* arm64_print(uint32_t opcode, uintptr_t addr)
             snprintf(buff, sizeof(buff), "%cXTL%s V%d.%s, V%d.%s", a.U?'U':'S', a.Q?"2":"", Rd, Va, Rn, Vd);
         else
             snprintf(buff, sizeof(buff), "%cSHLL%s V%d.%s, V%d.%s, #%d", a.U?'U':'S', a.Q?"2":"", Rd, Va, Rn, Vd, sh);
+        return buff;
+    }
+    if(isMask(opcode, "0Q0011110hhhhiii010101nnnnnddddd", &a) && (a.h != 0b1000)) {
+        const char* Y[] = {"8B", "16B", "4H", "8H", "2S", "4S", "??", "2D"};
+        int sz = 3;
+        if((a.h&0b1111)==0b0001) sz=0;
+        else if((a.h&0b1110)==0b0010) sz=1;
+        else if((a.h&0b1100)==0b0100) sz=2;
+        int sh=(((a.h)<<3)|(imm)) - (8<<sz);
+        const char* Vd = Y[(sz<<1)|a.Q];
+        snprintf(buff, sizeof(buff), "SHL%s V%d.%s, V%d.%s, #%d", a.Q?"Q":"", Rd, Vd, Rn, Vd, sh);
         return buff;
     }
 

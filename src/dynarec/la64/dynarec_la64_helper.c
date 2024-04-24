@@ -445,6 +445,51 @@ void ret_to_epilog(dynarec_la64_t* dyn, int ninst, rex_t rex)
     CLEARIP();
 }
 
+void retn_to_epilog(dynarec_la64_t* dyn, int ninst, rex_t rex, int n)
+{
+    MAYUSE(dyn);
+    MAYUSE(ninst);
+    MESSAGE(LOG_DUMP, "Retn to epilog\n");
+    POP1z(xRIP);
+    if (n > 0x7ff) {
+        MOV64x(w1, n);
+        ADDz(xRSP, xRSP, x1);
+    } else {
+        ADDIz(xRSP, xRSP, n);
+    }
+    MVz(x1, xRIP);
+    SMEND();
+    if (box64_dynarec_callret) {
+        // pop the actual return address from RV64 stack
+        LD_D(x2, xSP, 0);     // native addr
+        LD_D(x6, xSP, 8);     // x86 addr
+        ADDI_D(xSP, xSP, 16); // pop
+        BNE(x6, xRIP, 2 * 4); // is it the right address?
+        BR(x2);
+        // not the correct return address, regular jump, but purge the stack first, it's unsync now...
+        ADDI_D(xSP, xSavedSP, -16);
+    }
+
+    uintptr_t tbl = rex.is32bits ? getJumpTable32() : getJumpTable64();
+    MOV64x(x3, tbl);
+    if (!rex.is32bits) {
+        BSTRPICK_D(x2, xRIP, JMPTABL_START3 + JMPTABL_SHIFT3 - 1, JMPTABL_START3);
+        ALSL_D(x3, x2, x3, 3);
+        LD_D(x3, x3, 0);
+    }
+    BSTRPICK_D(x2, xRIP, JMPTABL_START2 + JMPTABL_SHIFT2 - 1, JMPTABL_START2);
+    ALSL_D(x3, x2, x3, 3);
+    LD_D(x3, x3, 0);
+    BSTRPICK_D(x2, xRIP, JMPTABL_START1 + JMPTABL_SHIFT1 - 1, JMPTABL_START1);
+    ALSL_D(x3, x2, x3, 3);
+    LD_D(x3, x3, 0);
+    BSTRPICK_D(x2, xRIP, JMPTABL_START0 + JMPTABL_SHIFT0 - 1, JMPTABL_START0);
+    ALSL_D(x3, x2, x3, 3);
+    LD_D(x2, x3, 0);
+    BR(x2); // save LR
+    CLEARIP();
+}
+
 void call_c(dynarec_la64_t* dyn, int ninst, void* fnc, int reg, int ret, int saveflags, int savereg)
 {
     MAYUSE(fnc);
@@ -505,6 +550,32 @@ void call_c(dynarec_la64_t* dyn, int ninst, void* fnc, int reg, int ret, int sav
     SET_NODF();
     dyn->last_ip = 0;
 }
+
+void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment)
+{
+    (void)addr;
+    int64_t j64;
+    MAYUSE(j64);
+    MESSAGE(LOG_DUMP, "Get %s Offset\n", (segment == _FS) ? "FS" : "GS");
+    int t1 = x1, t2 = x4;
+    if (reg == t1) ++t1;
+    if (reg == t2) ++t2;
+    LD_WU(t2, xEmu, offsetof(x64emu_t, segs_serial[segment]));
+    LD_D(reg, xEmu, offsetof(x64emu_t, segs_offs[segment]));
+    if (segment == _GS) {
+        CBNZ_MARKSEG(t2); // fast check
+    } else {
+        LD_D(t1, xEmu, offsetof(x64emu_t, context));
+        LD_WU(t1, t1, offsetof(box64context_t, sel_serial));
+        SUB_W(t1, t1, t2);
+        CBZ_MARKSEG(t1);
+    }
+    MOV64x(x1, segment);
+    call_c(dyn, ninst, GetSegmentBaseEmu, t2, reg, 0, xFlags);
+    MARKSEG;
+    MESSAGE(LOG_DUMP, "----%s Offset\n", (segment == _FS) ? "FS" : "GS");
+}
+
 
 void x87_forget(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st)
 {
@@ -1040,4 +1111,32 @@ void CacheTransform(dynarec_la64_t* dyn, int ninst, int cacheupd, int s1, int s2
         fpuCacheTransform(dyn, ninst, s1, s2, s3);
     if(cacheupd&1)
         flagsCacheTransform(dyn, ninst, s1);
+}
+
+void la64_move32(dynarec_la64_t* dyn, int ninst, int reg, int32_t val, int zeroup)
+{
+    if ((val & 0xfff) == val) {
+        ORI(reg, xZR, val);
+    } else if (((val << 20) >> 20) == val) {
+        ADDI_W(reg, xZR, val & 0xfff);
+    } else if ((val & 0xfff) == 0) {
+        LU12I_W(reg, (val >> 12) & 0xfffff);
+    } else {
+        LU12I_W(reg, (val >> 12) & 0xfffff);
+        ORI(reg, reg, val & 0xfff);
+    }
+    if (zeroup && val < 0) ZEROUP(reg);
+}
+
+void la64_move64(dynarec_la64_t* dyn, int ninst, int reg, int64_t val)
+{
+    la64_move32(dyn, ninst, reg, val, 0);
+    if (((val << 32) >> 32) == val) {
+        return;
+    }
+    LU32I_D(reg, (val >> 32) & 0xfffff);
+    if (((val << 12) >> 12) == val) {
+        return;
+    }
+    LU52I_D(reg, reg, (val >> 52) & 0xfff);
 }

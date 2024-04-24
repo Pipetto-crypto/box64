@@ -24,6 +24,10 @@
 #define SF_SUB      4
 #define SF_SUBSET   (SF_SUB|SF_SET)
 #define SF_SUBSET_PENDING   (SF_SUBSET|SF_PENDING)
+#define SF_DF       8
+#define SF_SET_DF   (SF_SET|SF_DF)
+#define SF_NODF     16
+#define SF_SET_NODF (SF_SET|SF_NODF)
 
 typedef struct instruction_x64_s {
     uintptr_t   addr;       //address of the instruction

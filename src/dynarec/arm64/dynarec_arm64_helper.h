@@ -881,6 +881,8 @@
     if(dyn->insts[ninst].x64.gen_flags) switch(B) {                                             \
         case SF_SUBSET:                                                                         \
         case SF_SET: dyn->f.pending = SF_SET; break;                                            \
+        case SF_SET_DF: dyn->f.pending = SF_SET; dyn->f.dfnone = 1; break;                      \
+        case SF_SET_NODF: dyn->f.pending = SF_SET; dyn->f.dfnone = 0; break;                    \
         case SF_PENDING: dyn->f.pending = SF_PENDING; break;                                    \
         case SF_SUBSET_PENDING:                                                                 \
         case SF_SET_PENDING:                                                                    \
@@ -925,8 +927,8 @@
     dyn->doublepop = 0;
 
 #if STEP < 2
-#define GETIP(A)
-#define GETIP_(A)
+#define GETIP(A) TABLE64(0, 0)
+#define GETIP_(A) TABLE64(0, 0)
 #else
 // put value in the Table64 even if not using it for now to avoid difference between Step2 and Step3. Needs to be optimized later...
 #define GETIP(A)                                        \
