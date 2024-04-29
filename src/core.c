@@ -79,7 +79,6 @@ int box64_dynarec_fastround = 1;
 int box64_dynarec_safeflags = 1;
 int box64_dynarec_callret = 0;
 int box64_dynarec_bleeding_edge = 1;
-int box64_dynarec_jvm = 1;
 int box64_dynarec_tbb = 1;
 int box64_dynarec_wait = 1;
 int box64_dynarec_missing = 0;
@@ -117,11 +116,15 @@ int rv64_xtheadmac = 0;
 int rv64_xtheadfmv = 0;
 #elif defined(LA64)
 int la64_lbt = 0;
+int la64_lam_bh = 0;
+int la64_lamcas = 0;
+int la64_scq = 0;
 #endif
 #else   //DYNAREC
 int box64_dynarec = 0;
 #endif
 int box64_libcef = 1;
+int box64_jvm = 1;
 int box64_sdl2_jguid = 0;
 int dlsym_error = 0;
 int cycle_log = 0;
@@ -146,6 +149,7 @@ int box64_prefer_wrapped = 0;
 int box64_sse_flushto0 = 0;
 int box64_x87_no80bits = 0;
 int box64_sync_rounding = 0;
+int box64_sse42 = 1;
 int fix_64bit_inodes = 0;
 int box64_dummy_crashhandler = 1;
 int box64_mapclean = 0;
@@ -458,10 +462,23 @@ HWCAP2_ECV
     char* p = getenv("BOX64_DYNAREC_LA64NOEXT");
     if(p == NULL || p[0] == '0') {
         uint32_t cpucfg2 = 0, idx = 2;
-        // there are other extensions, but we don't care.
         asm volatile("cpucfg %0, %1" : "=r"(cpucfg2) : "r"(idx));
+        if ((cpucfg2 >> 6) & 0b1) {
+            printf_log(LOG_INFO, "with extension LSX");
+        } else {
+            printf_log(LOG_INFO, "\nMissing LSX extension support, disabling Dynarec\n");
+            box64_dynarec = 0;
+            return;
+        }
+
         if (la64_lbt = (cpucfg2 >> 18) & 0b1)
-            printf_log(LOG_INFO, "with extension LBT_X86");
+            printf_log(LOG_INFO, " LBT_X86");
+        if (la64_lam_bh = (cpucfg2 >> 27) & 0b1)
+            printf_log(LOG_INFO, " LAM_BT");
+        if (la64_lamcas = (cpucfg2 >> 28) & 0b1)
+            printf_log(LOG_INFO, " LAMCAS");
+        if (la64_scq = (cpucfg2 >> 30) & 0b1)
+            printf_log(LOG_INFO, " SCQ");
     }
 #elif defined(RV64)
     void RV64_Detect_Function();
@@ -747,9 +764,9 @@ void LoadLogEnv()
     if(p) {
         if(strlen(p)==1) {
             if(p[0]>='0' && p[0]<='1')
-                box64_dynarec_jvm = p[0]-'0';
+                box64_jvm = p[0]-'0';
         }
-        if(!box64_dynarec_jvm)
+        if(!box64_jvm)
             printf_log(LOG_INFO, "Dynarec will not detect libjvm\n");
     }
     p = getenv("BOX64_DYNAREC_TBB");
@@ -864,6 +881,15 @@ void LoadLogEnv()
         }
         if(!box64_libcef)
             printf_log(LOG_INFO, "BOX64 will not detect libcef\n");
+    }
+    p = getenv("BOX64_JVM");
+    if(p) {
+        if(strlen(p)==1) {
+            if(p[0]>='0' && p[0]<='1')
+                box64_jvm = p[0]-'0';
+        }
+        if(!box64_jvm)
+            printf_log(LOG_INFO, "BOX64 will not detect libjvm\n");
     }
     p = getenv("BOX64_SDL2_JGUID");
     if(p) {
@@ -990,6 +1016,15 @@ void LoadLogEnv()
         if(!box64_futex_waitv)
             printf_log(LOG_INFO, "Disable the use of futex waitv syscall\n");
         #endif
+    }
+    p = getenv("BOX64_SSE42");
+    if(p) {
+        if(strlen(p)==1) {
+            if(p[0]>='0' && p[0]<='0'+1)
+                box64_sse42 = p[0]-'0';
+        }
+        if(!box64_sse42)
+            printf_log(LOG_INFO, "Do not expose SSE 4.2 capabilities\n");
     }
     p = getenv("BOX64_FIX_64BIT_INODES");
     if(p) {
@@ -1734,7 +1769,7 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
      || (strrchr(prog, '/') && !strcmp(strrchr(prog,'/'), "/wine64"))) {
         const char* prereserve = getenv("WINEPRELOADRESERVE");
         printf_log(LOG_INFO, "BOX64: Wine64 detected, WINEPRELOADRESERVE=\"%s\"\n", prereserve?prereserve:"");
-        if(wine_preloaded) {
+        if(wine_preloaded || 1) {
             wine_prereserve(prereserve);
         }
         // special case for winedbg, doesn't work anyway

@@ -8,6 +8,7 @@
 #include "dynarec.h"
 #include "emu/x64emu_private.h"
 #include "emu/x64run_private.h"
+#include "la64_emitter.h"
 #include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
@@ -55,12 +56,157 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             FAKEED;
             break;
+        case 0x28:
+            INST_NAME("MOVAPD Gx,Ex");
+            nextop = F8;
+            GETG;
+            if (MODREG) {
+                ed = (nextop & 7) + (rex.b << 3);
+                v1 = sse_get_reg(dyn, ninst, x1, ed, 0);
+                v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
+                VOR_V(v0, v1, v1);
+            } else {
+                SMREAD();
+                v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, x3, &fixedaddress, rex, NULL, 1, 0);
+                VLD(v0, ed, fixedaddress);
+            }
+            break;
+        case 0x38: // SSSE3 opcodes
+            nextop = F8;
+            switch (nextop) {
+                case 0x00:
+                    INST_NAME("PSHUFB Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VLDI(v0, 0b0000010001111); // broadcast 0b10001111 as byte
+                    VAND_V(v0, v0, q1);
+                    VMINI_BU(v0, v0, 0x1f);
+                    VXOR_V(v1, v1, v1);
+                    VSHUF_B(q0, v1, q0, v0);
+                    break;
+                case 0x01:
+                    INST_NAME("PHADDW Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VPICKEV_H(v0, q1, q0);
+                    VPICKOD_H(v1, q1, q0);
+                    VADD_H(q0, v0, v1);
+                    break;
+                case 0x02:
+                    INST_NAME("PHADDD Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VPICKEV_W(v0, q1, q0);
+                    VPICKOD_W(v1, q1, q0);
+                    VADD_W(q0, v0, v1);
+                    break;
+                case 0x03:
+                    INST_NAME("PHADDSW Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VPICKEV_H(v0, q1, q0);
+                    VPICKOD_H(v1, q1, q0);
+                    VSADD_H(q0, v0, v1);
+                    break;
+                case 0x04:
+                    INST_NAME("PMADDUBSW Gx,Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VEXT2XV_HU_BU(v0, q0);
+                    VEXT2XV_H_B(v1, q1);
+                    XVMUL_H(v0, v0, v1);
+                    XVPERMI_Q(v1, v0, 1); // v1[127:0] = v0[255:128];
+                    VPICKEV_H(q0, v1, v0);
+                    VPICKOD_H(v0, v1, v0);
+                    VSADD_H(q0, v0, q0);
+                    break;
+                case 0x05:
+                    INST_NAME("PHSUBW Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VPICKEV_H(v0, q1, q0);
+                    VPICKOD_H(v1, q1, q0);
+                    VSUB_H(q0, v0, v1);
+                    break;
+                case 0x06:
+                    INST_NAME("PHSUBD Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VPICKEV_W(v0, q1, q0);
+                    VPICKOD_W(v1, q1, q0);
+                    VSUB_D(q0, v0, v1);
+                    break;
+                case 0x07:
+                    INST_NAME("PHSUBSW Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VPICKEV_H(v0, q1, q0);
+                    VPICKOD_H(v1, q1, q0);
+                    VSSUB_H(q0, v0, v1);
+                    break;
+                case 0x08:
+                    INST_NAME("PSIGNB Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    VSIGNCOV_B(q0, q1, q0);
+                    break;
+                case 0x09:
+                    INST_NAME("PSIGNW Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    VSIGNCOV_H(q0, q1, q0);
+                    break;
+                case 0x0A:
+                    INST_NAME("PSIGND Gx, Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    VSIGNCOV_W(q0, q1, q0);
+                    break;
+                default:
+                    DEFAULT;
+            }
+            break;
         case 0x61:
             INST_NAME("PUNPCKLWD Gx,Ex");
             nextop = F8;
             GETGX(v0, 1);
             GETEX(q0, 0, 0);
             VILVL_H(v0, q0, v0);
+            break;
+        case 0x69:
+            INST_NAME("PUNPCKHWD Gx,Ex");
+            nextop = F8;
+            GETGX(q0, 1);
+            GETEX(q1, 0, 0);
+            VILVH_H(q0, q1, q0);
             break;
         case 0x6C:
             INST_NAME("PUNPCKLQDQ Gx,Ex");
@@ -113,6 +259,31 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 VLD(v0, ed, fixedaddress);
             }
             break;
+        case 0x7E:
+            INST_NAME("MOVD Ed,Gx");
+            nextop = F8;
+            GETGX(v0, 0);
+            if (rex.w) {
+                if (MODREG) {
+                    ed = TO_LA64((nextop & 7) + (rex.b << 3));
+                    MOVFR2GR_D(ed, v0);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x2, x3, &fixedaddress, rex, NULL, 1, 0);
+                    FST_D(v0, ed, fixedaddress);
+                    SMWRITE2();
+                }
+            } else {
+                if (MODREG) {
+                    ed = TO_LA64((nextop & 7) + (rex.b << 3));
+                    MOVFR2GR_S(ed, v0);
+                    ZEROUP(ed);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x2, x3, &fixedaddress, rex, NULL, 1, 0);
+                    FST_S(v0, ed, fixedaddress);
+                    SMWRITE2();
+                }
+            }
+            break;
         case 0xBE:
             INST_NAME("MOVSX Gw, Eb");
             nextop = F8;
@@ -140,6 +311,13 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             }
             BSTRINS_D(gd, x1, 15, 0);
             break;
+        case 0xD4:
+            INST_NAME("PADDQ Gx, Ex");
+            nextop = F8;
+            GETGX(v0, 1);
+            GETEX(q0, 0, 0);
+            VADD_D(v0, v0, q0);
+            break;
         case 0xD6:
             INST_NAME("MOVQ Ex, Gx");
             nextop = F8;
@@ -153,6 +331,13 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 FST_D(v0, ed, fixedaddress);
                 SMWRITE2();
             }
+            break;
+        case 0xDB:
+            INST_NAME("PAND Gx,Ex");
+            nextop = F8;
+            GETGX(v0, 1);
+            GETEX(q0, 0, 0);
+            VAND_V(v0, v0, q0);
             break;
         case 0xEF:
             INST_NAME("PXOR Gx,Ex");

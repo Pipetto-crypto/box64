@@ -96,6 +96,7 @@ ENTRYBOOL(BOX64_CRASHHANDLER, box64_dummy_crashhandler) \
 ENTRYBOOL(BOX64_NOPULSE, box64_nopulse)                 \
 ENTRYBOOL(BOX64_NOGTK, box64_nogtk)                     \
 ENTRYBOOL(BOX64_NOVULKAN, box64_novulkan)               \
+ENTRYBOOL(BOX64_SSE42, box64_sse42)                     \
 ENTRYBOOL(BOX64_FUTEX_WAITV, box64_futex_waitv)         \
 ENTRYSTRING_(BOX64_BASH, bash)                          \
 ENTRYINT(BOX64_JITGDB, jit_gdb, 0, 3, 2)                \
@@ -105,6 +106,7 @@ ENTRYBOOL(BOX64_CEFDISABLEGPU, box64_cefdisablegpu)     \
 ENTRYBOOL(BOX64_CEFDISABLEGPUCOMPOSITOR, box64_cefdisablegpucompositor)\
 ENTRYBOOL(BOX64_EXIT, want_exit)                        \
 ENTRYBOOL(BOX64_LIBCEF, box64_libcef)                   \
+ENTRYBOOL(BOX64_JVM, box64_jvm)                         \
 ENTRYBOOL(BOX64_SDL2_JGUID, box64_sdl2_jguid)           \
 ENTRYINT(BOX64_MALLOC_HACK, box64_malloc_hack, 0, 2, 2) \
 ENTRYINTPOS(BOX64_MAXCPU, new_maxcpu)                   \
@@ -503,6 +505,7 @@ void ApplyParams(const char* name)
         return;
     int new_cycle_log = cycle_log;
     int new_maxcpu = box64_maxcpu;
+    int box64_dynarec_jvm = box64_jvm;
     if(!strcmp(name, old_name)) {
         return;
     }
@@ -550,6 +553,10 @@ void ApplyParams(const char* name)
         cycle_log = new_cycle_log;
         initCycleLog(my_context);
     }
+    #ifdef DYNAREC
+    if(param->is_box64_dynarec_jvm_present && !param->is_box64_jvm_present)
+        box64_jvm = box64_dynarec_jvm;
+    #endif
     if(!box64_maxcpu_immutable) {
         if(new_maxcpu!=box64_maxcpu && box64_maxcpu && box64_maxcpu<new_maxcpu) {
         printf_log(LOG_INFO, "Not applying BOX64_MAXCPU=%d because a lesser value is already active: %d\n", new_maxcpu, box64_maxcpu);
