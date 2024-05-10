@@ -934,7 +934,6 @@
             BEQ(x3, xZR, j64);                      \
         }                                           \
         CALL_(UpdateFlags, -1, 0);                  \
-        FLAGS_ADJUST_FROM11(xFlags, xFlags, x3);    \
         MARKF;                                      \
         dyn->f.pending = SF_SET;                    \
         SET_DFOK();                                 \
@@ -950,6 +949,8 @@
     if (dyn->insts[ninst].x64.gen_flags) switch (B) {                                                               \
             case SF_SUBSET:                                                                                         \
             case SF_SET: dyn->f.pending = SF_SET; break;                                                            \
+            case SF_SET_DF: dyn->f.pending = SF_SET; dyn->f.dfnone = 1; break;                                      \
+            case SF_SET_NODF: dyn->f.pending = SF_SET; dyn->f.dfnone = 0; break;                                    \
             case SF_PENDING: dyn->f.pending = SF_PENDING; break;                                                    \
             case SF_SUBSET_PENDING:                                                                                 \
             case SF_SET_PENDING:                                                                                    \

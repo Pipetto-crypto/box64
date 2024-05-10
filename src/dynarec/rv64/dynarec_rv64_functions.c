@@ -20,7 +20,7 @@
 #include "emu/x87emu_private.h"
 #include "x64trace.h"
 #include "signals.h"
-#include "dynarec_rv64.h"
+#include "dynarec_native.h"
 #include "dynarec_rv64_private.h"
 #include "dynarec_rv64_functions.h"
 #include "custommem.h"
@@ -492,24 +492,28 @@ void extcacheUnwind(extcache_t* cache)
     }
 }
 
-
-uint8_t extract_byte(uint32_t val, void* address){
+// will go badly if address is unaligned
+static uint8_t extract_byte(uint32_t val, void* address)
+{
     int idx = (((uintptr_t)address)&3)*8;
     return (val>>idx)&0xff;
 }
-uint32_t insert_byte(uint32_t val, uint8_t b, void* address){
+
+static uint32_t insert_byte(uint32_t val, uint8_t b, void* address)
+{
     int idx = (((uintptr_t)address)&3)*8;
     val&=~(0xff<<idx);
     val|=(((uint32_t)b)<<idx);
     return val;
 }
 
-// will go badly if address is unaligned
-uint16_t extract_half(uint32_t val, void* address){
+static uint16_t extract_half(uint32_t val, void* address)
+{
     int idx = (((uintptr_t)address)&3)*8;
     return (val>>idx)&0xffff;
 }
-uint32_t insert_half(uint32_t val, uint16_t h, void* address){
+static uint32_t insert_half(uint32_t val, uint16_t h, void* address)
+{
     int idx = (((uintptr_t)address)&3)*8;
     val&=~(0xffff<<idx);
     val|=(((uint32_t)h)<<idx);
