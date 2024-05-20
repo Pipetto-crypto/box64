@@ -745,7 +745,7 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                             GETGD;
 #if defined(DYNAREC) && !defined(TEST_INTERPRETER)
                             if (rex.w) {
-#if defined(__riscv)
+#if defined(__riscv) || defined(__loongarch64)
                                 while (native_lock_xchg_d(&emu->context->mutex_16b, 1)); // lock
                                 tmp64u = ((uint64_t*)ED)[0];
                                 tmp64u2 = ((uint64_t*)ED)[1];
@@ -941,12 +941,20 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                     }
                 else
                     switch((nextop>>3)&7) {
-                        case 0: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = add32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
+                        case 0: if(((uintptr_t)ED)&3) {
+                                    // unaligned case
+                                    do { tmp32u2 = native_lock_read_b(ED); tmp32u2=ED->dword[0]; tmp32u2 = add32(emu, tmp32u2, tmp64u);} while(native_lock_write_b(ED, tmp32u2)); ED->dword[0]=tmp32u2; break;    
+                                } else
+                                do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = add32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
                         case 1: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 =  or32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
                         case 2: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = adc32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
                         case 3: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = sbb32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
                         case 4: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = and32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
-                        case 5: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = sub32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
+                        case 5: if(((uintptr_t)ED)&3) {
+                                    // unaligned case
+                                    do { tmp32u2 = native_lock_read_b(ED); tmp32u2=ED->dword[0]; tmp32u2 = sub32(emu, tmp32u2, tmp64u);} while(native_lock_write_b(ED, tmp32u2)); ED->dword[0]=tmp32u2; break;    
+                                } else
+                                do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = sub32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
                         case 6: do { tmp32u2 = native_lock_read_d(ED); tmp32u2 = xor32(emu, tmp32u2, tmp64u);} while(native_lock_write_d(ED, tmp32u2)); break;
                         case 7:                                                 cmp32(emu, ED->dword[0], tmp64u); break;
                     }

@@ -2258,6 +2258,7 @@
 #() vFlliiiip
 #() vFpiiiipp
 #() vFpiiliip
+#() vFpiiLiip
 #() vFpiipCpp
 #() vFpiipppp
 #() vFpipipii
@@ -3264,6 +3265,7 @@ wrappeddbusmenuglib:
   - dbusmenu_menuitem_send_about_to_show
 - iFppp:
   - dbusmenu_client_add_type_handler
+wrappeddecor0:
 wrappedevent21:
 - vFpiwpp:
   - event_set
@@ -3348,6 +3350,7 @@ wrappedgcrypt:
 wrappedgdk3:
 - vFpp:
   - gdk_init
+  - gdk_threads_set_lock_functions
 - iFpp:
   - gdk_init_check
 - uFpp:
@@ -4487,6 +4490,12 @@ wrappedlibibus:
 - vFppppippp:
   - ibus_config_set_value_async
 wrappedlibice:
+- pFp:
+  - IceSetErrorHandler
+  - IceSetIOErrorHandler
+- iFpp:
+  - IceAddConnectionWatch
+  - IceRemoveConnectionWatch
 wrappedlibm:
 - iFv:
   - fegetround
@@ -4707,6 +4716,8 @@ wrappedlibrt:
 - iFipip:
   - lio_listio
 wrappedlibsm:
+- pFp:
+  - SmcSetErrorHandler
 - iFppp:
   - SmcRequestSaveYourselfPhase2
 - iFpipp:
