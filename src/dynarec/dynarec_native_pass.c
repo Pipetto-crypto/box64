@@ -49,6 +49,7 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
     dyn->forward_to = 0;
     dyn->forward_size = 0;
     dyn->forward_ninst = 0;
+    dyn->ymm_zero = 0;
     #if STEP == 0
     memset(&dyn->insts[ninst], 0, sizeof(instruction_native_t));
     #endif
@@ -80,6 +81,8 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         }
         #endif
         fpu_propagate_stack(dyn, ninst);
+        if(dyn->insts[ninst].purge_ymm)
+            PURGE_YMM();
         ip = addr;
         if (reset_n!=-1) {
             dyn->last_ip = 0;

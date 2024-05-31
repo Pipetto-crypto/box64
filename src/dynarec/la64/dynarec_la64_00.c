@@ -167,6 +167,16 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     DEFAULT;
             }
             break;
+        case 0x18:
+            INST_NAME("SBB Eb, Gb");
+            READFLAGS(X_CF);
+            SETFLAGS(X_ALL, SF_SET_PENDING);
+            nextop = F8;
+            GETEB(x1, 0);
+            GETGB(x2);
+            emit_sbb8(dyn, ninst, x1, x2, x4, x5, x6);
+            EBBACK();
+            break;
         case 0x19:
             INST_NAME("SBB Ed, Gd");
             READFLAGS(X_CF);
@@ -320,6 +330,14 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETGD;
             GETED(0);
             emit_xor32(dyn, ninst, rex, gd, ed, x3, x4);
+            break;
+        case 0x34:
+            INST_NAME("XOR AL, Ib");
+            SETFLAGS(X_ALL, SF_SET_PENDING);
+            u8 = F8;
+            ANDI(x1, xRAX, 0xff);
+            emit_xor8c(dyn, ninst, x1, u8, x3, x4);
+            BSTRINS_D(xRAX, x1, 7, 0);
             break;
         case 0x35:
             INST_NAME("XOR EAX, Id");
@@ -772,7 +790,7 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             emit_test32(dyn, ninst, rex, ed, gd, x3, x4, x5);
             break;
         case 0x86:
-            INST_NAME("(LOCK)XCHG Eb, Gb");
+            INST_NAME("(LOCK) XCHG Eb, Gb");
             nextop = F8;
             if (MODREG) {
                 GETGB(x1);
@@ -786,9 +804,39 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     AMSWAP_DB_B(x1, gd, ed);
                 else {
                     SMDMB();
-                    LD_BU(x1, ed, 0);
-                    ST_B(gd, ed, 0);
-                    SMDMB();
+
+                    // calculate shift amount
+                    ANDI(x1, ed, 0x3);
+                    SLLI_D(x1, x1, 3);
+
+                    // align address to 4-bytes to use ll.w/sc.w
+                    ADDI_D(x4, xZR, 0xffc);
+                    AND(x6, ed, x4);
+
+                    // load aligned data
+                    LD_WU(x5, x6, 0);
+
+                    // insert gd byte into the aligned data
+                    ADDI_D(x4, xZR, 0xff);
+                    SLL_D(x4, x4, x1);
+                    NOR(x4, x4, xZR);
+                    AND(x4, x5, x4);
+                    SLL_D(x5, gd, x1);
+                    OR(x4, x4, x5);
+
+                    // do aligned ll/sc sequence
+                    MARKLOCK;
+                    LL_W(x1, x6, 0);
+                    MV(x5, x4);
+                    SC_W(x5, x6, 0);
+                    BEQZ_MARKLOCK(x5);
+
+                    // calculate shift amount again
+                    ANDI(x4, ed, 0x3);
+                    SLLI_D(x4, x4, 3);
+
+                    // extract loaded byte
+                    SRL_D(x1, x1, x4);
                 }
                 BSTRINS_D(gb1, x1, gb2 + 7, gb2);
             }
@@ -1416,7 +1464,7 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 MOV32w(x3, u8);
                 BSTRINS_D(eb1, x3, eb2 * 8 + 7, eb2 * 8);
             } else { // mem <= u8
-                addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, &lock, 0, 1);
+                addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, &lock, 1, 1);
                 u8 = F8;
                 if (u8) {
                     ADDI_D(x3, xZR, u8);
@@ -2022,17 +2070,57 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     DEFAULT;
             }
             break;
+        case 0xFC:
+            INST_NAME("CLD");
+            BSTRINS_D(xFlags, xZR, F_DF, F_DF);
+            break;
+        case 0xFD:
+            INST_NAME("STD");
+            ORI(xFlags, xFlags, 1 << F_DF);
+            break;
+        case 0xFE:
+            nextop = F8;
+            switch ((nextop >> 3) & 7) {
+                case 0:
+                    INST_NAME("INC Eb");
+                    SETFLAGS(X_ALL & ~X_CF, SF_SUBSET_PENDING);
+                    GETEB(x1, 0);
+                    emit_inc8(dyn, ninst, ed, x2, x4, x5);
+                    EBBACK();
+                    break;
+                case 1:
+                    INST_NAME("DEC Eb");
+                    SETFLAGS(X_ALL & ~X_CF, SF_SUBSET_PENDING);
+                    GETEB(x1, 0);
+                    emit_dec8(dyn, ninst, ed, x2, x4, x5);
+                    EBBACK();
+                    break;
+                default:
+                    DEFAULT;
+            }
+            break;
         case 0xFF:
             nextop = F8;
             switch ((nextop >> 3) & 7) {
+                case 0: // INC Ed
+                    INST_NAME("INC Ed");
+                    SETFLAGS(X_ALL & ~X_CF, SF_SUBSET_PENDING);
+                    GETED(0);
+                    emit_inc32(dyn, ninst, rex, ed, x3, x4, x5, x6);
+                    WBACK;
+                    break;
+                case 1: // DEC Ed
+                    INST_NAME("DEC Ed");
+                    SETFLAGS(X_ALL & ~X_CF, SF_SUBSET_PENDING);
+                    GETED(0);
+                    emit_dec32(dyn, ninst, rex, ed, x3, x4, x5, x6);
+                    WBACK;
+                    break;
                 case 2:
                     INST_NAME("CALL Ed");
-                    PASS2IF((box64_dynarec_safeflags > 1) || ((ninst && dyn->insts[ninst - 1].x64.set_flags) || ((ninst > 1) && dyn->insts[ninst - 2].x64.set_flags)), 1)
-                    {
+                    PASS2IF ((box64_dynarec_safeflags > 1) || ((ninst && dyn->insts[ninst - 1].x64.set_flags) || ((ninst > 1) && dyn->insts[ninst - 2].x64.set_flags)), 1) {
                         READFLAGS(X_PEND); // that's suspicious
-                    }
-                    else
-                    {
+                    } else {
                         SETFLAGS(X_ALL, SF_SET); // Hack to put flag in "don't care" state
                     }
                     GETEDz(0);
