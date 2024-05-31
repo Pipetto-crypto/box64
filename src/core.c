@@ -1333,20 +1333,29 @@ void LoadEnvVars(box64context_t *context)
     }
     // check BOX64_LD_LIBRARY_PATH and load it
     LoadEnvPath(&context->box64_ld_lib, ".:lib:lib64:x86_64:bin64:libs64", "BOX64_LD_LIBRARY_PATH");
-    #ifndef TERMUX
-    if(FileExist("/lib/x86_64-linux-gnu", 0))
-        AddPath("/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
-    if(FileExist("/usr/lib/x86_64-linux-gnu", 0))
-        AddPath("/usr/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
-    if(FileExist("/usr/x86_64-linux-gnu/lib", 0))
-        AddPath("/usr/x86_64-linux-gnu/lib", &context->box64_ld_lib, 1);
-    if(FileExist("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", 0))
-        AddPath("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
-    #else
-    //TODO: Add Termux Library Path - Lily
-    if(FileExist("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", 0))
-        AddPath("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
-    #endif
+    char* package_name = getenv("PACKAGE_NAME");
+    char* p;
+    if (package_name) {
+    	asprintf(&p, "/data/data/%s/files/usr/glibc/lib/x86_64-linux-gnu", package_name);
+    	if(FileExist(p, 0))
+    		AddPath(p, &context->box64_ld_lib, 1);
+    }	
+    else {	
+    	#ifndef TERMUX
+    	if(FileExist("/lib/x86_64-linux-gnu", 0))
+        	AddPath("/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
+    	if(FileExist("/usr/lib/x86_64-linux-gnu", 0))
+        	AddPath("/usr/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
+    	if(FileExist("/usr/x86_64-linux-gnu/lib", 0))
+        	AddPath("/usr/x86_64-linux-gnu/lib", &context->box64_ld_lib, 1);
+    	if(FileExist("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", 0))
+        	AddPath("/data/data/com.termux/files/usr/glibc/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
+    	#else
+    	//TODO: Add Termux Library Path - Lily
+    	if(FileExist("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", 0))
+        	AddPath("/data/data/com.termux/files/usr/lib/x86_64-linux-gnu", &context->box64_ld_lib, 1);
+    	#endif
+    }
     if(getenv("LD_LIBRARY_PATH"))
         PrependList(&context->box64_ld_lib, getenv("LD_LIBRARY_PATH"), 1);   // in case some of the path are for x86 world
     if(getenv("BOX64_EMULATED_LIBS")) {
