@@ -280,6 +280,19 @@
                     ed = i;                 \
                     wb1 = 1;                \
                 }
+//GETEW will use i for ed, and can use r3 for wback.
+#define GETEW32(i, D) if(MODREG) {          \
+                    wback = xRAX+(nextop&7)+(rex.b<<3);\
+                    UXTHw(i, wback);        \
+                    ed = i;                 \
+                    wb1 = 0;                \
+                } else {                    \
+                    SMREAD();               \
+                    addr = geted32(dyn, addr, ninst, nextop, &wback, x3, &fixedaddress, &unscaled, 0xfff<<1, (1<<1)-1, rex, NULL, 0, D); \
+                    LDH(i, wback, fixedaddress);   \
+                    ed = i;                 \
+                    wb1 = 1;                \
+                }
 //GETEWO will use i for ed, i is also Offset, and can use r3 for wback.
 #define GETEWO(i, D) if(MODREG) {               \
                     wback = xRAX+(nextop&7)+(rex.b<<3);\
@@ -436,6 +449,79 @@
     gd = ((nextop&0x38)>>3)+(rex.r<<3); \
     a = sse_get_reg_empty(dyn, ninst, x1, gd)
 
+// Get VX as a quad (might use x1)
+#define GETVX(a, w)                     \
+    a = sse_get_reg(dyn, ninst, x1, vex.v, w)
+
+// Get an empty VX (use x1)
+#define GETVX_empty(a)                  \
+    a = sse_get_reg_empty(dyn, ninst, x1, vex.v)
+
+#define GETGY_VY(a, w1, b, w2, k1, k2)                      \
+    if(w2) b = ymm_get_reg(dyn, ninst, x1, vex.v, w2, gd, k1, k2); \
+    a = ymm_get_reg(dyn, ninst, x1, gd, w1, vex.v, k1, k2); \
+    if(!w2) b = ymm_get_reg(dyn, ninst, x1, vex.v, w2, gd, k1, k2)
+
+#define GETGY_empty(a, k1, k2, k3)                          \
+    a = ymm_get_reg_empty(dyn, ninst, x1, gd, k1, k2, k3)
+
+#define GETGY(a, w, k1, k2, k3)                             \
+    a = ymm_get_reg(dyn, ninst, x1, gd, w, k1, k2, k3)
+
+#define GETGY_empty_VY(a, b, w2, k1, k2)                    \
+    b = ymm_get_reg(dyn, ninst, x1, vex.v, w2, gd, k1, k2); \
+    a = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, k1, k2)
+
+// Get empty GX, and non-writen VX and EX
+#define GETGX_empty_VXEX(gx, vx, ex, D)     \
+    GETVX(vx, 0);                           \
+    GETEX_Y(ex, 0, D);                      \
+    GETGX_empty(gx)
+
+// Get EX and and non-writen VX and GX
+#define GETGXVXEX(gx, vx, ex, D)            \
+    GETVX(vx, 0);                           \
+    GETEX_Y(ex, 1, D);                      \
+    GETGX(gx, 0)
+
+// Get empty GY, and non-writen VY and EY
+#define GETGY_empty_VYEY(gy, vy, ey)                                                            \
+    vy = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
+    if(MODREG)                                                                                  \
+        ey = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0, gd, vex.v, -1);              \
+    else                                                                                        \
+        VLD128(ey, ed, fixedaddress+16);                                                        \
+    gy = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1)
+
+// Get EY and non-writen VY and GY
+#define GETGYVYEY(gy, vy, ey)                                                                   \
+    vy = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
+    if(MODREG)                                                                                  \
+        ey = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 1, gd, vex.v, -1);              \
+    else                                                                                        \
+        VLD128(ey, ed, fixedaddress+16);                                                        \
+    gy = ymm_get_reg(dyn, ninst, x1, gd, 0, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1)
+
+// Get empty GY, and non-writen EY
+#define GETGY_empty_EY(gy, ey)                                                      \
+    if(MODREG)                                                                      \
+        ey = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0, gd, -1, -1);     \
+    else                                                                            \
+        VLD128(ey, ed, fixedaddress+16);                                            \
+    gy = ymm_get_reg_empty(dyn, ninst, x1, gd, -1, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1)
+
+// Get EX as a quad, (x1 is used)
+#define GETEX_Y(a, w, D)                                                                                \
+    if(MODREG) {                                                                                        \
+        a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
+    } else {                                                                                            \
+        if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, D);  \
+        unscaled = 0;                                                                                   \
+        a = fpu_get_scratch(dyn, ninst);                                                                \
+        VLD128(a, ed, fixedaddress);                                                                    \
+    }
+
 // Get EX as a quad, (x1 is used)
 #define GETEX(a, w, D)                                                                                  \
     if(MODREG) {                                                                                        \
@@ -443,7 +529,7 @@
     } else {                                                                                            \
         if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, D);  \
-        a = fpu_get_scratch(dyn);                                                                       \
+        a = fpu_get_scratch(dyn, ninst);                                                                \
         VLD128(a, ed, fixedaddress);                                                                    \
     }
 
@@ -461,7 +547,7 @@
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
         if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
-        a = fpu_get_scratch(dyn);                                                                       \
+        a = fpu_get_scratch(dyn, ninst);                                                                \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<3, 7, rex, NULL, 0, D);   \
         VLD64(a, ed, fixedaddress);                                                                     \
     }
@@ -475,7 +561,7 @@
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
         if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
-        a = fpu_get_scratch(dyn);                                                                       \
+        a = fpu_get_scratch(dyn, ninst);                                                                \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<2, 3, rex, NULL, 0, D);   \
         VLD32(a, ed, fixedaddress);                                                                     \
     }
@@ -489,7 +575,7 @@
         a = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), w);                                      \
     } else {                                                                                            \
         if(w) {WILLWRITE2();} else {SMREAD();}                                                          \
-        a = fpu_get_scratch(dyn);                                                                       \
+        a = fpu_get_scratch(dyn, ninst);                                                                \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<1, 1, rex, NULL, 0, D);   \
         VLD16(a, ed, fixedaddress);                                                                     \
     }
@@ -506,7 +592,7 @@
     } else {                                                    \
         SMREAD();                                               \
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<3, 7, rex, NULL, 0, D); \
-        a = fpu_get_scratch(dyn);                               \
+        a = fpu_get_scratch(dyn, ninst);                        \
         VLD64(a, ed, fixedaddress);                             \
     }
 
@@ -517,6 +603,7 @@
         SMWRITE2();                         \
     }
 
+#define YMM0(a) ymm_mark_zero(dyn, ninst, a);
 
 // Get Direction with size Z and based of F_DF flag, on register r ready for LDR/STR fetching
 // F_DF is 1<<10, so 1 ROR 11*2 (so F_OF)
@@ -1003,6 +1090,11 @@ void* arm64_next(x64emu_t* emu, uintptr_t addr);
 #define dynarec64_66F0     STEPNAME(dynarec64_66F0)
 #define dynarec64_F20F     STEPNAME(dynarec64_F20F)
 #define dynarec64_F30F     STEPNAME(dynarec64_F30F)
+#define dynarec64_AVX      STEPNAME(dynarec64_AVX)
+#define dynarec64_AVX_0F   STEPNAME(dynarec64_AVX_0F)
+#define dynarec64_AVX_66_0F     STEPNAME(dynarec64_AVX_66_0F)
+#define dynarec64_AVX_66_0F38   STEPNAME(dynarec64_AVX_66_0F38)
+#define dynarec64_AVX_66_0F3A   STEPNAME(dynarec64_AVX_66_0F3A)
 
 #define geted           STEPNAME(geted)
 #define geted32         STEPNAME(geted32)
@@ -1136,9 +1228,12 @@ void* arm64_next(x64emu_t* emu, uintptr_t addr);
 #define mmx_get_reg_empty STEPNAME(mmx_get_reg_empty)
 #define sse_get_reg     STEPNAME(sse_get_reg)
 #define sse_get_reg_empty STEPNAME(sse_get_reg_empty)
-#define sse_forget_reg   STEPNAME(sse_forget_reg)
-#define sse_purge07cache STEPNAME(sse_purge07cache)
-#define sse_reflect_reg  STEPNAME(sse_reflect_reg)
+#define sse_forget_reg    STEPNAME(sse_forget_reg)
+#define sse_purge07cache  STEPNAME(sse_purge07cache)
+#define sse_reflect_reg   STEPNAME(sse_reflect_reg)
+#define ymm_get_reg       STEPNAME(ymm_get_reg)
+#define ymm_get_reg_empty STEPNAME(ymm_get_reg_empty)
+#define ymm_mark_zero     STEPNAME(ymm_mark_zero)
 
 #define fpu_pushcache   STEPNAME(fpu_pushcache)
 #define fpu_popcache    STEPNAME(fpu_popcache)
@@ -1149,6 +1244,7 @@ void* arm64_next(x64emu_t* emu, uintptr_t addr);
 #define x87_purgecache  STEPNAME(x87_purgecache)
 #define fpu_reflectcache STEPNAME(fpu_reflectcache)
 #define fpu_unreflectcache STEPNAME(fpu_unreflectcache)
+#define avx_purge_ymm   STEPNAME(avx_purge_ymm)
 
 #define CacheTransform       STEPNAME(CacheTransform)
 
@@ -1272,7 +1368,7 @@ void emit_shrd16(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s5, int s3, 
 void emit_shld16c(dynarec_arm_t* dyn, int ninst, int s1, int s2, uint32_t c, int s3, int s4);
 void emit_shld16(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s5, int s3, int s4);
 
-void emit_pf(dynarec_arm_t* dyn, int ninst, int s1, int s3, int s4);
+void emit_pf(dynarec_arm_t* dyn, int ninst, int s1, int s4);
 
 // x87 helper
 // cache of the local stack counter, to avoid update at every call, return old internal stack counter
@@ -1309,6 +1405,8 @@ int x87_setround(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 void x87_restoreround(dynarec_arm_t* dyn, int ninst, int s1);
 // Set rounding according to mxcsr flags, return reg to restore flags
 int sse_setround(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
+// purge ymm_zero mask according to purge_ymm
+void avx_purge_ymm(dynarec_arm_t* dyn, int ninst, int s1);
 
 void CacheTransform(dynarec_arm_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3);
 
@@ -1382,6 +1480,14 @@ void fpu_reflectcache(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_unreflectcache(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_pushcache(dynarec_arm_t* dyn, int ninst, int s1, int not07);
 void fpu_popcache(dynarec_arm_t* dyn, int ninst, int s1, int not07);
+// avx helpers
+// get neon register for a SSE reg, create the entry if needed
+int ymm_get_reg(dynarec_arm_t* dyn, int ninst, int s1, int a, int forwrite, int k1, int k2, int k3);
+// get neon register for a SSE reg, but don't try to synch it if it needed to be created
+int ymm_get_reg_empty(dynarec_arm_t* dyn, int ninst, int s1, int a, int k1, int k2, int k3);
+// mark an ymm upper part has zero (forgetting upper part if needed)
+void ymm_mark_zero(dynarec_arm_t* dyn, int ninst, int a);
+
 
 uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
@@ -1407,6 +1513,11 @@ uintptr_t dynarec64_6664(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
 uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 
 #if STEP < 2
 #define PASS2(A)
@@ -1564,5 +1675,6 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
         }                                       \
     }
 
+#define PURGE_YMM()    avx_purge_ymm(dyn, ninst, x1)
 
 #endif //__DYNAREC_ARM64_HELPER_H__

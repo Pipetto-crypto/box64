@@ -290,6 +290,7 @@
 #() lFpl
 #() lFpp
 #() LFEL
+#() LFEp
 #() LFii
 #() LFuu
 #() LFUp
@@ -1159,6 +1160,7 @@
 #() lFpppp
 #() LFEppL
 #() LFEppp
+#() LFipLL
 #() LFippL
 #() LFippp
 #() LFuipL
@@ -1605,6 +1607,7 @@
 #() iFppuuu
 #() iFppuup
 #() iFppupi
+#() iFppupu
 #() iFppupp
 #() iFppUup
 #() iFpplii
@@ -4729,6 +4732,7 @@ wrappedlibsndfile:
   - sf_close
 - pFpipp:
   - sf_open_virtual
+wrappedlibssh2:
 wrappedlibssl:
 - pFp:
   - SSL_get_verify_callback
@@ -5022,6 +5026,7 @@ wrappedpng16:
 - pFppppppp:
   - png_create_read_struct_2
   - png_create_write_struct_2
+wrappedpsl5:
 wrappedpulse:
 - vFp:
   - pa_mainloop_free
@@ -5271,6 +5276,8 @@ wrappedsdl2:
 - UFp:
   - SDL_ReadBE64
   - SDL_ReadLE64
+- LFp:
+  - SDL_GetThreadID
 - pFv:
   - SDL_GetBasePath
   - SDL_Vulkan_GetVkGetInstanceProcAddr
@@ -5714,6 +5721,8 @@ wrappedxml2:
   - xmlCtxtReadIO
 wrappedxshmfence:
 wrappedxslt:
+- vFv:
+  - xsltInit
 - vFp:
   - xsltSetLoaderFunc
 - vFpp:

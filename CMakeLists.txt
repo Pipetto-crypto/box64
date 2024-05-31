@@ -390,6 +390,7 @@ set(INTERPRETER
     "${BOX64_ROOT}/src/emu/x64run66dd.c"
     "${BOX64_ROOT}/src/emu/x64run66f0.c"
     "${BOX64_ROOT}/src/emu/x64run67.c"
+    "${BOX64_ROOT}/src/emu/x64run67avx.c"
     "${BOX64_ROOT}/src/emu/x64run67_32.c"
     "${BOX64_ROOT}/src/emu/x64run6764_32.c"
     "${BOX64_ROOT}/src/emu/x64run670f.c"
@@ -406,6 +407,18 @@ set(INTERPRETER
     "${BOX64_ROOT}/src/emu/x64runf0.c"
     "${BOX64_ROOT}/src/emu/x64runf20f.c"
     "${BOX64_ROOT}/src/emu/x64runf30f.c"
+    "${BOX64_ROOT}/src/emu/x64runavx.c"
+    "${BOX64_ROOT}/src/emu/x64runavx0f.c"
+    "${BOX64_ROOT}/src/emu/x64runavx0f38.c"
+    "${BOX64_ROOT}/src/emu/x64runavx660f.c"
+    "${BOX64_ROOT}/src/emu/x64runavxf20f.c"
+    "${BOX64_ROOT}/src/emu/x64runavxf30f.c"
+    "${BOX64_ROOT}/src/emu/x64runavx660f38.c"
+    "${BOX64_ROOT}/src/emu/x64runavx660f3a.c"
+    "${BOX64_ROOT}/src/emu/x64runavxf20f38.c"
+    "${BOX64_ROOT}/src/emu/x64runavxf30f38.c"
+    "${BOX64_ROOT}/src/emu/x64runavxf20f3a.c"
+    "${BOX64_ROOT}/src/emu/x64runavxf30f3a.c"
 )
 
 if(STATICBUILD)
@@ -650,6 +663,8 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedicui18n74.c"
     "${BOX64_ROOT}/src/wrapped/wrappedidn2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedanl.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedpsl5.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibssh2.c"
 )
 endif()
 if(ANDROID)
@@ -757,6 +772,11 @@ if(ARM_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_66f0.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_f20f.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_f30f.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_0f.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_66_0f.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_66_0f38.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_66_0f3a.c"
     )
 endif()
 

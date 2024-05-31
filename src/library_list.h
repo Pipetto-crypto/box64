@@ -255,6 +255,8 @@ GO("libicui18n.so.74", icui18n74)
 GO("libidn2.so.0", idn2)
 GO("libpam.so.0", pam)
 GO("libanl.so.1", anl)
+GO("libpsl.so.5", psl5)
+GO("libssh2.so.1", libssh2)
 
 #ifdef ANDROID
 GO("libc.so", libc)

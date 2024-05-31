@@ -253,6 +253,8 @@ f24-f31  fs0-fs7   Static registers                Callee
 #define LL_D(rd, rj, imm) EMIT(type_2RI14(0b00100010, imm >> 2, rj, rd))
 #define SC_D(rd, rj, imm) EMIT(type_2RI14(0b00100011, imm >> 2, rj, rd))
 
+#define SC_Q(rd, rk, rj) EMIT(type_3R(0b00111000010101110, rk, rj, rd))
+
 #define LLxw(rd, rj, imm) EMIT(type_2RI14(0b00100000 | (rex.w ? 0b10 : 0b00), imm >> 2, rj, rd))
 #define SCxw(rd, rj, imm) EMIT(type_2RI14(0b00100001 | (rex.w ? 0b10 : 0b00), imm >> 2, rj, rd))
 
@@ -362,14 +364,14 @@ f24-f31  fs0-fs7   Static registers                Callee
         }                         \
     } while (0)
 // Shift Right Logical Immediate
-#define SRLIxw(rd, rs1, imm)          \
-    do {                              \
-        if (rex.w) {                  \
-            SRLI_D(rd, rs1, imm);     \
-        } else {                      \
-            SRLI_W(rd, rs1, imm);     \
-            if (imm == 0) ZEROUP(rd); \
-        }                             \
+#define SRLIxw(rd, rs1, imm)            \
+    do {                                \
+        if (rex.w) {                    \
+            SRLI_D(rd, rs1, imm);       \
+        } else {                        \
+            SRLI_W(rd, rs1, imm);       \
+            if ((imm) == 0) ZEROUP(rd); \
+        }                               \
     } while (0)
 
 // Shift Right Arithmetic Immediate
@@ -1354,6 +1356,9 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VEXTRINS_B(vd, vj, imm8)    EMIT(type_2RI8(0b01110011100011, imm8, vj, vd))
 #define VLD(vd, rj, imm12)          EMIT(type_2RI12(0b0010110000, imm12, rj, vd))
 #define VST(vd, rj, imm12)          EMIT(type_2RI12(0b0010110001, imm12, rj, vd))
+
+#define VFCMP_S(vd, vj, vk, cond)   EMIT(type_4R(0b000011000101, cond, vk, vj, vd))
+#define VFCMP_D(vd, vj, vk, cond)   EMIT(type_4R(0b000011000110, cond, vk, vj, vd))
 
 #define XVADD_B(vd, vj, vk)          EMIT(type_3R(0b01110100000010100, vk, vj, vd))
 #define XVADD_H(vd, vj, vk)          EMIT(type_3R(0b01110100000010101, vk, vj, vd))
