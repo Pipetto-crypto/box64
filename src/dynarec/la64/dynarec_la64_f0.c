@@ -98,6 +98,9 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                             } else {
                                 SMDMB();
                                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
+                                ANDI(x1, wback, (1 << (rex.w + 2)) - 1);
+                                BNEZ_MARK3(x1);
+                                // Aligned
                                 MARKLOCK;
                                 MV(x4, gd);
                                 LLxw(x1, wback, 0);
@@ -106,6 +109,20 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                                 // EAX == Ed
                                 SCxw(x4, wback, 0);
                                 BEQZ_MARKLOCK(x4);
+                                B_MARK_nocond;
+                                MARK3;
+                                // Unaligned
+                                ADDI_D(x5, xZR, -(1 << (rex.w + 2)));
+                                AND(x5, x5, wback);
+                                MARK2;
+                                LDxw(x1, wback, 0);
+                                LLxw(x6, x5, 0);
+                                SUBxw(x3, x1, xRAX);
+                                BNEZ_MARK(x3);
+                                // EAX == Ed
+                                SCxw(x6, x5, 0);
+                                BEQZ_MARK2(x6);
+                                SDxw(gd, wback, 0);
                                 MARK;
                                 UFLAG_IF { emit_cmp32(dyn, ninst, rex, xRAX, x1, x3, x4, x5, x6); }
                                 MVxw(xRAX, x1);
@@ -320,6 +337,42 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         SMDMB();
                     }
                     break;
+                case 1: // OR
+                    if (opcode == 0x81) {
+                        INST_NAME("LOCK OR Ed, Id");
+                    } else {
+                        INST_NAME("LOCK OR Ed, Ib");
+                    }
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    if (MODREG) {
+                        if (opcode == 0x81)
+                            i64 = F32S;
+                        else
+                            i64 = F8S;
+                        ed = TO_LA64((nextop & 7) + (rex.b << 3));
+                        emit_or32c(dyn, ninst, rex, ed, i64, x3, x4);
+                    } else {
+                        addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, (opcode == 0x81) ? 4 : 1);
+                        if (opcode == 0x81)
+                            i64 = F32S;
+                        else
+                            i64 = F8S;
+                        if (i64 <= -2048 || i64 > 2048)
+                            MOV64xw(x3, i64);
+                        MARKLOCK;
+                        LLxw(x1, wback, 0);
+                        if (i64 >= -2048 && i64 < 2048) {
+                            ORI(x4, x1, i64);
+                        } else {
+                            OR(x4, x1, x3);
+                        }
+                        if (!rex.w) ZEROUP(x4);
+                        SCxw(x4, wback, 0);
+                        BEQZ_MARKLOCK(x4);
+                        IFX (X_ALL | X_PEND)
+                            emit_or32c(dyn, ninst, rex, x1, i64, x3, x4);
+                    }
+                    break;
                 case 5: // SUB
                     if (opcode == 0x81) {
                         INST_NAME("LOCK SUB Ed, Id");
@@ -409,7 +462,7 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SETFLAGS(X_ALL & ~X_CF, SF_SUBSET_PENDING);
                     SMDMB();
                     if (MODREG) {
-                        ed = xRAX + (nextop & 7) + (rex.b << 3);
+                        ed = TO_LA64((nextop & 7) + (rex.b << 3));
                         emit_dec32(dyn, ninst, rex, ed, x3, x4, x5, x6);
                     } else {
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
@@ -417,7 +470,7 @@ uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         LLxw(x1, wback, 0);
                         ADDIxw(x4, x1, -1);
                         SCxw(x4, wback, 0);
-                        BNEZ_MARKLOCK(x4);
+                        BEQZ_MARKLOCK(x4);
                         IFX (X_ALL | X_PEND)
                             emit_dec32(dyn, ninst, rex, x1, x3, x4, x5, x6);
                     }

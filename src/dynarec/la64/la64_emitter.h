@@ -528,6 +528,15 @@ f24-f31  fs0-fs7   Static registers                Callee
         }                    \
     } while (0)
 
+#define CTZxw(rd, rj)      \
+    do {                   \
+        if (rex.w) {       \
+            CTZ_D(rd, rj); \
+        } else {           \
+            CTZ_W(rd, rj); \
+        }                  \
+    } while (0)
+
 
 // GR[rd] = SignExtend(GR[rj][7:0], GRLEN)
 #define EXT_W_B(rd, rj) EMIT(type_2R(0b0000000000000000010111, rj, rd))
@@ -919,6 +928,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VSUB_W(vd, vj, vk)          EMIT(type_3R(0b01110000000011010, vk, vj, vd))
 #define VSUB_D(vd, vj, vk)          EMIT(type_3R(0b01110000000011011, vk, vj, vd))
 #define VSUB_Q(vd, vj, vk)          EMIT(type_3R(0b01110001001011011, vk, vj, vd))
+#define VADDI_BU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100010100, imm5, vj, vd))
+#define VADDI_HU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100010101, imm5, vj, vd))
+#define VADDI_WU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100010110, imm5, vj, vd))
+#define VADDI_DU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100010111, imm5, vj, vd))
+#define VSUBI_BU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100011000, imm5, vj, vd))
+#define VSUBI_HU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100011001, imm5, vj, vd))
+#define VSUBI_WU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100011010, imm5, vj, vd))
+#define VSUBI_DU(vd, vj, imm5)      EMIT(type_2RI5(0b01110010100011011, imm5, vj, vd))
 #define VSADD_B(vd, vj, vk)         EMIT(type_3R(0b01110000010001100, vk, vj, vd))
 #define VSADD_H(vd, vj, vk)         EMIT(type_3R(0b01110000010001101, vk, vj, vd))
 #define VSADD_W(vd, vj, vk)         EMIT(type_3R(0b01110000010001110, vk, vj, vd))
@@ -1139,6 +1156,12 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VSIGNCOV_H(vd, vj, vk)      EMIT(type_3R(0b01110001001011101, vk, vj, vd))
 #define VSIGNCOV_W(vd, vj, vk)      EMIT(type_3R(0b01110001001011110, vk, vj, vd))
 #define VSIGNCOV_D(vd, vj, vk)      EMIT(type_3R(0b01110001001011111, vk, vj, vd))
+#define VMSKLTZ_B(vd, vj)           EMIT(type_2R(0b0111001010011100010000, vj, vd))
+#define VMSKLTZ_H(vd, vj)           EMIT(type_2R(0b0111001010011100010001, vj, vd))
+#define VMSKLTZ_W(vd, vj)           EMIT(type_2R(0b0111001010011100010010, vj, vd))
+#define VMSKLTZ_D(vd, vj)           EMIT(type_2R(0b0111001010011100010011, vj, vd))
+#define VMSKGEZ_B(vd, vj)           EMIT(type_2R(0b0111001010011100010100, vj, vd))
+#define VMSKNZ_B(vd, vj)            EMIT(type_2R(0b0111001010011100011000, vj, vd))
 #define VAND_V(vd, vj, vk)          EMIT(type_3R(0b01110001001001100, vk, vj, vd))
 #define VLDI(vd, imm13)             EMIT(type_1RI13(0b01110011111000, imm13, vd))
 #define VOR_V(vd, vj, vk)           EMIT(type_3R(0b01110001001001101, vk, vj, vd))
@@ -1694,6 +1717,8 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define XVSLT_HU(vd, vj, vk)         EMIT(type_3R(0b01110100000010001, vk, vj, vd))
 #define XVSLT_WU(vd, vj, vk)         EMIT(type_3R(0b01110100000010010, vk, vj, vd))
 #define XVSLT_DU(vd, vj, vk)         EMIT(type_3R(0b01110100000010011, vk, vj, vd))
+#define XVBSLL_V(vd, vj, imm5)       EMIT(type_2RI5(0b01110110100011100, imm5, vj, vd))
+#define XVBSRL_V(vd, vj, imm5)       EMIT(type_2RI5(0b01110110100011101, imm5, vj, vd))
 #define XVPACKEV_B(vd, vj, vk)       EMIT(type_3R(0b01110101000101100, vk, vj, vd))
 #define XVPACKEV_H(vd, vj, vk)       EMIT(type_3R(0b01110101000101101, vk, vj, vd))
 #define XVPACKEV_W(vd, vj, vk)       EMIT(type_3R(0b01110101000101110, vk, vj, vd))
@@ -2041,6 +2066,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
             ST_D(rd, rj, imm12); \
         else                     \
             ST_W(rd, rj, imm12); \
+    } while (0)
+
+#define SDXxw(rd, rj, rk)      \
+    do {                       \
+        if (rex.w)             \
+            STX_D(rd, rj, rk); \
+        else                   \
+            STX_W(rd, rj, rk); \
     } while (0)
 
 #define SDz(rd, rj, imm12)       \

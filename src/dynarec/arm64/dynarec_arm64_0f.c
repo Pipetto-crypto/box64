@@ -101,7 +101,8 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     }
                     LSRx(xRDX, x1, 32);
                     MOVw_REG(xRAX, x1);   // wipe upper part
-                    MOVw_REG(xRCX, xZR);    // IA32_TSC, 0 for now
+                    CALL_(helper_getcpu, x1, x3);
+                    MOVw_REG(xRCX, x1);    // IA32_TSC, 0 for now
                     break;
                 default:
                     DEFAULT;
@@ -1127,14 +1128,12 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             GETEX(v1, 0, 0);
             // FMIN/FMAX wll not copy the value if v0[x] is NaN
             // but x86 will copy if either v0[x] or v1[x] is NaN, so lets force a copy if source is NaN
-            if(!box64_dynarec_fastnan && v0!=v1) {
+            VFMINQS(v0, v0, v1);
+            if(!box64_dynarec_fastnan && (v0!=v1)) {
                 q0 = fpu_get_scratch(dyn, ninst);
                 VFCMEQQS(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                VANDQ(v0, v0, q0);
-                VBICQ(q0, v1, q0);
-                VORRQ(v0, v0, q0);
+                VBIFQ(v0, v1, q0);   // copy dest where source is NaN
             }
-            VFMINQS(v0, v0, v1);
             break;
         case 0x5E:
             INST_NAME("DIVPS Gx, Ex");
@@ -1150,14 +1149,12 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             GETEX(v1, 0, 0);
             // FMIN/FMAX wll not copy the value if v0[x] is NaN
             // but x86 will copy if either v0[x] or v1[x] is NaN, so lets force a copy if source is NaN
-            if(!box64_dynarec_fastnan && v0!=v1) {
+            VFMAXQS(v0, v0, v1);
+            if(!box64_dynarec_fastnan && (v0!=v1)) {
                 q0 = fpu_get_scratch(dyn, ninst);
                 VFCMEQQS(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                VANDQ(v0, v0, q0);
-                VBICQ(q0, v1, q0);
-                VORRQ(v0, v0, q0);
+                VBIFQ(v0, v1, q0);   // copy dest where source is NaN
             }
-            VFMAXQS(v0, v0, v1);
             break;
         case 0x60:
             INST_NAME("PUNPCKLBW Gm,Em");

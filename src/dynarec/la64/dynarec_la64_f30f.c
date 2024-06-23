@@ -165,6 +165,27 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             FCVT_D_S(d1, v1);
             VEXTRINS_D(v0, d1, 0);
             break;
+        case 0x5B:
+            INST_NAME("CVTTPS2DQ Gx, Ex");
+            nextop = F8;
+            GETEX(v1, 0, 0);
+            GETGX_empty(v0);
+            VFTINTRZ_W_S(v0, v1);
+            if (!box64_dynarec_fastround) {
+                q0 = fpu_get_scratch(dyn);
+                q1 = fpu_get_scratch(dyn);
+                d1 = fpu_get_scratch(dyn);
+                VFCMP_S(q0, v1, v1, cEQ);
+                VLDI(q1, 0b1001110000000); // broadcast 0x80000000
+                VAND_V(v0, q0, v0);
+                VANDN_V(d1, q0, q1);
+                VOR_V(v0, v0, d1);
+                VSUBI_WU(d1, q1, 1);
+                VSEQ_W(q0, v0, d1);
+                VSRLI_W(q0, q0, 31);
+                VADD_W(v0, v0, q0);
+            }
+            break;
         case 0x5C:
             INST_NAME("SUBSS Gx, Ex");
             nextop = F8;
@@ -262,6 +283,30 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 VST(v0, ed, fixedaddress);
                 SMWRITE2();
             }
+            break;
+        case 0xBC:
+            INST_NAME("TZCNT Gd, Ed");
+            SETFLAGS(X_ZF, SF_SUBSET);
+            SET_DFNONE();
+            nextop = F8;
+            GETED(0);
+            GETGD;
+            if (!rex.w && MODREG) {
+                AND(x4, ed, xMASK);
+                ed = x4;
+            }
+            RESTORE_EFLAGS(x1);
+            ANDI(xFlags, xFlags, ~((1 << F_ZF) | (1 << F_CF)));
+            BNE_MARK(ed, xZR);
+            ORI(xFlags, xFlags, 1 << F_CF);
+            MOV32w(gd, rex.w ? 64 : 32);
+            SPILL_EFLAGS();
+            B_NEXT_nocond;
+            MARK;
+            CTZxw(gd, ed);
+            BNE(gd, xZR, 4 + 4);
+            ORI(xFlags, xFlags, 1 << F_ZF);
+            SPILL_EFLAGS();
             break;
         case 0xC2:
             INST_NAME("CMPSS Gx, Ex, Ib");

@@ -521,6 +521,19 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             CLEAR_FLAG(F_PF);
             break;
 
+        case 0x13:  /* VCVTPH2PS Gx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETGY;
+            if(vex.l) {
+                for(int i=3; i>=0; --i)
+                    GY->ud[i] = cvtf16_32(EX->uw[4+i]);
+            } else GY->u128 = 0;
+            for(int i=3; i>=0; --i)
+                GX->ud[i] = cvtf16_32(EX->uw[i]);
+            break;
+
         case 0x16:  /* VPERMPS Gx, Vx, Ex */
             // same code as 0x36
             nextop = F8;
@@ -607,7 +620,7 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GY->u128 = EX->u128;
             break;
 
-        case 0x1C:  /* PABSB Gx, Ex */
+        case 0x1C:  /* VPABSB Gx, Ex */
             nextop = F8;
             GETEX(0);
             GETGX;
@@ -623,7 +636,7 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             } else
                 GY->u128 = 0;
             break;
-        case 0x1D:  /* PABSW Gx, Ex */
+        case 0x1D:  /* VPABSW Gx, Ex */
             nextop = F8;
             GETEX(0);
             GETGX;
@@ -639,7 +652,7 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             } else
                 GY->u128 = 0;
             break;
-        case 0x1E:  /* PABSD Gx, Ex */
+        case 0x1E:  /* VPABSD Gx, Ex */
             nextop = F8;
             GETEX(0);
             GETGX;
@@ -855,10 +868,15 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 if(VX->ud[i]>>31) EX->ud[i] = GX->ud[i];
             if(vex.l) {
                 GETGY;
-                GETEY;
                 GETVY;
-                for(int i=0; i<4; ++i)
-                    if(VY->ud[i]>>31) EY->ud[i] = GY->ud[i];
+                #ifdef TEST_INTERPRETER
+                if(VX->u128)
+                #endif
+                {
+                    GETEY;
+                    for(int i=0; i<4; ++i)
+                        if(VY->ud[i]>>31) EY->ud[i] = GY->ud[i];
+                }
             }
             break;
         case 0x2F:  /*VMASKMOVPD Ex, Vx, Gx */
@@ -870,10 +888,15 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 if(VX->q[i]>>63) EX->q[i] = GX->q[i];
             if(vex.l) {
                 GETGY;
-                GETEY;
                 GETVY;
-                for(int i=0; i<2; ++i)
-                    if(VY->q[i]>>63) EY->q[i] = GY->q[i];
+                #ifdef TEST_INTERPRETER
+                if(VX->u128)
+                #endif
+                {
+                    GETEY;
+                    for(int i=0; i<2; ++i)
+                        if(VY->q[i]>>63) EY->q[i] = GY->q[i];
+                }
             }
             break;
         case 0x30: /* VPMOVZXBW Gx, Ex */
@@ -1154,7 +1177,7 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GY->u128 = 0;
             break;
 
-        case 0x45:  /* VPSLRVD/Q Gx, Vx, Ex */
+        case 0x45:  /* VPSRLVD/Q Gx, Vx, Ex */
             nextop = F8;
             GETEX(0);
             GETGX; GETVX; GETGY;
@@ -1489,6 +1512,597 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 GX->q[1] = 0;
                 VX->q[1] = 0;
             }
+            break;
+
+        case 0x96:  /* VFMADDSUB132PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = GX->d[i]*EX->d[i] + ((i&1)?VX->d[i]:(-VX->d[i]));
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = GX->f[i]*EX->f[i] + ((i&1)?VX->f[i]:(-VX->f[i]));
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = GY->d[i]*EY->d[i] + ((i&1)?VY->d[i]:(-VY->d[i]));
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = GY->f[i]*EY->f[i] + ((i&1)?VY->f[i]:(-VY->f[i]));
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0x97:  /* VFMSUBADD132PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = GX->d[i]*EX->d[i] + ((i&1)?(-VX->d[i]):VX->d[i]);
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = GX->f[i]*EX->f[i] + ((i&1)?(-VX->f[i]):VX->f[i]);
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = GY->d[i]*EY->d[i] + ((i&1)?(-VY->d[i]):VY->d[i]);
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = GY->f[i]*EY->f[i] + ((i&1)?(-VY->f[i]):VY->f[i]);
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0x98:  /* VFMADD132PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = GX->d[i]*EX->d[i] + VX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = GX->f[i]*EX->f[i] + VX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = GY->d[i]*EY->d[i] + VY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = GY->f[i]*EY->f[i] + VY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0x99:  /* VFMADD132SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = GX->d[0]*EX->d[0] + VX->d[0];
+            } else {
+                GX->f[0] = GX->f[0]*EX->f[0] + VX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0x9A:  /* VFMSUB132PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = GX->d[i]*EX->d[i] - VX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = GX->f[i]*EX->f[i] - VX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = GY->d[i]*EY->d[i] - VY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = GY->f[i]*EY->f[i] - VY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0x9B:  /* VFMSUB132SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = GX->d[0]*EX->d[0] - VX->d[0];
+            } else {
+                GX->f[0] = GX->f[0]*EX->f[0] - VX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0x9C:  /* VFNMADD132PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = -GX->d[i]*EX->d[i] + VX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = -GX->f[i]*EX->f[i] + VX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = -GY->d[i]*EY->d[i] + VY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = -GY->f[i]*EY->f[i] + VY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0x9D:  /* VFNMADD132SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = -GX->d[0]*EX->d[0] + VX->d[0];
+            } else {
+                GX->f[0] = -GX->f[0]*EX->f[0] + VX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0x9E:  /* VFNMSUB132PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = -GX->d[i]*EX->d[i] - VX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = -GX->f[i]*EX->f[i] - VX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = -GY->d[i]*EY->d[i] - VY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = -GY->f[i]*EY->f[i] - VY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0x9F:  /* VFNMSUB132SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = -GX->d[0]*EX->d[0] - VX->d[0];
+            } else {
+                GX->f[0] = -GX->f[0]*EX->f[0] - VX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+
+        case 0xA6:  /* VFMADDSUB213PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*GX->d[i] + ((i&1)?EX->d[i]:(-EX->d[i]));
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*GX->f[i] + ((i&1)?EX->f[i]:(-EX->f[i]));
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*GY->d[i] + ((i&1)?EY->d[i]:(-EY->d[i]));
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*GY->f[i] + ((i&1)?EY->f[i]:(-EY->f[i]));
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xA7:  /* VFMSUBADD213PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*GX->d[i] + ((i&1)?(-EX->d[i]):EX->d[i]);
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*GX->f[i] + ((i&1)?(-EX->f[i]):EX->f[i]);
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*GY->d[i] + ((i&1)?(-EY->d[i]):EY->d[i]);
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*GY->f[i] + ((i&1)?(-EY->f[i]):EY->f[i]);
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xA8:  /* VFMADD213PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*GX->d[i] + EX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*GX->f[i] + EX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*GY->d[i] + EY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*GY->f[i] + EY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xA9:  /* VFMADD213SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = VX->d[0]*GX->d[0] + EX->d[0];
+            } else {
+                GX->f[0] = VX->f[0]*GX->f[0] + EX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0xAA:  /* VFMSUB213PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*GX->d[i] - EX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*GX->f[i] - EX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*GY->d[i] - EY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*GY->f[i] - EY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xAB:  /* VFMSUB213SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = VX->d[0]*GX->d[0] - EX->d[0];
+            } else {
+                GX->f[0] = VX->f[0]*GX->f[0] - EX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0xAC:  /* VFNMADD213PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = -VX->d[i]*GX->d[i] + EX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = -VX->f[i]*GX->f[i] + EX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = -VY->d[i]*GY->d[i] + EY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = -VY->f[i]*GY->f[i] + EY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xAD:  /* VFNMADD213SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = -VX->d[0]*GX->d[0] + EX->d[0];
+            } else {
+                GX->f[0] = -VX->f[0]*GX->f[0] + EX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0xAE:  /* VFNMSUB213PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = -VX->d[i]*GX->d[i] - EX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = -VX->f[i]*GX->f[i] - EX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = -VY->d[i]*GY->d[i] - EY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = -VY->f[i]*GY->f[i] - EY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;        
+        case 0xAF:  /* VFNMSUB213SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = -VX->d[0]*GX->d[0] - EX->d[0];
+            } else {
+                GX->f[0] = -VX->f[0]*GX->f[0] - EX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+
+        case 0xB6:  /* VFMADDSUB231PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*EX->d[i] + ((i&1)?GX->d[i]:(-GX->d[i]));
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*EX->f[i] + ((i&1)?GX->f[i]:(-GX->f[i]));
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*EY->d[i] + ((i&1)?GY->d[i]:(-GY->d[i]));
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*EY->f[i] + ((i&1)?GY->f[i]:(-GY->f[i]));
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xB7:  /* VFMSUBADD231PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*EX->d[i] + ((i&1)?(-GX->d[i]):GX->d[i]);
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*EX->f[i] + ((i&1)?(-GX->f[i]):GX->f[i]);
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*EY->d[i] + ((i&1)?(-GY->d[i]):GY->d[i]);
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*EY->f[i] + ((i&1)?(-GY->f[i]):GY->f[i]);
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xB8:  /* VFMADD231PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*EX->d[i] + GX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*EX->f[i] + GX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*EY->d[i] + GY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*EY->f[i] + GY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xB9:  /* VFMADD231SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = VX->d[0]*EX->d[0] + GX->d[0];
+            } else {
+                GX->f[0] = VX->f[0]*EX->f[0] + GX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0xBA:  /* VFMSUB231PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = VX->d[i]*EX->d[i] - GX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = VX->f[i]*EX->f[i] - GX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = VY->d[i]*EY->d[i] - GY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = VY->f[i]*EY->f[i] - GY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xBB:  /* VFMSUB231SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = VX->d[0]*EX->d[0] - GX->d[0];
+            } else {
+                GX->f[0] = VX->f[0]*EX->f[0] - GX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0xBC:  /* VFNMADD231PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = -VX->d[i]*EX->d[i] + GX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = -VX->f[i]*EX->f[i] + GX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = -VY->d[i]*EY->d[i] + GY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = -VY->f[i]*EY->f[i] + GY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xBD:  /* VFNMADD231SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = -VX->d[0]*EX->d[0] + GX->d[0];
+            } else {
+                GX->f[0] = -VX->f[0]*EX->f[0] + GX->f[0];
+            }
+            GY->u128 = 0;
+            break;
+        case 0xBE:  /* VFNMSUB231PS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                for(int i=0; i<2; ++i)
+                    GX->d[i] = -VX->d[i]*EX->d[i] - GX->d[i];
+            } else {
+                for(int i=0; i<4; ++i)
+                    GX->f[i] = -VX->f[i]*EX->f[i] - GX->f[i];
+            }
+            if(vex.l) {
+                GETEY; GETVY;
+                if(rex.w) {
+                    for(int i=0; i<2; ++i)
+                        GY->d[i] = -VY->d[i]*EY->d[i] - GY->d[i];
+                } else {
+                    for(int i=0; i<4; ++i)
+                        GY->f[i] = -VY->f[i]*EY->f[i] - GY->f[i];
+                }
+            } else GY->u128 = 0;
+            break;
+        case 0xBF:  /* VFNMSUB231SS/D Gx, Vx, Ex */
+            nextop = F8;
+            GETEX(0);
+            GETGX;
+            GETVX;
+            GETGY;
+            if(rex.w) {
+                GX->d[0] = -VX->d[0]*EX->d[0] - GX->d[0];
+            } else {
+                GX->f[0] = -VX->f[0]*EX->f[0] - GX->f[0];
+            }
+            GY->u128 = 0;
             break;
 
         case 0xDB:  /* VAESIMC Gx, Ex */

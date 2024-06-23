@@ -254,16 +254,17 @@ void my_cpuid(x64emu_t* emu, uint32_t tmp32u)
             R_ECX =   1<<0      // SSE3
                     | 1<<1      // PCLMULQDQ
                     | 1<<9      // SSSE3
-                    //| 1<<12     // fma    // some games treat FMA as AVX
+                    | box64_avx2<<12     // fma
                     | 1<<13     // cx16 (cmpxchg16)
                     | 1<<19     // SSE4_1
                     | box64_sse42<<20     // SSE4_2 can be hiden
                     | 1<<22     // MOVBE
                     | 1<<23     // POPCOUNT
                     | 1<<25     // aesni
-                    | 1<<26     // xsave
-                    | 1<<27     // osxsave
+                    | box64_avx<<26 // xsave
+                    | box64_avx<<27 // osxsave
                     | box64_avx<<28 // AVX
+                    | box64_avx<<29 // F16C
                     ; 
             break;
         case 0x2:   // TLB and Cache info. Sending 1st gen P4 info...
@@ -325,7 +326,7 @@ void my_cpuid(x64emu_t* emu, uint32_t tmp32u)
                         box64_avx<<3 |  // BMI1 
                         box64_avx2<<5 |  //AVX2
                         box64_avx2<<8 | //BMI2
-                        box64_avx2<<9 | //VAES
+                        box64_avx<<9 | //VAES
                         box64_avx2<<19 | //ADX
                         1<<29|  // SHA extension
                         0;
@@ -450,7 +451,7 @@ void my_cpuid(x64emu_t* emu, uint32_t tmp32u)
         case 0x80000006:    // L2 cache line size and associativity
             R_EAX = 0;
             R_EBX = 0;
-            R_ECX = 0;
+            R_ECX = 64 | (0x6<<12) | (256<<16); // bits: 0-7 line size, 15-12: assoc (using special encoding), 31-16: size in K    //TODO: read info from /sys/devices/system/cpu/cpuX/cache/index2
             R_EDX = 0;
             break;
         case 0x80000007:    // Invariant TSC
@@ -466,4 +467,15 @@ void my_cpuid(x64emu_t* emu, uint32_t tmp32u)
             R_ECX = 0;
             R_EDX = 0;
     }   
+}
+
+uint32_t helper_getcpu(x64emu_t* emu) {
+    #if defined(__GLIBC__) && defined(__GLIBC_MINOR__) && !defined(ANDROID)
+    #if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ > 28)
+    uint32_t cpu, node;
+    if(!getcpu(&cpu, &node))
+        return (node&0xff)<<12 | (cpu&0xff);
+    #endif
+    #endif
+    return 0;
 }

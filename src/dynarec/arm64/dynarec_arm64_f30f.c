@@ -172,6 +172,36 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 }
             }
             break;
+
+        case 0x38:  /* MAP */
+            opcode = F8;
+            switch(opcode) {
+
+                case 0xF6:
+                    INST_NAME("ADOX Gd, Ed");
+                    nextop = F8;
+                    READFLAGS(X_OF);
+                    SETFLAGS(X_OF, SF_SUBSET);
+                    GETED(0);
+                    GETGD;
+                    MRS_nzvc(x3);
+                    LSRw(x4, xFlags, F_OF);
+                    BFIx(x3, x4, 29, 1); // set C
+                    MSR_nzvc(x3);      // load CC into ARM CF
+                    IFX(X_OF) {
+                        ADCSxw_REG(gd, gd, ed);
+                        CSETw(x3, cCS);
+                        BFIw(xFlags, x3, F_OF, 1);
+                    } else {
+                        ADCxw_REG(gd, gd, ed);
+                    }
+                    break;
+
+                default:
+                    DEFAULT;
+            }
+            break;
+
         case 0x51:
             INST_NAME("SQRTSS Gx, Ex");
             nextop = F8;
@@ -261,7 +291,6 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 }
             }
             break;
-
         case 0x5C:
             INST_NAME("SUBSS Gx, Ex");
             nextop = F8;
@@ -378,6 +407,34 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
                 VST128(v0, ed, fixedaddress);
                 SMWRITE2();
+            }
+            break;
+
+        case 0xAE:
+            nextop = F8;
+            switch((nextop>>3)&7) {
+                case 2:
+                    INST_NAME("(unsupported) WRFSBASE Ed");
+                    FAKEED;
+                    UDF(0);
+                    break;
+                case 3:
+                    INST_NAME("(unsupported) WRGSBASE Ed");
+                    FAKEED;
+                    UDF(0);
+                    break;
+                case 5:
+                    INST_NAME("(unsupported) INCSSPD/INCSSPQ Ed");
+                    FAKEED;
+                    UDF(0);
+                    break;
+                case 6:
+                    INST_NAME("(unsupported) UMONITOR Ed");
+                    FAKEED;
+                    UDF(0);
+                    break;
+                default:
+                    DEFAULT;
             }
             break;
 

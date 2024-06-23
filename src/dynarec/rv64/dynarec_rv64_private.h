@@ -90,8 +90,12 @@ typedef struct instruction_rv64_s {
     int                 pass2choice;// value for choices that are fixed on pass2 for pass3
     uintptr_t           natcall;
     uint16_t            retn;
-    uint16_t            ymm_zero;   // bitmap of ymm to zero at purge
     uint16_t            purge_ymm;  // need to purge some ymm
+    uint16_t            ymm0_in;    // bitmap of ymm to zero at purge
+    uint16_t            ymm0_add;   // the ymm0 added by the opcode
+    uint16_t            ymm0_sub;   // the ymm0 removed by the opcode
+    uint16_t            ymm0_out;   // the ymmm0 at th end of the opcode
+    uint16_t            ymm0_pass2, ymm0_pass3;
     int                 barrier_maybe;
     flagcache_t         f_exit;     // flags status at end of intruction
     extcache_t          e;          // extcache at end of intruction (but before poping)
@@ -155,9 +159,11 @@ void CreateJmpNext(void* addr, void* next);
 #define GO_TRACE(A, B, s0)  \
     GETIP(addr);            \
     MV(A1, xRIP);           \
+    FLAGS_ADJUST_TO11(xFlags, xFlags, s0); \
     STORE_XEMU_CALL(s0);    \
     MOV64x(A2, B);          \
     CALL(A, -1);            \
-    LOAD_XEMU_CALL()
+    LOAD_XEMU_CALL();       \
+    FLAGS_ADJUST_FROM11(xFlags, xFlags, s0);
 
 #endif //__DYNAREC_RV64_PRIVATE_H_

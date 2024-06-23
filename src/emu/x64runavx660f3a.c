@@ -111,7 +111,7 @@ uintptr_t RunAVX_660F3A(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             for(int i=2; i<4; ++i)
                 GY->q[i-2] = (((u8>>(i*2))&3)>1)?EY->q[(u8>>(i*2))&1]:EX->q[(u8>>(i*2))&1];
             break;
-        case 0x02:      /* VBLENDD Gx, Vx, Ex, u8 */
+        case 0x02:      /* VPBLENDD Gx, Vx, Ex, u8 */
             nextop = F8;
             GETEX(1);
             GETGX;
@@ -426,7 +426,7 @@ uintptr_t RunAVX_660F3A(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             } else
                 GY->u128 = 0;
             break;
-        case 0x0E:      /* VBLENDW Gx, Vx, Ex, u8 */
+        case 0x0E:      /* VPBLENDW Gx, Vx, Ex, u8 */
             nextop = F8;
             GETEX(1);
             GETGX;
@@ -547,6 +547,30 @@ uintptr_t RunAVX_660F3A(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 EY->u128 = 0;
             }
             break;
+
+        case 0x1D:  /* VCVTPS2PH Ex, Gx, u8 */
+            nextop = F8;
+            GETEX(1);
+            GETGX;
+            u8 = F8;
+            if(u8&4)
+                u8 = emu->mxcsr.f.MXCSR_RC;
+            else
+                u8 = u8&3;
+            for(int i=0; i<4; ++i)
+                EX->uw[i] = cvtf32_16(GX->ud[i], u8);
+            if(vex.l) {
+                GETGY;
+                for(int i=0; i<4; ++i)
+                    EX->uw[4+i] = cvtf32_16(GY->ud[i], u8);
+            }
+            if(MODREG) {
+                if(!vex.l) EX->q[1] = 0;
+                GETEY;
+                EY->u128 = 0;
+            }
+            break;
+
 
         case 0x20:      // VPINSRB GX, Vx, ED, u8
             nextop = F8;

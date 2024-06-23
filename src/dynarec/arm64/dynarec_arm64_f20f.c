@@ -84,14 +84,13 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             if(MODREG) {
                 d0 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
                 v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
-                VMOVeD(v0, 0, d0, 0);
+                VDUPQ_64(v0, d0, 0);
             } else {
                 SMREAD();
                 v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<3, 7, rex, NULL, 0, 0);
-                VLD64(v0, ed, fixedaddress);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
+                VLDQ1R_64(v0, ed);
             }
-            VMOVeD(v0, 1, v0, 0);
             break;
 
         case 0x2A:
@@ -414,6 +413,20 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             VUZP2Q_32(v0, v0, v1);
             VFSUBQS(v0, d0, v0);
             break;
+
+        case 0xAE:
+            nextop = F8;
+            switch((nextop>>3)&7) {
+                case 6:
+                    INST_NAME("(unsupported) UWAIT Ed");
+                    FAKEED;
+                    UDF(0);
+                    break;
+                default:
+                    DEFAULT;
+            }
+            break;
+
         case 0xC2:
             INST_NAME("CMPSD Gx, Ex, Ib");
             nextop = F8;
