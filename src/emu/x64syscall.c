@@ -101,6 +101,7 @@ static const scwrap_t syscallwrap[] = {
     [16] = {__NR_ioctl, 3},
     [17] = {__NR_pread64, 4},
     [18] = {__NR_pwrite64, 4},
+    [19] = {__NR_readv, 3},
     [20] = {__NR_writev, 3},
     #ifdef __NR_access
     [21] = {__NR_access, 2},
@@ -182,6 +183,10 @@ static const scwrap_t syscallwrap[] = {
     [114] = {__NR_setregid, 2},
     [118] = {__NR_getresuid, 3},
     [120] = {__NR_getresgid, 3},
+    [121] = {__NR_getpgid, 1},
+    [122] = {__NR_setfsuid, 1},
+    [123] = {__NR_setfsgid, 1},
+    [124] = {__NR_getsid, 1},
     [125] = {__NR_capget, 2},
     [126] = {__NR_capset, 2},
     [127] = {__NR_rt_sigpending, 2},
@@ -203,6 +208,9 @@ static const scwrap_t syscallwrap[] = {
     #endif
     [161] = {__NR_chroot, 1},
     [186] = {__NR_gettid, 0 },    //0xBA
+    [194] = {__NR_listxattr, 3},
+    [195] = {__NR_llistxattr, 3},
+    [196] = {__NR_flistxattr, 3},
     [200] = {__NR_tkill, 2 },
     #ifdef __NR_time
     [201] = {__NR_time, 1},
@@ -296,6 +304,15 @@ static const scwrap_t syscallwrap[] = {
     #ifdef __NR_fchmodat4
     [434] = {__NR_fchmodat4, 4},
     #endif
+    #ifdef __NR_landlock_create_ruleset	
+    [444] = {__NR_landlock_create_ruleset, 3},
+    #endif
+    #ifdef __NR_landlock_add_rule
+    [445] = {__NR_landlock_add_rule, 4},
+    #endif
+    #ifdef __NR_landlock_restrict_self
+    [446] = {__NR_landlock_restrict_self, 2},
+    #endif
     //[449] = {__NR_futex_waitv, 5},
 };
 
@@ -366,23 +383,23 @@ typedef struct old_utsname_s {
 } old_utsname_t;
 
 //struct x86_pt_regs {
-//	long ebx;
-//	long ecx;
-//	long edx;
-//	long esi;
-//	long edi;
-//	long ebp;
-//	long eax;
-//	int  xds;
-//	int  xes;
-//	int  xfs;
-//	int  xgs;
-//	long orig_eax;
-//	long eip;
-//	int  xcs;
-//	long eflags;
-//	long esp;
-//	int  xss;
+//    long ebx;
+//    long ecx;
+//    long edx;
+//    long esi;
+//    long edi;
+//    long ebp;
+//    long eax;
+//    int  xds;
+//    int  xes;
+//    int  xfs;
+//    int  xgs;
+//    long orig_eax;
+//    long eip;
+//    int  xcs;
+//    long eflags;
+//    long esp;
+//    int  xss;
 //};
 
 static int clone_fn(void* arg)
@@ -656,11 +673,11 @@ void EXPORT x64Syscall(x64emu_t *emu)
             break;
         #endif
         #ifndef __NR_rename
-	    case 82: // sys_rename
-    	    S_RAX = rename((void*)R_RDI, (void*)R_RSI);
+        case 82: // sys_rename
+            S_RAX = rename((void*)R_RDI, (void*)R_RSI);
             if(S_RAX==-1)
                 S_RAX = -errno;
-	    break;
+        break;
         #endif
         #ifndef __NR_mkdir
         case 83: // sys_mkdir
@@ -688,6 +705,9 @@ void EXPORT x64Syscall(x64emu_t *emu)
                 S_RAX = -errno;
             break;
         #endif
+        case 111: // sys_getpgrp
+            S_RAX = getpgrp();
+            break;
         case 131: // sys_sigaltstack
             S_RAX = my_sigaltstack(emu, (void*)R_RDI, (void*)R_RSI);
             if(S_RAX==-1)
@@ -712,6 +732,10 @@ void EXPORT x64Syscall(x64emu_t *emu)
                 S_RAX = -errno;
             break;
         #endif
+        case 175: // sys_init_module
+            // huh?
+            S_RAX = -EPERM;
+            break;
         #ifndef __NR_time
         case 201: // sys_time
             R_RAX = (uintptr_t)time((void*)R_RDI);
@@ -772,7 +796,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
                 sigset_t * set = (sigset_t *)R_RSI;
                 if(sigismember(set, SIGSEGV)) {
                     sigdelset(set, SIGSEGV);
-                    printf_log(LOG_INFO, "Warning, signalfd on SIGSEGV unsuported\n");
+                    printf_log(LOG_INFO, "Warning, signalfd on SIGSEGV unsupported\n");
                 }
                 S_RAX = signalfd(S_EDI, set, 0);
                 if(S_RAX==-1)
@@ -1019,6 +1043,10 @@ long EXPORT my_syscall(x64emu_t *emu)
         case 160:
             return setrlimit(S_ESI, (void*)R_RDX);
         #endif
+        case 175: // sys_init_module
+            // huh?
+            errno = -EPERM;
+            return -1;
         #ifndef __NR_time
         case 201: // sys_time
             return (intptr_t)time((void*)R_RSI);
@@ -1056,7 +1084,7 @@ long EXPORT my_syscall(x64emu_t *emu)
                 sigset_t * set = (sigset_t *)R_RDX;
                 if(sigismember(set, SIGSEGV)) {
                     sigdelset(set, SIGSEGV);
-                    printf_log(LOG_INFO, "Warning, signalfd on SIGSEGV unsuported\n");
+                    printf_log(LOG_INFO, "Warning, signalfd on SIGSEGV unsupported\n");
                 }
                 return signalfd(S_ESI, set, 0);
             }

@@ -760,7 +760,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 INST_NAME("BOUND Gd, Ed");
                 nextop = F8;
-                FAKEED(0);
+                FAKEED;
             }
             break;
         case 0x63:
@@ -1012,12 +1012,13 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         fpu_purgecache(dyn, ninst, 1, x1, x2, x3);      \
                     jump_to_next(dyn, addr+i8, 0, ninst, rex.is32bits); \
                 } else {                                                \
+                    /* inside the block, cache transform */             \
                     CacheTransform(dyn, ninst, cacheupd, x1, x2, x3);   \
                     i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);\
                     B(i32);                                             \
                 }                                                       \
             } else {                                                    \
-                /* inside the block */                                  \
+                /* inside the block, no cache change */                 \
                 i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);    \
                 Bcond(YES, i32);                                        \
             }
@@ -1497,7 +1498,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             SET_DFNONE(x1);
             if(box64_wine) {    // should this be done all the time?
                 TBZ_NEXT(xFlags, F_TF);
-                // go to epilog, TF should trigger at end of next opcode, so using Interpretor only
+                // go to epilog, TF should trigger at end of next opcode, so using Interpreter only
                 jump_to_epilog(dyn, addr, 0, ninst);
             }
             break;
@@ -1932,7 +1933,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROL Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
+                        SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                         GETEB(x1, 1);
                         u8 = F8&0x1f;
                         emit_rol8c(dyn, ninst, x1, u8, x4, x5);
@@ -1946,7 +1947,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROR Eb, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
-                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
+                        SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                         GETEB(x1, 1);
                         u8 = F8&0x1f;
                         emit_ror8c(dyn, ninst, x1, u8, x4, x5);
@@ -1961,7 +1962,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
                         READFLAGS(X_CF);
-                        SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                        SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                         GETEB(x1, 1);
                         u8 = F8&0x1f;
                         emit_rcl8c(dyn, ninst, x1, u8, x4, x5);
@@ -1976,7 +1977,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     u8 = geted_ib(dyn, addr, ninst, nextop)&0x1f;
                     if(u8) {
                         READFLAGS(X_CF);
-                        SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                        SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                         GETEB(x1, 1);
                         u8 = F8&0x1f;
                         emit_rcr8c(dyn, ninst, x1, u8, x4, x5);
@@ -2038,7 +2039,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROL Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
+                        SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_rol32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -2057,7 +2058,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     INST_NAME("ROR Ed, Ib");
                     u8 = geted_ib(dyn, addr, ninst, nextop)&(0x1f+(rex.w*0x20));
                     if(u8) {
-                        SETFLAGS(X_CF|X_OF, SF_SUBSET_PENDING);
+                        SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                         GETED(1);
                         u8 = (F8)&(rex.w?0x3f:0x1f);
                         emit_ror32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -2383,11 +2384,13 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     LDRx_REG(x3, x1, x2);
                     //LDRx_U12(x3, x1, offsetof(box64context_t, signals[SIGTRAP]));
                     CMPSx_U12(x3, 0);
-                    B_NEXT(cEQ);
-                    GETIP(ip);
+                    B_MARK(cEQ);
+                    GETIP(addr);  // update RIP
                     STORE_XEMU_CALL(xRIP);
                     CALL(native_int3, -1);
                     LOAD_XEMU_CALL(xRIP);
+                    MARK;
+                    jump_to_epilog(dyn, addr, 0, ninst);
                     *need_epilog = 0;
                     *ok = 0;
                 }
@@ -2400,7 +2403,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 INST_NAME("INT 29/2c/2d");
                 // lets do nothing
                 MESSAGE(LOG_INFO, "INT 29/2c/2d Windows interruption\n");
-                GETIP(ip);
+                GETIP(ip);  // priviledged instruction, IP not updated
                 STORE_XEMU_CALL(xRIP);
                 MOV32w(x1, u8);
                 CALL(native_int, -1);
@@ -2421,10 +2424,20 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 MARK;
                 LOAD_XEMU_REM();
                 jump_to_epilog(dyn, 0, xRIP, ninst);
+            } else if(u8==0x03) {
+                INST_NAME("INT 3");
+                SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                GETIP(addr);
+                STORE_XEMU_CALL(xRIP);
+                CALL(native_int3, -1);
+                LOAD_XEMU_CALL(xRIP);
+                jump_to_epilog(dyn, 0, xRIP, ninst);
+                *need_epilog = 0;
+                *ok = 0;
             } else {
                 INST_NAME("INT n");
                 SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
-                GETIP(ip);
+                GETIP(ip);  // priviledged instruction, IP not updated
                 STORE_XEMU_CALL(xRIP);
                 CALL(native_int, -1);
                 LOAD_XEMU_CALL(xRIP);
@@ -2439,7 +2452,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 INST_NAME("INTO");
                 READFLAGS(X_OF);
-                GETIP(ip);
+                GETIP(addr);
                 TBZ_NEXT(wFlags, F_OF);
                 STORE_XEMU_CALL(xRIP);
                 CALL(native_int, -1);
@@ -2459,14 +2472,14 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             switch((nextop>>3)&7) {
                 case 0:
                     INST_NAME("ROL Eb, 1");
-                    SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                    SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                     GETEB(x1, 0);
                     emit_rol8c(dyn, ninst, ed, 1, x4, x5);
                     EBBACK;
                     break;
                 case 1:
                     INST_NAME("ROR Eb, 1");
-                    SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                    SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                     GETEB(x1, 0);
                     emit_ror8c(dyn, ninst, ed, 1, x4, x5);
                     EBBACK;
@@ -2516,14 +2529,14 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             switch((nextop>>3)&7) {
                 case 0:
                     INST_NAME("ROL Ed, 1");
-                    SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                    SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                     GETED(0);
                     emit_rol32c(dyn, ninst, rex, ed, 1, x3, x4);
                     WBACK;
                     break;
                 case 1:
                     INST_NAME("ROR Ed, 1");
-                    SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                    SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                     GETED(0);
                     emit_ror32c(dyn, ninst, rex, ed, 1, x3, x4);
                     WBACK;
@@ -2577,6 +2590,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     if(box64_dynarec_safeflags>1)
                         MAYSETFLAGS();
                     UFLAG_IF {
+                        UFLAG_DF(x2, d_none);
                         TSTw_mask(xRCX, 0, 0b00100);  //mask=0x00000001f
                         B_NEXT(cEQ);
                     }
@@ -2588,13 +2602,16 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     LSRw_REG(ed, ed, x2);
                     EBBACK;
                     UFLAG_IF {  // calculate flags directly
-                        CMPSw_U12(x2, 7);
-                        B_MARK(cNE);
-                            ADDxw_REG_LSR(x3, ed, ed, 7);
-                            BFIw(xFlags, x3, F_OF, 1);
-                        MARK;
-                        BFIw(xFlags, ed, F_CF, 1);
-                        UFLAG_DF(x2, d_none);
+                        IFX(X_OF) {
+                            CMPSw_U12(x2, 7);
+                            B_MARK(cNE);
+                                EORxw_REG_LSR(x3, ed, ed, 7);
+                                BFIw(xFlags, x3, F_OF, 1);
+                            MARK;
+                        }
+                        IFX(X_CF) {
+                            BFIw(xFlags, ed, F_CF, 1);
+                        }
                     }
                     break;
                 case 1:
@@ -2603,6 +2620,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     if(box64_dynarec_safeflags>1)
                         MAYSETFLAGS();
                     UFLAG_IF {
+                        UFLAG_DF(x2, d_none);
                         TSTw_mask(xRCX, 0, 0b00100);  //mask=0x00000001f
                         B_NEXT(cEQ);
                     }
@@ -2612,14 +2630,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     LSRw_REG(ed, ed, x2);
                     EBBACK;
                     UFLAG_IF {  // calculate flags directly
-                        CMPSw_U12(x2, 1);
-                        B_MARK(cNE);
-                            LSRxw(x2, ed, 6); // x2 = d>>30
-                            EORw_REG_LSR(x2, x2, x2, 1); // x2 = ((d>>30) ^ ((d>>30)>>1))
-                            BFIw(xFlags, x2, F_OF, 1);
-                        MARK;
-                        BFXILw(xFlags, ed, 7, 1);
-                        UFLAG_DF(x2, d_none);
+                        IFX(X_OF) {
+                            CMPSw_U12(x2, 1);
+                            B_MARK(cNE);
+                                LSRxw(x2, ed, 6); // x2 = d>>6
+                                EORw_REG_LSR(x2, x2, x2, 1); // x2 = ((d>>6) ^ ((d>>6)>>1))
+                                BFIw(xFlags, x2, F_OF, 1);
+                            MARK;
+                        }
+                        IFX(X_CF) {
+                            BFXILw(xFlags, ed, 7, 1);
+                        }
                     }
                     break;
                 case 2:
@@ -2703,6 +2724,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     if(box64_dynarec_safeflags>1)
                         MAYSETFLAGS();
                     UFLAG_IF {
+                        UFLAG_DF(x2, d_none);
                         if(rex.w) {
                             ANDSx_mask(x3, xRCX, 1, 0, 0b00101);  //mask=0x000000000000003f
                         } else {
@@ -2725,13 +2747,16 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     RORxw_REG(ed, ed, x3);
                     WBACK;
                     UFLAG_IF {  // calculate flags directly
-                        CMPSw_U12(x3, rex.w?63:31);
-                        B_MARK(cNE);
-                            ADDxw_REG_LSR(x1, ed, ed, rex.w?63:31);
-                            BFIw(xFlags, x1, F_OF, 1);
-                        MARK;
-                        BFIw(xFlags, ed, F_CF, 1);
-                        UFLAG_DF(x2, d_none);
+                        IFX(X_OF) {
+                            CMPSw_U12(x3, rex.w?63:31);
+                            B_MARK(cNE);
+                                ADDxw_REG_LSR(x1, ed, ed, rex.w?63:31);
+                                BFIw(xFlags, x1, F_OF, 1);
+                            MARK;
+                        }
+                        IFX(X_CF) {
+                            BFIw(xFlags, ed, F_CF, 1);
+                        }
                     }
                     break;
                 case 1:
@@ -2740,6 +2765,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     if(box64_dynarec_safeflags>1)
                         MAYSETFLAGS();
                     UFLAG_IF {
+                        UFLAG_DF(x2, d_none);
                         if(rex.w) {
                             ANDSx_mask(x3, xRCX, 1, 0, 0b00101);  //mask=0x000000000000003f
                         } else {
@@ -2760,14 +2786,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     RORxw_REG(ed, ed, x3);
                     WBACK;
                     UFLAG_IF {  // calculate flags directly
-                        CMPSw_U12(x3, 1);
-                        B_MARK(cNE);
-                            LSRxw(x2, ed, rex.w?62:30); // x2 = d>>30
-                            EORw_REG_LSR(x2, x2, x2, 1); // x2 = ((d>>30) ^ ((d>>30)>>1))
-                            BFIw(xFlags, x2, F_OF, 1);
-                        MARK;
-                        BFXILxw(xFlags, ed, rex.w?63:31, 1);
-                        UFLAG_DF(x2, d_none);
+                        IFX(X_OF) {
+                            CMPSw_U12(x3, 1);
+                            B_MARK(cNE);
+                                LSRxw(x2, ed, rex.w?62:30); // x2 = d>>30
+                                EORw_REG_LSR(x2, x2, x2, 1); // x2 = ((d>>30) ^ ((d>>30)>>1))
+                                BFIw(xFlags, x2, F_OF, 1);
+                            MARK;
+                        }
+                        IFX(X_CF) {
+                            BFXILxw(xFlags, ed, rex.w?63:31, 1);
+                        }
                     }
                     break;
                 case 2:
@@ -3089,14 +3118,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags to "dont'care" state
                     }
                     // regular call
-                    /*if(box64_dynarec_callret && box64_dynarec_bigblock>1) {
-                        BARRIER(BARRIER_FULL);
-                        BARRIER_NEXT(BARRIER_FULL);
-                    } else {
-                        BARRIER(BARRIER_FLOAT);
-                        *need_epilog = 0;
-                        *ok = 0;
-                    }*/
                     if(rex.is32bits) {
                         MOV32w(x2, addr);
                     } else {
@@ -3596,7 +3617,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     GETEDz(0);
                     if(box64_dynarec_callret && box64_dynarec_bigblock>1) {
                         BARRIER(BARRIER_FULL);
-                        BARRIER_NEXT(BARRIER_FULL);
                     } else {
                         BARRIER(BARRIER_FLOAT);
                         *need_epilog = 0;

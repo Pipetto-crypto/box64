@@ -100,6 +100,7 @@ ENTRYBOOL(BOX64_NOPULSE, box64_nopulse)                 \
 ENTRYBOOL(BOX64_NOGTK, box64_nogtk)                     \
 ENTRYBOOL(BOX64_NOVULKAN, box64_novulkan)               \
 ENTRYBOOL(BOX64_RDTSC_1GHZ, box64_rdtsc_1ghz)           \
+ENTRYBOOL(BOX64_SHAEXT, box64_shaext)                   \
 ENTRYBOOL(BOX64_SSE42, box64_sse42)                     \
 ENTRYINT(BOX64_AVX, new_avx, 0, 2, 2)                   \
 ENTRYBOOL(BOX64_FUTEX_WAITV, box64_futex_waitv)         \
@@ -112,6 +113,7 @@ ENTRYBOOL(BOX64_CEFDISABLEGPUCOMPOSITOR, box64_cefdisablegpucompositor)\
 ENTRYBOOL(BOX64_EXIT, want_exit)                        \
 ENTRYBOOL(BOX64_LIBCEF, box64_libcef)                   \
 ENTRYBOOL(BOX64_JVM, box64_jvm)                         \
+ENTRYBOOL(BOX64_UNITYPLAYER, box64_unityplayer)         \
 ENTRYBOOL(BOX64_SDL2_JGUID, box64_sdl2_jguid)           \
 ENTRYINT(BOX64_MALLOC_HACK, box64_malloc_hack, 0, 2, 2) \
 ENTRYINTPOS(BOX64_MAXCPU, new_maxcpu)                   \
@@ -121,6 +123,7 @@ ENTRYSTRING_(BOX64_ENV1, new_env1)                      \
 ENTRYSTRING_(BOX64_ENV2, new_env2)                      \
 ENTRYSTRING_(BOX64_ENV3, new_env3)                      \
 ENTRYSTRING_(BOX64_ENV4, new_env4)                      \
+ENTRYSTRING_(BOX64_ARGS, new_args)                      \
 ENTRYBOOL(BOX64_RESERVE_HIGH, new_reserve_high)         \
 
 #ifdef HAVE_TRACE
@@ -167,7 +170,7 @@ IGNORE(BOX64_DYNAREC_FASTPAGE)                                      \
 ENTRYBOOL(BOX64_DYNAREC_ALIGNED_ATOMICS, box64_dynarec_aligned_atomics) \
 ENTRYBOOL(BOX64_DYNAREC_WAIT, box64_dynarec_wait)                   \
 ENTRYSTRING_(BOX64_NODYNAREC, box64_nodynarec)                      \
-ENTRYBOOL(BOX64_DYNAREC_TEST, box64_dynarec_test)                   \
+ENTRYSTRING_(BOX64_DYNAREC_TEST, box64_dynarec_test)                \
 ENTRYBOOL(BOX64_DYNAREC_MISSING, box64_dynarec_missing)             \
 
 #else
@@ -284,6 +287,7 @@ SUPER()
 KHASH_MAP_INIT_STR(params, my_params_t)
 
 static kh_params_t *params = NULL;
+static kh_params_t *params_gen = NULL;
 
 static void clearParam(my_params_t* param)
 {
@@ -308,17 +312,18 @@ static void clearParam(my_params_t* param)
     #undef ENTRYULONG
 }
 
-static void addParam(const char* name, my_params_t* param)
+static void addParam(const char* name, my_params_t* param, int gen)
 {
     khint_t k;
-    k = kh_get(params, params, name);
-    if(k==kh_end(params)) {
+    kh_params_t* khp = gen?params_gen:params;
+    k = kh_get(params, khp, name);
+    if(k==kh_end(khp)) {
         int ret;
-        k = kh_put(params, params, box_strdup(name), &ret);
+        k = kh_put(params, khp, box_strdup(name), &ret);
     } else {
-        clearParam(&kh_value(params, k));
+        clearParam(&kh_value(khp, k));
     }
-    my_params_t *p = &kh_value(params, k);
+    my_params_t *p = &kh_value(khp, k);
     memcpy(p, param, sizeof(my_params_t));
 }
 
@@ -366,6 +371,8 @@ void LoadRCFile(const char* filename)
     // init the hash table if needed
     if(!params)
         params = kh_init(params);
+    if(!params_gen)
+        params_gen = kh_init(params);
     // prepare to parse the file
     char* line = NULL;
     size_t lsize = 0;
@@ -374,6 +381,7 @@ void LoadRCFile(const char* filename)
     int dummy;
     size_t len;
     char* p;
+    int decor = 1;
     // parsing
     while ((dummy = getline(&line, &lsize, f)) != -1) {
         // remove comments
@@ -385,12 +393,16 @@ void LoadRCFile(const char* filename)
         if(line[0]=='[' && strchr(line, ']')) {
             // new entry, will need to add current one
             if(current_name)
-                addParam(current_name, &current_param);
+                addParam(current_name, &current_param, (decor==2));
+            if(line[1]=='*' && line[(intptr_t)(strchr(line, ']')-line)-1]=='*')
+                decor = 2;
+            else
+                decor = 1;
             // prepare a new entry
             memset(&current_param, 0, sizeof(current_param));
             free(current_name);
-            current_name = LowerCase(line+1);
-            *strchr(current_name, ']') = '\0';
+            current_name = LowerCase(line+decor);
+            *(strchr(current_name, ']')+1-decor) = '\0';
             trimString(current_name);
         } else if(strchr(line, '=')) {
             // actual parameters
@@ -465,7 +477,7 @@ void LoadRCFile(const char* filename)
     }
     // last entry to be pushed too
     if(current_name) {
-        addParam(current_name, &current_param);
+        addParam(current_name, &current_param, (decor==2));
         free(current_name);
     }
     free(line);
@@ -492,6 +504,7 @@ void DeleteParams()
 extern int ftrace_has_pid;
 extern FILE* ftrace;
 extern char* ftrace_name;
+extern char* box64_new_args;
 void openFTrace(const char* newtrace);
 void addNewEnvVar(const char* s);
 void AddNewLibs(const char* libs);
@@ -509,28 +522,39 @@ const char* GetLastApplyName()
 {
     return old_name;
 }
+void internal_ApplyParams(const char* name, const my_params_t* param);
 void ApplyParams(const char* name)
 {
     if(!name || !params)
         return;
+    if(!strcasecmp(name, old_name)) {
+        return;
+    }
+    strncpy(old_name, name, 255);
+    khint_t k1;
+    {
+        char* lname = LowerCase(name);
+        k1 = kh_get(params, params, lname);
+        my_params_t* param;
+        const char* k2;
+        kh_foreach_ref(params_gen, k2, param, 
+            if(strstr(lname, k2))
+                internal_ApplyParams(name, param);
+        )
+        free(lname);
+    }
+    if(k1 == kh_end(params))
+        return;
+    my_params_t* param = &kh_value(params, k1);
+    internal_ApplyParams(name, param);
+}
+
+void internal_ApplyParams(const char* name, const my_params_t* param) {
     int new_cycle_log = cycle_log;
     int new_maxcpu = box64_maxcpu;
     int new_avx = box64_avx2?2:box64_avx;
     int box64_dynarec_jvm = box64_jvm;
     int new_reserve_high = 0;
-    if(!strcmp(name, old_name)) {
-        return;
-    }
-    strncpy(old_name, name, 255);
-    khint_t k;
-    {
-        char* lname = LowerCase(name);
-        k = kh_get(params, params, lname);
-        free(lname);
-    }
-    if(k == kh_end(params))
-        return;
-    my_params_t* param = &kh_value(params, k);
     int want_exit = 0;
     #ifdef DYNAREC
     int olddynarec = box64_dynarec;
@@ -569,7 +593,7 @@ void ApplyParams(const char* name)
         my_reserveHighMem();
     if(param->is_new_avx_present) {
         if(!new_avx) {
-            printf_log(LOG_INFO, "Hidding AVX extension\n");
+            printf_log(LOG_INFO, "Hiding AVX extension\n");
             box64_avx = 0; box64_avx2 = 0;
         } else if(new_avx==1) {
             printf_log(LOG_INFO, "Exposing AVX extension\n");
@@ -629,6 +653,12 @@ void ApplyParams(const char* name)
         addNewEnvVar(param->new_env4);
         printf_log(LOG_INFO, "Applying %s=%s\n", "BOX64_ENV4", param->new_env4);
     }
+    if(param->is_new_args_present) {
+        printf_log(LOG_INFO, "Adding \"%s\" arguments to command line\n", param->new_args);
+        if(box64_new_args)
+            box_free(box64_new_args);
+        box64_new_args = box_strdup(param->new_args);
+    }
     if(param->is_bash_present && FileIsX64ELF(param->bash)) {
         if(my_context->bashpath)
             free(my_context->bashpath);
@@ -681,6 +711,32 @@ void ApplyParams(const char* name)
             printf_log(LOG_INFO, "Appling BOX64_NODYNAREC=%p-%p\n", (void*)box64_nodynarec_start, (void*)box64_nodynarec_end);
         } else {
             printf_log(LOG_INFO, "Ignoring BOX64_NODYNAREC=%s (%p-%p)\n", param->box64_nodynarec, (void*)box64_nodynarec_start, (void*)box64_nodynarec_end);
+        }
+    }
+    if(param->is_box64_dynarec_test_present) {
+        uintptr_t no_start = 0, no_end = 0;
+        if(strlen(param->box64_dynarec_test)==1) {
+            box64_dynarec_test = param->box64_dynarec_test[0]-'0';
+            box64_dynarec_test_start = 0x0;
+            box64_dynarec_test_end = 0x0;
+            if(box64_dynarec_test>2) box64_dynarec_test = 0;
+        } else {
+            int ok = 0;
+            if(sscanf(param->box64_dynarec_test, "0x%lX-0x%lX", &no_start, &no_end)==2)
+                ok = 1;
+            if(!ok && sscanf(param->box64_dynarec_test, "%lx-%lx", &no_start, &no_end)==2)
+                ok = 1;
+            if(!ok && sscanf(param->box64_dynarec_test, "%ld-%ld", &no_start, &no_end)==2)
+                ok = 1;
+            if(ok && no_end>no_start) {
+                box64_dynarec_test = 1;
+                box64_dynarec_test_start = no_start;
+                box64_dynarec_test_end = no_end;
+                printf_log(LOG_INFO, "Appling BOX64_DYNAREC_TEST=%p-%p\n", (void*)box64_dynarec_test_start, (void*)box64_dynarec_test_end);
+            } else {
+                box64_dynarec_test = 0;
+                printf_log(LOG_INFO, "Ignoring BOX64_DYNAREC_TEST=%s (%p-%p)\n", param->box64_dynarec_test, (void*)box64_dynarec_test_start, (void*)box64_dynarec_test_end);
+            }
         }
     }
     if(param->is_box64_dynarec_forward_present) {

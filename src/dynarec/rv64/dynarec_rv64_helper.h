@@ -168,9 +168,9 @@
         ed = i;                                                                               \
         wb1 = 1;                                                                              \
     }
-// GETEW will use i for ed, and can use r3 for wback.
+// GETEW will use i for ed, and *may* use x3 for wback.
 #define GETEW(i, D) GETEWW(x3, i, D)
-// GETSEW will use i for ed, and can use r3 for wback. This is the Signed version
+// GETSEW will use i for ed, and *may* use x3 for wback. This is the Signed version
 #define GETSEW(i, D)                                                                           \
     if (MODREG) {                                                                              \
         wback = xRAX + (nextop & 7) + (rex.b << 3);                                            \
@@ -334,7 +334,7 @@
         ed = i;                                                                                 \
     } else {                                                                                    \
         SMREAD();                                                                               \
-        addr = geted(dyn, addr, ninst, nextop, &wback, x2, x3, &fixedaddress, rex, NULL, 1, D); \
+        addr = geted(dyn, addr, ninst, nextop, &wback, x3, x2, &fixedaddress, rex, NULL, 1, D); \
         LB(i, wback, fixedaddress);                                                             \
         wb1 = 1;                                                                                \
         ed = i;                                                                                 \
@@ -392,7 +392,7 @@
         ANDI(gd, gb1, 0xff);
 
 // Write gb (gd) back to original register / memory, using s1 as scratch
-#define GBBACK(s1)                        \
+#define GBBACK(s1) do {                   \
     if (gb2) {                            \
         MOV64x(s1, 0xffffffffffff00ffLL); \
         AND(gb1, gb1, s1);                \
@@ -401,7 +401,7 @@
     } else {                              \
         ANDI(gb1, gb1, ~0xff);            \
         OR(gb1, gb1, gd);                 \
-    }
+    } } while (0)
 
 // Write eb (ed) back to original register / memory, using s1 as scratch
 #define EBBACK(s1, c)                     \
@@ -473,25 +473,41 @@
         FLD(a, ed, fixedaddress);                                                            \
     }
 
-// Will get pointer to GX in general register a, will purge SS or SD if loaded. can use gback as load address
+// Will get pointer to GX in general register a, will purge SS or SD if loaded. May use x3. can use gback as load address
 #define GETGX()                                 \
     gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
-    sse_forget_reg(dyn, ninst, gd);             \
+    sse_forget_reg(dyn, ninst, x3, gd);         \
     gback = xEmu;                               \
     gdoffset = offsetof(x64emu_t, xmm[gd])
 
 // Get Ex address in general register a, will purge SS or SD if it's reg and is loaded. May use x3. Use wback as load address!
-#define GETEX(a, D)                                                                            \
-    if (MODREG) {                                                                              \
-        ed = (nextop & 7) + (rex.b << 3);                                                      \
-        sse_forget_reg(dyn, ninst, ed);                                                        \
-        fixedaddress = offsetof(x64emu_t, xmm[ed]);                                            \
-        wback = xEmu;                                                                          \
-    } else {                                                                                   \
-        SMREAD();                                                                              \
-        ed = 16;                                                                               \
-        addr = geted(dyn, addr, ninst, nextop, &wback, a, x3, &fixedaddress, rex, NULL, 0, D); \
-        fixedaddress = 0; /* TODO: optimize this! */                                           \
+#define GETEX(a, D, I12)                                                                         \
+    if (MODREG) {                                                                                \
+        ed = (nextop & 7) + (rex.b << 3);                                                        \
+        sse_forget_reg(dyn, ninst, x3, ed);                                                      \
+        fixedaddress = offsetof(x64emu_t, xmm[ed]);                                              \
+        wback = xEmu;                                                                            \
+    } else {                                                                                     \
+        SMREAD();                                                                                \
+        ed = 16;                                                                                 \
+        addr = geted(dyn, addr, ninst, nextop, &wback, a, x3, &fixedaddress, rex, NULL, I12, D); \
+    }
+
+// Get GX as a quad (might use x1)
+#define GETGX_vector(a, w, sew)                 \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = sse_get_reg_vector(dyn, ninst, x1, gd, w, sew)
+
+// Get EX as a quad, (x1 is used)
+#define GETEX_vector(a, w, D, sew)                                                           \
+    if (MODREG) {                                                                            \
+        a = sse_get_reg_vector(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), w, sew);         \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x3, x2, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        ADDI(x2, ed, fixedaddress);                                                          \
+        VLE_V(a, x2, sew, VECTOR_UNMASKED, VECTOR_NFIELD1);                                  \
     }
 
 #define GETGM()                     \
@@ -501,18 +517,22 @@
     gdoffset = offsetof(x64emu_t, mmx[gd])
 
 // Get EM, might use x3
-#define GETEM(a, D)                                                                            \
-    if (MODREG) {                                                                              \
-        ed = (nextop & 7);                                                                     \
-        mmx_forget_reg(dyn, ninst, ed);                                                        \
-        fixedaddress = offsetof(x64emu_t, mmx[ed]);                                            \
-        wback = xEmu;                                                                          \
-    } else {                                                                                   \
-        SMREAD();                                                                              \
-        ed = 8;                                                                                \
-        addr = geted(dyn, addr, ninst, nextop, &wback, a, x3, &fixedaddress, rex, NULL, 0, D); \
-        fixedaddress = 0; /* TODO: optimize this! */                                           \
+#define GETEM(a, D, I12)                                                                         \
+    if (MODREG) {                                                                                \
+        ed = (nextop & 7);                                                                       \
+        mmx_forget_reg(dyn, ninst, ed);                                                          \
+        fixedaddress = offsetof(x64emu_t, mmx[ed]);                                              \
+        wback = xEmu;                                                                            \
+    } else {                                                                                     \
+        SMREAD();                                                                                \
+        ed = 8;                                                                                  \
+        addr = geted(dyn, addr, ninst, nextop, &wback, a, x3, &fixedaddress, rex, NULL, I12, D); \
     }
+
+#define GETGX_empty_vector(a)                   \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = sse_get_reg_empty_vector(dyn, ninst, x1, gd)
+
 
 #define SSE_LOOP_D_ITEM(GX1, EX1, F, i)    \
     LWU(GX1, gback, gdoffset + i * 4);     \
@@ -821,19 +841,27 @@
 
 
 #define SET_DFNONE()                           \
+    do {                                       \
+    dyn->f.dfnone_here=1;                      \
     if (!dyn->f.dfnone) {                      \
         SW(xZR, xEmu, offsetof(x64emu_t, df)); \
         dyn->f.dfnone = 1;                     \
-    }
+    } } while(0);
+
 #define SET_DF(S, N)                         \
     if ((N) != d_none) {                     \
         MOV_U12(S, (N));                     \
         SW(S, xEmu, offsetof(x64emu_t, df)); \
+        if(dyn->f.pending==SF_PENDING && dyn->insts[ninst].x64.need_after && !(dyn->insts[ninst].x64.need_after&X_PEND)) {  \
+            CALL_(UpdateFlags, -1, 0);       \
+            dyn->f.pending = SF_SET;         \
+            SET_NODF();                      \
+        }                                    \
         dyn->f.dfnone = 0;                   \
     } else                                   \
         SET_DFNONE()
 #define SET_NODF() dyn->f.dfnone = 0
-#define SET_DFOK() dyn->f.dfnone = 1
+#define SET_DFOK() dyn->f.dfnone = 1; dyn->f.dfnone_here=1
 
 #define CLEAR_FLAGS() \
     IFX(X_ALL) { ANDI(xFlags, xFlags, ~((1UL << F_AF) | (1UL << F_CF) | (1UL << F_OF2) | (1UL << F_ZF) | (1UL << F_SF) | (1UL << F_PF))); }
@@ -861,7 +889,7 @@
                 ANDI(scratch1, scratch2, 0x80);                       \
             } else {                                                  \
                 SRLI(scratch1, scratch2, (width)-1);                  \
-                if (width != 64) ANDI(scratch1, scratch1, 1);         \
+                if ((width) != 64) ANDI(scratch1, scratch1, 1);       \
             }                                                         \
             BEQZ(scratch1, 8);                                        \
             ORI(xFlags, xFlags, 1 << F_CF);                           \
@@ -925,7 +953,7 @@
 #endif
 
 #ifndef MAYSETFLAGS
-#define MAYSETFLAGS()
+#define MAYSETFLAGS() do {} while (0)
 #endif
 
 #ifndef READFLAGS
@@ -970,9 +998,6 @@
 #ifndef BARRIER
 #define BARRIER(A)
 #endif
-#ifndef BARRIER_NEXT
-#define BARRIER_NEXT(A)
-#endif
 #ifndef SET_HASCALLRET
 #define SET_HASCALLRET()
 #endif
@@ -995,6 +1020,9 @@
     *ok = -1;   \
     BARRIER(2)
 #endif
+#ifndef DEFAULT_VECTOR
+#define DEFAULT_VECTOR return 0
+#endif
 
 #ifndef TABLE64
 #define TABLE64(A, V)
@@ -1003,8 +1031,10 @@
 #define FTABLE64(A, V)
 #endif
 
-#define ARCH_INIT()
-
+#define ARCH_INIT() \
+    dyn->vector_sew = VECTOR_SEWNA;
+#define ARCH_RESET() \
+    dyn->vector_sew = VECTOR_SEWNA;
 
 #if STEP < 2
 #define GETIP(A) TABLE64(0, 0)
@@ -1050,6 +1080,19 @@
 
 #define MODREG ((nextop & 0xC0) == 0xC0)
 
+#ifndef SET_ELEMENT_WIDTH
+#define SET_ELEMENT_WIDTH(s1, sew)                                            \
+    do {                                                                      \
+        if (sew == VECTOR_SEWNA) {                                            \
+        } else if (sew == VECTOR_SEWANY && dyn->vector_sew != VECTOR_SEWNA) { \
+        } else if (sew == dyn->vector_sew) {                                  \
+        } else {                                                              \
+            vector_vsetvl_emul1(dyn, ninst, s1, sew);                         \
+        }                                                                     \
+        dyn->vector_sew = sew;                                                \
+    } while (0)
+#endif
+
 void rv64_epilog(void);
 void rv64_epilog_fast(void);
 void* rv64_next(x64emu_t* emu, uintptr_t addr);
@@ -1089,6 +1132,8 @@ void* rv64_next(x64emu_t* emu, uintptr_t addr);
 #define dynarec64_66F0   STEPNAME(dynarec64_66F0)
 #define dynarec64_F20F   STEPNAME(dynarec64_F20F)
 #define dynarec64_F30F   STEPNAME(dynarec64_F30F)
+
+#define dynarec64_660F_vector STEPNAME(dynarec64_660F_vector)
 
 #define geted               STEPNAME(geted)
 #define geted32             STEPNAME(geted32)
@@ -1220,6 +1265,10 @@ void* rv64_next(x64emu_t* emu, uintptr_t addr);
 #define sse_purge07cache      STEPNAME(sse_purge07cache)
 #define sse_reflect_reg       STEPNAME(sse_reflect_reg)
 
+#define sse_get_reg_empty_vector STEPNAME(sse_get_reg_empty_vector)
+#define sse_get_reg_vector       STEPNAME(sse_get_reg_vector)
+#define sse_forget_reg_vector    STEPNAME(sse_forget_reg_vector)
+
 #define fpu_pushcache       STEPNAME(fpu_pushcache)
 #define fpu_popcache        STEPNAME(fpu_popcache)
 #define fpu_reset_cache     STEPNAME(fpu_reset_cache)
@@ -1234,6 +1283,8 @@ void* rv64_next(x64emu_t* emu, uintptr_t addr);
 #define CacheTransform STEPNAME(CacheTransform)
 #define rv64_move64    STEPNAME(rv64_move64)
 #define rv64_move32    STEPNAME(rv64_move32)
+
+#define vector_vsetvl_emul1 STEPNAME(vector_vsetvl_emul1)
 
 /* setup r2 to address pointed by */
 uintptr_t geted(dynarec_rv64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, uint8_t* ed, uint8_t hint, uint8_t scratch, int64_t* fixaddress, rex_t rex, int* l, int i12, int delta);
@@ -1389,6 +1440,8 @@ void CacheTransform(dynarec_rv64_t* dyn, int ninst, int cacheupd, int s1, int s2
 void rv64_move64(dynarec_rv64_t* dyn, int ninst, int reg, int64_t val);
 void rv64_move32(dynarec_rv64_t* dyn, int ninst, int reg, int32_t val, int zeroup);
 
+void vector_vsetvl_emul1(dynarec_rv64_t* dyn, int ninst, int s1, int sew);
+
 #if STEP < 2
 #define CHECK_CACHE() 0
 #else
@@ -1432,14 +1485,20 @@ void mmx_forget_reg(dynarec_rv64_t* dyn, int ninst, int a);
 // SSE/SSE2 helpers
 //  get float register for a SSE reg, create the entry if needed
 int sse_get_reg(dynarec_rv64_t* dyn, int ninst, int s1, int a, int single);
+// get rvv register for a SSE reg, create the entry if needed
+int sse_get_reg_vector(dynarec_rv64_t* dyn, int ninst, int s1, int a, int forwrite, int sew);
 // get float register for a SSE reg, but don't try to synch it if it needed to be created
 int sse_get_reg_empty(dynarec_rv64_t* dyn, int ninst, int s1, int a, int single);
+// get rvv register for an SSE reg, but don't try to synch it if it needed to be created
+int sse_get_reg_empty_vector(dynarec_rv64_t* dyn, int ninst, int s1, int a);
 // forget float register for a SSE reg, create the entry if needed
-void sse_forget_reg(dynarec_rv64_t* dyn, int ninst, int a);
+void sse_forget_reg(dynarec_rv64_t* dyn, int ninst, int s1, int a);
+// forget rvv register for a SSE reg, does nothing if the regs is not loaded
+void sse_forget_reg_vector(dynarec_rv64_t* dyn, int ninst, int s1, int a);
 // purge the XMM0..XMM7 cache (before function call)
 void sse_purge07cache(dynarec_rv64_t* dyn, int ninst, int s1);
 // Push current value to the cache
-void sse_reflect_reg(dynarec_rv64_t* dyn, int ninst, int a);
+void sse_reflect_reg(dynarec_rv64_t* dyn, int ninst, int s1, int a);
 
 // common coproc helpers
 // reset the cache with n
@@ -1485,6 +1544,8 @@ uintptr_t dynarec64_6664(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
 uintptr_t dynarec64_66F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_F20F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_F30F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+
+uintptr_t dynarec64_660F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 
 #if STEP < 2
 #define PASS2(A)

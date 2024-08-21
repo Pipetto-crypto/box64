@@ -944,7 +944,7 @@ GO(XSetIconName, iFppp)
 GO(XSetIconSizes, iFpLpi)
 GOM(XSetICValues, pFEpV)         // use vaarg
 //GO(_XSetImage, 
-GOM(XSetIMValues, pFEpV)	// use vaarg
+GOM(XSetIMValues, pFEpV)    // use vaarg
 GO(XSetInputFocus, iFpLiL)
 GOM(XSetIOErrorHandler, pFEp)
 GO(_XSetLastRequestRead, uFpp)
@@ -1054,7 +1054,7 @@ GO(Xutf8TextPropertyToTextList, iFpppp)
 //GO(_Xutf8TextPropertyToTextList, 
 GOM(XVaCreateNestedList, pFEiV)
 GO(XVendorRelease, iFp)
-//GO(_XVIDtoVisual, 
+GO(_XVIDtoVisual, pFpp)
 GO(XVisualIDFromVisual, LFp)
 GO(XWarpPointer, iFpLLiiuuii)
 GO(XwcDrawImageString, vFpLppiipi)

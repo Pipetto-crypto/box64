@@ -26,7 +26,7 @@
 #include "bridge.h"
 
 #define PARITY(x)   (((emu->x64emu_parity_tab[(x) / 32] >> ((x) % 32)) & 1) == 0)
-#define XOR2(x) 	(((x) ^ ((x)>>1)) & 0x1)
+#define XOR2(x)     (((x) ^ ((x)>>1)) & 0x1)
 
 #ifdef ANDROID
 void EXPORT my___libc_init(x64emu_t* emu, void* raw_args , void (*onexit)(void) , int (*main)(int, char**, char**), void const * const structors )
@@ -865,29 +865,29 @@ void UpdateFlags(x64emu_t *emu)
             CONDITIONAL_SET_FLAG(bc & 0x8, F_AF);
             break;
         case d_cmp32:
-        	CONDITIONAL_SET_FLAG(emu->res.u32 & 0x80000000, F_SF);
-        	CONDITIONAL_SET_FLAG(!emu->res.u32, F_ZF);
-        	CONDITIONAL_SET_FLAG(PARITY(emu->res.u32 & 0xff), F_PF);
-        	bc = (emu->res.u32 & (~emu->op1.u32 | emu->op2.u32)) | (~emu->op1.u32 & emu->op2.u32);
-        	CONDITIONAL_SET_FLAG(bc & 0x80000000, F_CF);
-        	CONDITIONAL_SET_FLAG(XOR2(bc >> 30), F_OF);
-        	CONDITIONAL_SET_FLAG(bc & 0x8, F_AF);
+            CONDITIONAL_SET_FLAG(emu->res.u32 & 0x80000000, F_SF);
+            CONDITIONAL_SET_FLAG(!emu->res.u32, F_ZF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u32 & 0xff), F_PF);
+            bc = (emu->res.u32 & (~emu->op1.u32 | emu->op2.u32)) | (~emu->op1.u32 & emu->op2.u32);
+            CONDITIONAL_SET_FLAG(bc & 0x80000000, F_CF);
+            CONDITIONAL_SET_FLAG(XOR2(bc >> 30), F_OF);
+            CONDITIONAL_SET_FLAG(bc & 0x8, F_AF);
             break;
         case d_cmp64:
-        	CONDITIONAL_SET_FLAG(emu->res.u64 & 0x8000000000000000LL, F_SF);
-        	CONDITIONAL_SET_FLAG(!emu->res.u64, F_ZF);
-        	CONDITIONAL_SET_FLAG(PARITY(emu->res.u64 & 0xff), F_PF);
-        	bc = (emu->res.u64 & (~emu->op1.u64 | emu->op2.u64)) | (~emu->op1.u64 & emu->op2.u64);
-        	CONDITIONAL_SET_FLAG(bc & 0x8000000000000000LL, F_CF);
-        	CONDITIONAL_SET_FLAG(XOR2(bc >> 62), F_OF);
-        	CONDITIONAL_SET_FLAG(bc & 0x8, F_AF);
+            CONDITIONAL_SET_FLAG(emu->res.u64 & 0x8000000000000000LL, F_SF);
+            CONDITIONAL_SET_FLAG(!emu->res.u64, F_ZF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u64 & 0xff), F_PF);
+            bc = (emu->res.u64 & (~emu->op1.u64 | emu->op2.u64)) | (~emu->op1.u64 & emu->op2.u64);
+            CONDITIONAL_SET_FLAG(bc & 0x8000000000000000LL, F_CF);
+            CONDITIONAL_SET_FLAG(XOR2(bc >> 62), F_OF);
+            CONDITIONAL_SET_FLAG(bc & 0x8, F_AF);
             break;
         case d_tst8:
-        	CLEAR_FLAG(F_OF);
-        	CONDITIONAL_SET_FLAG(emu->res.u8 & 0x80, F_SF);
-        	CONDITIONAL_SET_FLAG(emu->res.u8 == 0, F_ZF);
-        	CONDITIONAL_SET_FLAG(PARITY(emu->res.u8 & 0xff), F_PF);
-        	CLEAR_FLAG(F_CF);
+            CLEAR_FLAG(F_OF);
+            CONDITIONAL_SET_FLAG(emu->res.u8 & 0x80, F_SF);
+            CONDITIONAL_SET_FLAG(emu->res.u8 == 0, F_ZF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u8 & 0xff), F_PF);
+            CLEAR_FLAG(F_CF);
             break;
         case d_tst16:
             CLEAR_FLAG(F_OF);
@@ -897,18 +897,18 @@ void UpdateFlags(x64emu_t *emu)
             CLEAR_FLAG(F_CF);
             break;
         case d_tst32:
-        	CLEAR_FLAG(F_OF);
-        	CONDITIONAL_SET_FLAG(emu->res.u32 & 0x80000000, F_SF);
-        	CONDITIONAL_SET_FLAG(emu->res.u32 == 0, F_ZF);
-        	CONDITIONAL_SET_FLAG(PARITY(emu->res.u32 & 0xff), F_PF);
-        	CLEAR_FLAG(F_CF);
+            CLEAR_FLAG(F_OF);
+            CONDITIONAL_SET_FLAG(emu->res.u32 & 0x80000000, F_SF);
+            CONDITIONAL_SET_FLAG(emu->res.u32 == 0, F_ZF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u32 & 0xff), F_PF);
+            CLEAR_FLAG(F_CF);
             break;
         case d_tst64:
-        	CLEAR_FLAG(F_OF);
-        	CONDITIONAL_SET_FLAG(emu->res.u64 & 0x8000000000000000LL, F_SF);
-        	CONDITIONAL_SET_FLAG(emu->res.u64 == 0, F_ZF);
-        	CONDITIONAL_SET_FLAG(PARITY(emu->res.u64 & 0xff), F_PF);
-        	CLEAR_FLAG(F_CF);
+            CLEAR_FLAG(F_OF);
+            CONDITIONAL_SET_FLAG(emu->res.u64 & 0x8000000000000000LL, F_SF);
+            CONDITIONAL_SET_FLAG(emu->res.u64 == 0, F_ZF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u64 & 0xff), F_PF);
+            CLEAR_FLAG(F_CF);
             break;
         case d_adc8:
             CONDITIONAL_SET_FLAG(emu->res.u16 & 0x100, F_CF);
@@ -1007,25 +1007,25 @@ void UpdateFlags(x64emu_t *emu)
             if(emu->op2.u8 == 1) {
                 CONDITIONAL_SET_FLAG((emu->res.u8 + (emu->res.u8 >> 7)) & 1, F_OF);
             }
-        	CONDITIONAL_SET_FLAG(emu->res.u8 & 0x1, F_CF);
+            CONDITIONAL_SET_FLAG(emu->res.u8 & 0x1, F_CF);
             break;
         case d_rol16:
             if(emu->op2.u16 == 1) {
                 CONDITIONAL_SET_FLAG((emu->res.u16 + (emu->res.u16 >> 15)) & 1, F_OF);
             }
-        	CONDITIONAL_SET_FLAG(emu->res.u16 & 0x1, F_CF);
+            CONDITIONAL_SET_FLAG(emu->res.u16 & 0x1, F_CF);
             break;
         case d_rol32:
             if(emu->op2.u32 == 1) {
                 CONDITIONAL_SET_FLAG((emu->res.u32 + (emu->res.u32 >> 31)) & 1, F_OF);
             }
-        	CONDITIONAL_SET_FLAG(emu->res.u32 & 0x1, F_CF);
+            CONDITIONAL_SET_FLAG(emu->res.u32 & 0x1, F_CF);
             break;
         case d_rol64:
             if(emu->op2.u64 == 1) {
                 CONDITIONAL_SET_FLAG((emu->res.u64 + (emu->res.u64 >> 63)) & 1, F_OF);
             }
-        	CONDITIONAL_SET_FLAG(emu->res.u64 & 0x1, F_CF);
+            CONDITIONAL_SET_FLAG(emu->res.u64 & 0x1, F_CF);
             break;
         case d_ror8:
             if(emu->op2.u8 == 1) {
@@ -1098,7 +1098,10 @@ uintptr_t GetSegmentBaseEmu(x64emu_t* emu, int seg)
 
 const char* getAddrFunctionName(uintptr_t addr)
 {
-    static char ret[1000];
+    static char rets[8][1000];
+    static int idx = 0;
+    char* ret = rets[idx];
+    idx = (idx+1)&7;
     uint64_t sz = 0;
     uintptr_t start = 0;
     elfheader_t* elf = FindElfAddress(my_context, addr);
@@ -1130,7 +1133,7 @@ int printFunctionAddr(uintptr_t nextaddr, const char* text)
         if(nextaddr==start)
             printf_log(LOG_NONE, " (%s%s:%s)", text, ElfName(FindElfAddress(my_context, nextaddr)), symbname);
         else
-            printf_log(LOG_NONE, " (%s%s:%s + %ld)", text, ElfName(FindElfAddress(my_context, nextaddr)), symbname, nextaddr - start);
+            printf_log(LOG_NONE, " (%s%s:%s + 0x%lx)", text, ElfName(FindElfAddress(my_context, nextaddr)), symbname, nextaddr - start);
         return 1;
     }
     return 0;

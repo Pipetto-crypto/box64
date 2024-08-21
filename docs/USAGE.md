@@ -7,6 +7,8 @@ Env. var with * can also be put inside box64rc files.
 Box64 look for 2 places for rcfile: `/etc/box64.box64rc` and `~/.box64rc`
 The second takes precedence to the first, on an APP level 
 (that means if an [MYAPP] my appears in both file, only the settings in `~/.box64rc` will be applied)
+There is also some égeneric" name, like [*SETUP*] that will be applied to every program containg "setup" in the name
+(Note that this is not a full regex rules, it's just a name between '[*' and '*]', nothing else)
 
 #### BOX64_LOG *
 Controls the Verbosity level of the logs
@@ -143,7 +145,7 @@ Enables/Disables trace for generated code.
  * 1 : Enable trace for generated code (like regular Trace, this will slow down the program a lot and generate huge logs).
 
 #### BOX64_NODYNAREC  *
-Forbid dynablock creation in the interval specified (helpfull for debugging behaviour difference between Dynarec and Interpreter)
+Forbid dynablock creation in the interval specified (helpful for debugging behaviour difference between Dynarec and Interpreter)
  * 0xXXXXXXXX-0xYYYYYYYY : define the interval where dynablock cannot start (inclusive-exclusive)
 
 #### BOX64_DYNAREC_TEST *
@@ -151,6 +153,7 @@ Dynarec will compare it's execution with the interpreter (super slow, only for t
  * 0 : No comparison. (Default.)
  * 1 : Each opcode runs on interepter and on Dynarec, and regs and memory are compared and print if different.
  * 2 : Thread-safe tests, extremely slow.
+ * 0xXXXXXXXX-0xYYYYYYYY : define the interval where dynarec is tested (inclusive-exclusive)
 
 ### BOX64_DYNAREC_SAFEPRESET *
 Enables/Disables a safe preset for Box64's Dynarec.
@@ -223,7 +226,7 @@ Detect libjvm and apply conservative settings. Obsolete, use BOX64_JVM instead.
 * 1 : Detect libjvm, and apply BIGBLOCK=0 STRONGMEM=1 SSE42=0 if detected (Default)
 
 #### BOX64_DYNAREC_WAIT *
-Behavior with FillBlock is not availble (FillBlock build Dynarec blocks and is not multithreaded)
+Behavior with FillBlock is not available (FillBlock build Dynarec blocks and is not multithreaded)
 * 0 : Dynarec will not wait for FillBlock to ready and use Interpreter instead (might speedup a bit massive multithread or JIT programs)
 * 1 : Dynarec will wait for FillBlock to be ready (Default)
 
@@ -262,6 +265,11 @@ Detect libjvm and apply conservative settings
 * 0 : Don't detect libjvm
 * 1 : Detect libjvm, and apply BIGBLOCK=0 STRONGMEM=1 SSE42=0 if detected (Default)
 
+#### BOX64_UNITYPLAYER *
+Detect UnityPlayer.dll and apply strongmem settings
+* 0 : Don't detect UnityPlayer.dll
+* 1 : Detect UnityPlayer.dll, and apply BOX64_DYNAREC_STRONGMEM=1 if detected (Default)
+
 #### BOX64_SDL2_JGUID *
 Need a workaround for SDL_GetJoystickGUIDInfo function for wrapped SDL2
 * 0 : Don't use any workaround
@@ -274,12 +282,12 @@ Need a workaround for SDL_GetJoystickGUIDInfo function for wrapped SDL2
 
 #### BOX64_LD_PRELOAD
  * XXXX[:YYYYY] force loading XXXX (and YYYY...) libraries with the binary
- PreLoaded libs can be emulated or native, and are treated the same way as if they were comming from the binary
+ PreLoaded libs can be emulated or native, and are treated the same way as if they were coming from the binary
  
 #### BOX64_EMULATED_LIBS *
  * XXXX[:YYYYY] force lib XXXX (and YYYY...) to be emulated (and not wrapped)
 Some games uses an old version of some libraries, with an ABI incompatible with native version.
-Note that LittleInferno for example is auto detected, and libvorbis.so.0 is automatical added to emulated libs, and same for Don't Starve (and Together / Server variant) that use an old SDL2 too
+Note that LittleInferno for example is auto detected, and libvorbis.so.0 is automatically added to emulated libs, and same for Don't Starve (and Together / Server variant) that use an old SDL2 too
 
 #### BOX64_ALLOWMISSINGLIBS *
 Allow Box64 to continue even if a library is missing.
@@ -293,13 +301,13 @@ Box64 will use wrapped libs even if the lib is specified with absolute path
 
 #### BOX64_PREFER_EMULATED *
 Box64 will prefer emulated libs first (execpt for glibc, alsa, pulse, GL, vulkan and X11
- * 0 : Native libs are prefered (Default.)
- * 1 : Emulated libs are prefered (Default for program running inside pressure-vessel)
+ * 0 : Native libs are preferred (Default.)
+ * 1 : Emulated libs are preferred (Default for program running inside pressure-vessel)
 
 #### BOX64_CRASHHANDLER *
 Box64 will use a dummy crashhandler.so library
  * 0 : Use Emulated crashhandler.so library if needed
- * 1 : Use an internal dummy (completly empty) crashhandler.so library (defaut)
+ * 1 : Use an internal dummy (completely empty) crashhandler.so library (default)
 
 #### BOX64_MALLOC_HACK *
 How Box64 will handle hooking of malloc operators
@@ -321,6 +329,11 @@ Disables the loading of wrapped GTK libraries.
 Disables the load of vulkan libraries.
  * 0 : Load vulkan libraries if found.
  * 1 : Disables the load of vulkan libraries, both the native and the i386 version (can be useful on Pi4, where the vulkan driver is not quite there yet.)
+
+#### BOX64_SHAEXT *
+Expose or not SHAEXT (a.k.a. SHA_NI) capabilites
+ * 0 : Do not expose SHAEXT capabilites
+ * 1 : Expose SHAEXT capabilites (Default.)
 
 #### BOX64_SSE42 *
 Expose or not SSE 4.2 capabilites
@@ -392,6 +405,9 @@ Those variables are only valid inside a rcfile:
 #### BOX64_CEFDISABLEGPUCOMPOSITOR
  * 0 : Nothing special
  * 1 : Added "-cef-disable-gpu-compositor" to command line arguments (usefull for steamwebhelper/cef based programs)
+
+#### BOX64_ARGS
+If that var exist, it will be added as argument(s) to the command line. Note that "" are supported, but not ''
 
 #### BOX64_EXIT
  * 0 : Nothing special

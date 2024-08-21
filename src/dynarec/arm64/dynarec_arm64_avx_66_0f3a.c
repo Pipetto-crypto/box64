@@ -115,6 +115,14 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 }
                 if(u8==0x00 || u8==0x55 || u8==0xAA || u8==0xFF)
                     VDUPQ_32(v0, (v0==v1)?q1:v1, u8&3);
+                else if(u8==0x50)
+                    VZIP1Q_32(v0, v1, v1);
+                else if(u8==0xFA)
+                    VZIP2Q_32(v0, v1, v1);
+                else if(u8==0xA0)
+                    VTRNQ1_32(v0, v1, v1);
+                else if(u8==0xF5)
+                    VTRNQ2_32(v0, v1, v1);
                 else for(int i=0; i<4; ++i)
                     VMOVeS(v0, i, (v0==v1)?q1:v1, (u8>>(i*2))&3);
             }
@@ -140,12 +148,13 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             if(!vex.l) YMM0(gd);
             break;
         case 0x06:
-            INST_NAME("VPERM2F128 Gx, Vx, Ex, Imm8");
+        case 0x46:
+            if(opcode==0x06) { INST_NAME("VPERM2F128 Gx, Vx, Ex, Imm8"); } else { INST_NAME("VPERM2I128 Gx, Vx, Ex, Imm8"); }
             nextop = F8;
             if(!vex.l) UDF(0);
             if(MODREG) {
                 s0 = (nextop&7)+(rex.b<<3);
-                v1 = sse_get_reg_empty(dyn, ninst, x1, s0);
+                v1 = sse_get_reg(dyn, ninst, x1, s0, 0);
             } else {
                 s0 = -1;
                 v1 = fpu_get_scratch(dyn, ninst);
@@ -254,7 +263,9 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             nextop = F8;
             GETGX_empty_VXEX(q0, q2, q1, 1);
             u8 = F8;
-            if(q0==q1) {
+            if((u8&0xf)==0xf) {
+                if(q0!=q1) VMOVQ(q0, q1);
+            } else if(q0==q1) {
                 for(int i=0; i<4; ++i)
                     if(u8&(1<<i)) {
                         VMOVeS(q0, i, q1, i);
@@ -274,7 +285,9 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             }
             if(vex.l) {
                 GETGY_empty_VYEY(q0, q2, q1);
-                if(q0==q1) {
+                if((u8&0xf0)==0xf0) {
+                    if(q0!=q1) VMOVQ(q0, q1);
+                } else if(q0==q1) {
                     for(int i=0; i<4; ++i)
                         if(u8&(1<<(i+4))) {
                             VMOVeS(q0, i, q1, i);
@@ -435,7 +448,12 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             u8 = F8;
             GETVX(v2, 0);
             GETGX_empty(v0);
-            GETGY_empty_VY(q0, q2, 0, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);
+            if(v0==v2 && u8==1) {
+                GETGY_empty(q0, 0, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);
+                q2 = q0;
+            } else {
+                GETGY_empty_VY(q0, q2, 0, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);
+            }
             if(MODREG)
                 VMOVQ((u8&1)?q0:v0, v1);
             else
@@ -526,9 +544,8 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         case 0x21:
             INST_NAME("VINSERTPS Gx, Vx, Ex, Ib");
             nextop = F8;
-            GETGX_empty_VX(v0, v2);
             if (MODREG) {
-                v1 = sse_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), 0);
+                GETGX_empty_VXEX(v0, v2, v1, 1);
                 u8 = F8;
                 if(v0==v1) {
                     d0 = fpu_get_scratch(dyn, ninst);
@@ -540,6 +557,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                     VMOVeS(v0, (u8>>4)&3, v1, (u8>>6)&3);
                 }
             } else {
+                GETGX_empty_VX(v0, v2);
                 if(v0!=v2) VMOVQ(v0, v2);
                 SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &wback, x1, &fixedaddress, &unscaled, 0xfff<<2, 3, rex, NULL, 0, 1);
@@ -663,42 +681,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             if(!vex.l) YMM0(gd);
             break;
 
-        case 0x46:
-            INST_NAME("VPERM2I128 Gx, Vx, Ex, Imm8");
-            if(!vex.l) { UDF(0); }
-            nextop = F8;
-            GETGX_empty_VX(v0, v2);
-            if(MODREG) {GETEX(v1, 0, 1);} else {addr = geted(dyn, addr, ninst, nextop, &ed, x3, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 1); v1=-1;}
-            u8 = F8;
-            // make some qopies in case g==v or g==e
-            if((v0==v2) && ((u8&0xf0)==0x00)) {
-                d2 = fpu_get_scratch(dyn, ninst);
-                VMOVQ(d2, v2);
-            } else d2 = v2;
-            if(MODREG && (v0==v1) && ((u8&0xf0)==0x20)) {
-                d1 = fpu_get_scratch(dyn, ninst);
-                VMOVQ(d1, v1);
-            } else d1 = v1;
-            // grab the needed Y only
-            if(((u8&0xf)==1) || ((u8>>4)&0xf)==1) {q2 = ymm_get_reg(dyn, ninst, x2, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);}
-            if(MODREG && (((u8&0xf)==3) || ((u8>>4)&0xf)==3)) {q1 = ymm_get_reg(dyn, ninst, x2, (nextop&7)+(rex.b<<3), 0, gd, vex.v, -1);}
-            // go
-            switch(u8&0xf) {
-                case 0: if(v0!=v2) VMOVQ(v0, v2); break;
-                case 1: VMOVQ(v0, q2); break;
-                case 2: if(MODREG) {if(v0!=v1) VMOVQ(v0, v1);} else {VLDR128_U12(v0, ed, fixedaddress);} break;
-                case 3: if(MODREG) {VMOVQ(v0, q1);} else {VLDR128_U12(v0, ed, fixedaddress+16);} break;
-                default: VEORQ(v0, v0, v0); break;
-            }
-            GETGY_empty(v0, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);
-            switch((u8>>4)&0xf) {
-                case 0: if(v0!=d2) VMOVQ(v0, d2); break;
-                case 1: VMOVQ(v0, q2); break;
-                case 2: if(MODREG) {if(v0!=d1) VMOVQ(v0, d1);} else {VLDR128_U12(v0, ed, fixedaddress);} break;
-                case 3: if(MODREG) {VMOVQ(v0, q1);} else {VLDR128_U12(v0, ed, fixedaddress+16);} break;
-                default: VEORQ(v0, v0, v0); break;
-            }
-            break;
+        //case 0x46:    // see 0x06
 
         case 0x4A:
             INST_NAME("VBLENDVPS Gx, Vx, Ex, XMMImm8");

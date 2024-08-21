@@ -91,7 +91,7 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             nextop = F8;
             GETGW(x2);
             GETEW(x1, 0);
-            emit_or16(dyn, ninst, x1, x2, x4, x2);
+            emit_or16(dyn, ninst, x1, x2, x4, x5);
             EWBACK;
             break;
         case 0x0B:
@@ -191,6 +191,15 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETEW(x1, 0);
             emit_xor16(dyn, ninst, x1, x2, x4, x5, x6);
             EWBACK;
+            break;
+        case 0x33:
+            INST_NAME("XOR Gw, Ew");
+            SETFLAGS(X_ALL, SF_SET_PENDING);
+            nextop = F8;
+            GETGW(x1);
+            GETEW(x2, 0);
+            emit_xor16(dyn, ninst, x1, x2, x3, x4, x5);
+            GWBACK;
             break;
         case 0x39:
             INST_NAME("CMP Ew, Gw");
@@ -686,6 +695,30 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     GETEW(x1, 0);
                     emit_neg16(dyn, ninst, ed, x2, x4);
                     EWBACK;
+                    break;
+                case 7:
+                    INST_NAME("IDIV Ew");
+                    NOTEST(x1);
+                    SETFLAGS(X_ALL, SF_SET);
+                    SET_DFNONE();
+                    GETSEW(x1, 0);
+                    if (box64_dynarec_div0) {
+                        BNE_MARK3(ed, xZR);
+                        GETIP_(ip);
+                        STORE_XEMU_CALL();
+                        CALL(native_div0, -1);
+                        CLEARIP();
+                        LOAD_XEMU_CALL();
+                        jump_to_epilog(dyn, 0, xRIP, ninst);
+                        MARK3;
+                    }
+                    BSTRPICK_D(x2, xRAX, 15, 0);
+                    SLLI_D(x3, xRDX, 16);
+                    OR(x2, x2, x3);
+                    DIV_W(x3, x2, ed);
+                    MOD_W(x4, x2, ed);
+                    BSTRINS_D(xRAX, x3, 15, 0);
+                    BSTRINS_D(xRAX, x4, 15, 0);
                     break;
                 default:
                     DEFAULT;

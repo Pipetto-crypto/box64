@@ -57,8 +57,9 @@ int box64_malloc_hack = 0;
 int box64_dynarec_test = 0;
 path_collection_t box64_addlibs = {0};
 int box64_maxcpu = 0;
-int box64_maxcpu_immutable = 0;
+int box64_maxcpu_immutable = 0
 #if defined(SD845) || defined(SD888) || defined(SD8G2) || defined(TEGRAX1) || defined(TERMUX_GLIBC) || defined(TERMUX)
+int box64_is32bits = 0;
 int box64_mmap32 = 1;
 #else
 int box64_mmap32 = 0;
@@ -67,6 +68,7 @@ int box64_ignoreint3 = 0;
 int box64_rdtsc = 0;
 int box64_rdtsc_1ghz = 0;
 uint8_t box64_rdtsc_shift = 0;
+char* box64_new_args = NULL;
 #ifdef DYNAREC
 int box64_dynarec = 1;
 int box64_dynarec_dump = 0;
@@ -89,6 +91,8 @@ int box64_dynarec_safepreset = 0;
 int box64_dynarec_unsafepreset = 0;
 uintptr_t box64_nodynarec_start = 0;
 uintptr_t box64_nodynarec_end = 0;
+uintptr_t box64_dynarec_test_start = 0;
+uintptr_t box64_dynarec_test_end = 0;
 #ifdef ARM64
 int arm64_asimd = 0;
 int arm64_aes = 0;
@@ -102,11 +106,14 @@ int arm64_flagm = 0;
 int arm64_flagm2 = 0;
 int arm64_frintts = 0;
 int arm64_afp = 0;
+int arm64_rndr = 0;
 #elif defined(RV64)
 int rv64_zba = 0;
 int rv64_zbb = 0;
 int rv64_zbc = 0;
 int rv64_zbs = 0;
+int rv64_vector = 0;
+int rv64_vlen = 0;
 int rv64_xtheadba = 0;
 int rv64_xtheadbb = 0;
 int rv64_xtheadbs = 0;
@@ -127,6 +134,7 @@ int box64_dynarec = 0;
 #endif
 int box64_libcef = 1;
 int box64_jvm = 1;
+int box64_unityplayer = 1;
 int box64_sdl2_jguid = 0;
 int dlsym_error = 0;
 int cycle_log = 0;
@@ -151,9 +159,15 @@ int box64_prefer_wrapped = 0;
 int box64_sse_flushto0 = 0;
 int box64_x87_no80bits = 0;
 int box64_sync_rounding = 0;
+int box64_shaext = 1;
 int box64_sse42 = 1;
+#if defined(DYNAREC) && defined(ARM64)
+int box64_avx = 1;
+int box64_avx2 = 1;
+#else
 int box64_avx = 0;
 int box64_avx2 = 0;
+#endif
 int fix_64bit_inodes = 0;
 int box64_dummy_crashhandler = 1;
 int box64_mapclean = 0;
@@ -388,6 +402,8 @@ HWCAP2_MTE
     Functionality implied by ID_AA64PFR1_EL1.MTE == 0b0010. => Full Memory Tagging Extension is implemented.
 HWCAP2_ECV
     Functionality implied by ID_AA64MMFR0_EL1.ECV == 0b0001.
+HWCAP2_AFP
+    AFP = 0b0001 => The AArch64-FPCR.{AH, FIZ, NEP} fields are supported. (Alternate floating-point behavior)
 */
     unsigned long hwcap = real_getauxval(AT_HWCAP);
     if(!hwcap)  // no HWCap: provide a default...
@@ -435,6 +451,10 @@ HWCAP2_ECV
     if(hwcap2&HWCAP2_AFP)
         arm64_afp = 1;
     #endif
+    #ifdef HWCAP2_RNG
+    if(hwcap2&HWCAP2_RNG)
+        arm64_rndr = 1;
+    #endif
     printf_log(LOG_INFO, "Dynarec for ARM64, with extension: ASIMD");
     if(arm64_aes)
         printf_log(LOG_INFO, " AES");
@@ -458,6 +478,8 @@ HWCAP2_ECV
         printf_log(LOG_INFO, " FRINT");
     if(arm64_afp)
         printf_log(LOG_INFO, " AFP");
+    if(arm64_rndr)
+        printf_log(LOG_INFO, " RNDR");
 #elif defined(LA64)
     printf_log(LOG_INFO, "Dynarec for LoongArch ");
     char* p = getenv("BOX64_DYNAREC_LA64NOEXT");
@@ -472,13 +494,13 @@ HWCAP2_ECV
             return;
         }
 
-        if (la64_lbt = (cpucfg2 >> 18) & 0b1)
+        if ((la64_lbt = (cpucfg2 >> 18) & 0b1))
             printf_log(LOG_INFO, " LBT_X86");
-        if (la64_lam_bh = (cpucfg2 >> 27) & 0b1)
+        if ((la64_lam_bh = (cpucfg2 >> 27) & 0b1))
             printf_log(LOG_INFO, " LAM_BH");
-        if (la64_lamcas = (cpucfg2 >> 28) & 0b1)
+        if ((la64_lamcas = (cpucfg2 >> 28) & 0b1))
             printf_log(LOG_INFO, " LAMCAS");
-        if (la64_scq = (cpucfg2 >> 30) & 0b1)
+        if ((la64_scq = (cpucfg2 >> 30) & 0b1))
             printf_log(LOG_INFO, " SCQ");
     }
 #elif defined(RV64)
@@ -492,6 +514,13 @@ HWCAP2_ECV
     if(rv64_zbb) printf_log(LOG_INFO, " Zbb");
     if(rv64_zbc) printf_log(LOG_INFO, " Zbc");
     if(rv64_zbs) printf_log(LOG_INFO, " Zbs");
+    if (rv64_vector) {
+        char* p = getenv("BOX64_DYNAREC_RV64VEXT");
+        if (p != NULL && p[0] == '1')
+            printf_log(LOG_INFO, " Vector (vlen: %d)", rv64_vlen);
+        else
+            rv64_vector = 0;
+    }
     if(rv64_xtheadba) printf_log(LOG_INFO, " XTheadBa");
     if(rv64_xtheadbb) printf_log(LOG_INFO, " XTheadBb");
     if(rv64_xtheadbs) printf_log(LOG_INFO, " XTheadBs");
@@ -526,7 +555,7 @@ void computeRDTSC()
         freq = ReadTSCFrequency(NULL);
     }
     uint64_t efreq = freq;
-    while(efreq<2000000000) {    // minium 2GHz
+    while(efreq<2000000000 && box64_rdtsc_shift<31) {    // minium 2GHz, but not too much shift
         ++box64_rdtsc_shift;
         efreq = freq<<box64_rdtsc_shift;
     }
@@ -860,7 +889,22 @@ void LoadLogEnv()
         if(strlen(p)==1) {
             if(p[0]>='0' && p[0]<='2')
                 box64_dynarec_test = p[0]-'0';
+            box64_dynarec_test_start = 0x0;
+            box64_dynarec_test_end = 0x0;
+        } else if (strchr(p,'-')) {
+            if(sscanf(p, "%ld-%ld", &box64_dynarec_test_start, &box64_dynarec_test_end)!=2) {
+                if(sscanf(p, "0x%lX-0x%lX", &box64_dynarec_test_start, &box64_dynarec_test_end)!=2)
+                    sscanf(p, "%lx-%lx", &box64_dynarec_test_start, &box64_dynarec_test_end);
+            }
+            if(box64_dynarec_test_end>box64_dynarec_test_start) {
+                box64_dynarec_test = 1;
+                printf_log(LOG_INFO, "Dynarec test in the range %p - %p\n", (void*)box64_nodynarec_start, (void*)box64_nodynarec_end);
+            } else {
+                box64_dynarec_test = 0;
+                printf_log(LOG_INFO, "Ignoring BOX64_NODYNAREC=%s (%p-%p)\n", p, (void*)box64_nodynarec_start, (void*)box64_nodynarec_end);
+            }
         }
+
         if(box64_dynarec_test) {
             box64_dynarec_fastnan = 0;
             box64_dynarec_fastround = 0;
@@ -932,6 +976,15 @@ void LoadLogEnv()
         }
         if(!box64_jvm)
             printf_log(LOG_INFO, "BOX64 will not detect libjvm\n");
+    }
+    p = getenv("BOX64_UNITYPLAYER");
+    if(p) {
+        if(strlen(p)==1) {
+            if(p[0]>='0' && p[0]<='1')
+                box64_unityplayer = p[0]-'0';
+        }
+        if(!box64_unityplayer)
+            printf_log(LOG_INFO, "BOX64 will not detect UnityPlayer.dll\n");
     }
     p = getenv("BOX64_SDL2_JGUID");
     if(p) {
@@ -1059,6 +1112,15 @@ void LoadLogEnv()
             printf_log(LOG_INFO, "Disable the use of futex waitv syscall\n");
         #endif
     }
+    p = getenv("BOX64_SHAEXT");
+    if(p) {
+        if(strlen(p)==1) {
+            if(p[0]>='0' && p[0]<='0'+1)
+                box64_shaext = p[0]-'0';
+        }
+        if(!box64_shaext)
+            printf_log(LOG_INFO, "Do not expose SHAEXT capabilities\n");
+    }
     p = getenv("BOX64_SSE42");
     if(p) {
         if(strlen(p)==1) {
@@ -1081,6 +1143,10 @@ void LoadLogEnv()
             box64_avx2 = 1;
             printf_log(LOG_INFO, "Will expose AVX2 capabilities\n");
         }
+        if(!box64_avx)
+            printf_log(LOG_INFO, "Will not expose AVX capabilities\n");
+        if(!box64_avx2)
+            printf_log(LOG_INFO, "Will not expose AVX2 capabilities\n");
     }
     p = getenv("BOX64_RDTSC_1GHZ");
     if(p) {
@@ -1268,7 +1334,7 @@ void AddNewLibs(const char* list)
 }
 
 void PrintFlags() {
-	printf("Environment Variables:\n");
+    printf("Environment Variables:\n");
     printf(" BOX64_PATH is the box64 version of PATH (default is '.:bin')\n");
     printf(" BOX64_LD_LIBRARY_PATH is the box64 version LD_LIBRARY_PATH (default is '.:lib:lib64')\n");
     printf(" BOX64_LOG with 0/1/2/3 or NONE/INFO/DEBUG/DUMP to set the printed debug info (level 3 is level 2 + BOX64_DUMP)\n");
@@ -1404,6 +1470,7 @@ void LoadEnvVars(box64context_t *context)
     AddPath("libunwind.so.8", &context->box64_emulated_libs, 0);
     AddPath("libpng12.so.0", &context->box64_emulated_libs, 0);
     AddPath("libcurl.so.4", &context->box64_emulated_libs, 0);
+    //AddPath("libgnutls.so.30", &context->box64_emulated_libs, 0);
     AddPath("libtbbmalloc.so.2", &context->box64_emulated_libs, 0);
     AddPath("libtbbmalloc_proxy.so.2", &context->box64_emulated_libs, 0);
 
@@ -1411,31 +1478,31 @@ void LoadEnvVars(box64context_t *context)
         if (strcmp(getenv("BOX64_SSE_FLUSHTO0"), "1")==0) {
             box64_sse_flushto0 = 1;
             printf_log(LOG_INFO, "BOX64: Direct apply of SSE Flush to 0 flag\n");
-    	}
+        }
     }
     if(getenv("BOX64_X87_NO80BITS")) {
         if (strcmp(getenv("BOX64_X87_NO80BITS"), "1")==0) {
             box64_x87_no80bits = 1;
             printf_log(LOG_INFO, "BOX64: All 80bits x87 long double will be handle as double\n");
-    	}
+        }
     }
     if(getenv("BOX64_SYNC_ROUNDING")) {
         if (strcmp(getenv("BOX64_SYNC_ROUNDING"), "1")==0) {
             box64_sync_rounding = 1;
-            printf_log(LOG_INFO, "BOX64: Rouding mode with be synced with fesetround/fegetround\n");
-    	}
+            printf_log(LOG_INFO, "BOX64: Rounding mode will be synced with fesetround/fegetround\n");
+        }
     }
     if(getenv("BOX64_PREFER_WRAPPED")) {
         if (strcmp(getenv("BOX64_PREFER_WRAPPED"), "1")==0) {
             box64_prefer_wrapped = 1;
             printf_log(LOG_INFO, "BOX64: Prefering Wrapped libs\n");
-    	}
+        }
     }
     if(getenv("BOX64_PREFER_EMULATED")) {
         if (strcmp(getenv("BOX64_PREFER_EMULATED"), "1")==0) {
             box64_prefer_emulated = 1;
             printf_log(LOG_INFO, "BOX64: Prefering Emulated libs\n");
-    	}
+        }
     }
 
     if(getenv("BOX64_NOSIGSEGV")) {
@@ -1671,7 +1738,7 @@ static void add_argv(const char* what) {
         if(!strcmp(my_context->argv[i], what))
             there = 1;
     if(!there) {
-        printf_log(LOG_INFO, "Inserting \"%s\" to the argments\n", what);
+        printf_log(LOG_INFO, "Inserting \"%s\" to the arguments\n", what);
         my_context->argv = (char**)box_realloc(my_context->argv, (my_context->argc+1)*sizeof(char*));
         my_context->argv[my_context->argc] = box_strdup(what);
         my_context->argc++;
@@ -1685,7 +1752,8 @@ static void load_rcfiles()
     char* rcpath = getenv("BOX64_RCFILE");
 
     if(rcpath && FileExist(rcpath, IS_FILE))
-		LoadRCFile(rcpath);
+		LoadRCFile(rcpath)
+    #ifndef TERMUX
     else if(FileExist("/etc/box64.box64rc", IS_FILE))
         LoadRCFile("/etc/box64.box64rc");
     else if(FileExist("/data/data/com.termux/files/usr/glibc/etc/box64.box64rc", IS_FILE))
@@ -1694,7 +1762,7 @@ static void load_rcfiles()
         LoadRCFile("/data/data/com.termux/files/usr/etc/box64.box64rc");
     else
         LoadRCFile(NULL);   // load default rcfile
-
+    #endif
     char* p = getenv("HOME");
     if(p) {
         char tmp[4096];
@@ -1938,7 +2006,7 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
     PrintCollection(&my_context->box64_path, "BOX64 BIN PATH");
     // lets build argc/argv stuff
     printf_log(LOG_INFO, "Looking for %s\n", prog);
-    my_context->argv[0] = ResolveFile(prog, &my_context->box64_path);
+    my_context->argv[0] = ResolveFileSoft(prog, &my_context->box64_path);
     // check if box86 is present
     {
         my_context->box86path = box_strdup(my_context->box64path);
@@ -2017,7 +2085,32 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
     {
         add_argv("-cef-disable-gpu-compositor");
     }
-
+    if(box64_new_args) {
+        char tmp[256];
+        char* p = box64_new_args;
+        int state = 0;
+        char* p2 = p;
+        while(state>=0) {
+            switch(*p2) {
+                case 0: // end of flux
+                    if(state && (p2!=p)) add_argv(p);
+                    state = -1;
+                    break;
+                case '"': // start/end of quotes
+                    if(state<2) {if(!state) p=p2; state=2;} else state=1;
+                    break;
+                case ' ':
+                    if(state==1) {strncpy(tmp, p, p2-p); tmp[p2-p]='\0'; add_argv(tmp); state=0;}
+                    break;
+                default:
+                    if(state==0) {state=1; p=p2;}
+                    break;
+            }
+            ++p2;
+        }
+        box_free(box64_new_args);
+        box64_new_args = NULL;
+    }
     // check if file exist
     if(!my_context->argv[0] || !FileExist(my_context->argv[0], IS_FILE)) {
         printf_log(LOG_NONE, "Error: File is not found. (check BOX64_PATH)\n");
@@ -2045,6 +2138,13 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         FreeCollection(&ld_preload);
         return -1;
     }
+    #ifdef BOX32
+    box64_is32bits = FileIsX86ELF(my_context->fullpath);
+    if(box64_is32bits) {
+        printf_log(LOG_INFO, "BOX64: Using Box32 to load 32bits elf\n");
+        reserveHighMem();
+    }
+    #endif
     elfheader_t *elf_header = LoadAndCheckElfHeader(f, my_context->fullpath, 1);
     if(!elf_header) {
         int x86 = my_context->box86path?FileIsX86ELF(my_context->fullpath):0;
@@ -2097,6 +2197,18 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         FreeBox64Context(&my_context);
         FreeCollection(&ld_preload);
         return -1;
+    }
+    if(!strcmp(prgname, "heroic")) {
+        // check if heroic needs patching (for the 2.15.1 version)
+        uint8_t* address = GetBaseAddress(elf_header);
+        if(address[0x422f6e1]==0x72 && address[0x422f6e2]==0x44 && address[0x422f6e0]==0xF8 && address[0x422f727]==0xcc) {
+            printf_log(LOG_INFO, "Patched heroic!\n");
+            uintptr_t page = ((uintptr_t)&address[0x422f6e1])&~(box64_pagesize-1);
+            int prot = getProtection(page);
+            mprotect((void*)page, box64_pagesize, PROT_READ|PROT_WRITE|PROT_EXEC);
+            address[0x422f6e1]=0x90; address[0x422f6e2]=0x90;
+            mprotect((void*)page, box64_pagesize, prot);
+        }
     }
     if(ElfCheckIfUseTCMallocMinimal(elf_header)) {
         if(!box64_tcmalloc_minimal) {

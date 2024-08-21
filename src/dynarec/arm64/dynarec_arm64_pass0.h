@@ -5,7 +5,7 @@
     dyn->insts[ninst].x64.addr = addr;  \
     if(ninst) dyn->insts[ninst-1].x64.size = dyn->insts[ninst].x64.addr - dyn->insts[ninst-1].x64.addr
 
-#define MESSAGE(A, ...)  
+#define MESSAGE(A, ...) do {} while (0)
 #define MAYSETFLAGS()   dyn->insts[ninst].x64.may_set = 1
 #define READFLAGS(A)    \
         dyn->insts[ninst].x64.use_flags = A; dyn->f.dfnone = 1;\
@@ -18,7 +18,6 @@
 #define EMIT(A)         dyn->native_size+=4
 #define JUMP(A, C)         add_jump(dyn, ninst); add_next(dyn, (uintptr_t)A); SMEND(); dyn->insts[ninst].x64.jmp = A; dyn->insts[ninst].x64.jmp_cond = C; dyn->insts[ninst].x64.jmp_insts = 0
 #define BARRIER(A)      if(A!=BARRIER_MAYBE) {fpu_purgecache(dyn, ninst, 0, x1, x2, x3); dyn->insts[ninst].x64.barrier = A;} else dyn->insts[ninst].barrier_maybe = 1
-#define BARRIER_NEXT(A) dyn->insts[ninst].x64.barrier_next = A
 #define SET_HASCALLRET()    dyn->insts[ninst].x64.has_callret = 1
 #define NEW_INST \
         ++dyn->size;                            \
@@ -26,13 +25,11 @@
         dyn->n.combined1 = dyn->n.combined2 = 0;\
         dyn->n.swapped = 0; dyn->n.barrier = 0; \
         dyn->insts[ninst].f_entry = dyn->f;     \
-        dyn->insts[ninst].ymm0_in = dyn->ymm_zero;\
         if(ninst) {dyn->insts[ninst-1].x64.size = dyn->insts[ninst].x64.addr - dyn->insts[ninst-1].x64.addr;}
 
 #define INST_EPILOG                             \
         dyn->insts[ninst].f_exit = dyn->f;      \
         dyn->insts[ninst].n = dyn->n;           \
-        dyn->insts[ninst].ymm0_out = dyn->ymm_zero;\
         dyn->insts[ninst].x64.has_next = (ok>0)?1:0;
 #define INST_NAME(name) 
 #define DEFAULT                         \

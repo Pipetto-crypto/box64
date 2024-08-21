@@ -101,6 +101,11 @@ void add_jump(dynarec_native_t *dyn, int ninst) {
     dyn->jmps[dyn->jmp_sz++] = ninst;
 }
 int get_first_jump(dynarec_native_t *dyn, int next) {
+    if(next<0 || next>dyn->size)
+        return -2;
+    return get_first_jump_addr(dyn, dyn->insts[next].x64.addr);
+}
+int get_first_jump_addr(dynarec_native_t *dyn, uintptr_t next) {
     for(int i=0; i<dyn->jmp_sz; ++i)
         if(dyn->insts[dyn->jmps[i]].x64.jmp == next)
             return dyn->jmps[i];
@@ -400,32 +405,85 @@ static int updateNeed(dynarec_native_t* dyn, int ninst, uint8_t need) {
     return ninst;
 }
 
-// update Ymm0 and Purge_ymm0.
-static int updateYmm0(dynarec_native_t* dyn, int ninst) {
+static void updateYmm0s(dynarec_native_t* dyn, int ninst, int max_ninst_reached) {
+    int can_incr = ninst == max_ninst_reached; // Are we the top-level call?
     int ok = 1;
-    while (ok && ninst<dyn->size) {
-        uint16_t ymm0 = dyn->insts[ninst].ymm0_in; // entry ymm0
-        ymm0&=~dyn->insts[ninst].purge_ymm; // entry after purge
-        uint16_t ymm0_out = (ymm0|dyn->insts[ninst].ymm0_add)&~dyn->insts[ninst].ymm0_sub;  // ymm0 after the opcode
-        ok = dyn->insts[ninst].x64.has_next;    // continue?
-        if(ok) ok = (dyn->insts[ninst].ymm0_in!=ymm0) || (dyn->insts[ninst+1].ymm0_in!=ymm0_out); // continue if there has been any change...
-        if(ok) dyn->insts[ninst+1].ymm0_in=ymm0_out;   // make the change
-        dyn->insts[ninst].ymm0_out = ymm0_out;  // update ymm0_out
-        dyn->insts[ninst].ymm0_in = ymm0;  // write purged ymm0, as it's done at the entry
-        int jmp = (dyn->insts[ninst].x64.jmp)?dyn->insts[ninst].x64.jmp_insts:-1;
-        if(jmp!=-1) {
-            // check if a purge is needed at jump point
-            ymm0_out&=~dyn->insts[jmp].purge_ymm;
-            uint16_t ymm0_jmp = dyn->insts[jmp].ymm0_in;
-            uint16_t to_purge = ymm0_jmp&~ymm0_out; // if there are too many ymm0 at jump point
-            if(to_purge) {
-                dyn->insts[jmp].purge_ymm|=to_purge;
-                updateYmm0(dyn, jmp);
+    while ((can_incr || ok) && ninst<dyn->size) {
+        //if(box64_dynarec_dump) dynarec_log(LOG_NONE, "update ninst=%d (%d): can_incr=%d\n", ninst, max_ninst_reached, can_incr);
+        uint16_t new_purge_ymm, new_ymm0_in, new_ymm0_out;
+
+        if (dyn->insts[ninst].pred_sz && dyn->insts[ninst].x64.alive) {
+            // The union of the empty set is empty (0), the intersection is the universe (-1)
+            // The first instruction is the entry point, which has a virtual pred with ymm0_out = 0
+            // Similarly, float barriers reset ymm0s
+            uint16_t ymm0_union = 0;
+            uint16_t ymm0_inter = (ninst && !(dyn->insts[ninst].x64.barrier & BARRIER_FLOAT)) ? ((uint16_t)-1) : (uint16_t)0;
+            for (int i = 0; i < dyn->insts[ninst].pred_sz; ++i) {
+                int pred = dyn->insts[ninst].pred[i];
+                //if(box64_dynarec_dump) dynarec_log(LOG_NONE, "\twith pred[%d] = %d", i, pred);
+                if (pred >= max_ninst_reached) {
+                    //if(box64_dynarec_dump) dynarec_log(LOG_NONE, " (skipped)\n");
+                    continue;
+                }
+
+                int pred_out = dyn->insts[pred].x64.has_callret ? 0 : dyn->insts[pred].ymm0_out;
+                //if(box64_dynarec_dump) dynarec_log(LOG_NONE, " ~> %04X\n", pred_out);
+                ymm0_union |= pred_out;
+                ymm0_inter &= pred_out;
             }
+            //if(box64_dynarec_dump) dynarec_log(LOG_NONE, "\t=> %04X,%04X\n", ymm0_union, ymm0_inter);
+            // Notice the default values yield something coherent here (if all pred are after ninst)
+            new_purge_ymm = ymm0_union & ~ymm0_inter;
+            new_ymm0_in = ymm0_inter;
+            new_ymm0_out = (ymm0_inter | dyn->insts[ninst].ymm0_add) & ~dyn->insts[ninst].ymm0_sub;
+
+            if ((dyn->insts[ninst].purge_ymm != new_purge_ymm) || (dyn->insts[ninst].ymm0_in != new_ymm0_in) || (dyn->insts[ninst].ymm0_out != new_ymm0_out)) {
+                // Need to update self and next(s)
+                dyn->insts[ninst].purge_ymm = new_purge_ymm;
+                dyn->insts[ninst].ymm0_in = new_ymm0_in;
+                dyn->insts[ninst].ymm0_out = new_ymm0_out;
+
+                if (can_incr) {
+                    // We always have ninst == max_ninst_reached when can_incr == 1
+                    ++max_ninst_reached;
+                } else {
+                    // We need to stop here if the opcode has no "real" next or if we reached the ninst of the toplevel
+                    ok = (max_ninst_reached - 1 != ninst) && dyn->insts[ninst].x64.has_next && !dyn->insts[ninst].x64.has_callret;
+                }
+
+                int jmp = (dyn->insts[ninst].x64.jmp)?dyn->insts[ninst].x64.jmp_insts:-1;
+                if((jmp!=-1) && (jmp < max_ninst_reached)) {
+                    //if(box64_dynarec_dump) dynarec_log(LOG_NONE, "\t! jump to %d\n", jmp);
+                    // The jump goes before the last instruction reached, update the destination
+                    // If this is the top level call, this means the jump goes backward (jmp != ninst)
+                    // Otherwise, since we don't update all instructions, we may miss the update (don't use jmp < ninst)
+                    updateYmm0s(dyn, jmp, max_ninst_reached);
+                }
+            } else {
+                if (can_incr) {
+                    // We always have ninst == max_ninst_reached when can_incr == 1
+                    ++max_ninst_reached;
+
+                    // Also update jumps to before (they are skipped otherwise)
+                    int jmp = (dyn->insts[ninst].x64.jmp)?dyn->insts[ninst].x64.jmp_insts:-1;
+                    if((jmp!=-1) && (jmp < max_ninst_reached)) {
+                        //if(box64_dynarec_dump) dynarec_log(LOG_NONE, "\t! jump to %d\n", jmp);
+                        updateYmm0s(dyn, jmp, max_ninst_reached);
+                    }
+                } else {
+                    // We didn't update anything, we can leave
+                    ok = 0;
+                }
+            }
+        } else if (can_incr) {
+            // We always have ninst == max_ninst_reached when can_incr == 1
+            ++max_ninst_reached;
+        } else {
+            // We didn't update anything, we can leave
+            ok = 0;
         }
         ++ninst;
     }
-    return ninst;
 }
 
 void* current_helper = NULL;
@@ -587,11 +645,9 @@ void* FillBlock64(dynablock_t* block, uintptr_t addr, int alternate, int is32bit
             }
         }
     }
-    // no need for next and jmps anymore
+    // no need for next anymore
     helper.next_sz = helper.next_cap = 0;
     helper.next = NULL;
-    helper.jmp_sz = helper.jmp_cap = 0;
-    helper.jmps = NULL;
     // fill predecessors with the jump address
     int alloc_size = sizePredecessors(&helper);
     helper.predecessor = (int*)alloca(alloc_size*sizeof(int));
@@ -600,19 +656,29 @@ void* FillBlock64(dynablock_t* block, uintptr_t addr, int alternate, int is32bit
     int pos = helper.size;
     while (pos>=0)
         pos = updateNeed(&helper, pos, 0);
-    pos = 0;
-    while(pos<helper.size)
-        pos = updateYmm0(&helper, pos);
     // remove fpu stuff on non-executed code
     for(int i=1; i<helper.size-1; ++i)
         if(!helper.insts[i].pred_sz) {
             int ii = i;
             while(ii<helper.size && !helper.insts[ii].pred_sz) {
-                fpu_reset_ninst(&helper, ii++);
+                fpu_reset_ninst(&helper, ii);
                 helper.insts[ii].ymm0_in = helper.insts[ii].ymm0_sub = helper.insts[ii].ymm0_add = helper.insts[ii].ymm0_out = helper.insts[ii].purge_ymm = 0;
+                ++ii;
             }
             i = ii;
         }
+    // remove trailling dead code
+    while(helper.size && !helper.insts[helper.size-1].x64.alive) {
+        helper.isize-=helper.insts[helper.size-1].x64.size;
+        --helper.size;
+    }
+    if(!helper.size) {
+        // NULL block after removing dead code, how is that possible?
+        dynarec_log(LOG_INFO, "Warning, null-sized dynarec block after trimming dead code (%p)\n", (void*)addr);
+        CancelBlock64(0);
+        return CreateEmptyBlock(block, addr);
+    }
+    updateYmm0s(&helper, 0, 0);
 
 
     // pass 1, float optimizations, first pass for flags
@@ -671,10 +737,13 @@ void* FillBlock64(dynablock_t* block, uintptr_t addr, int alternate, int is32bit
     helper.insts_size = 0;  // reset
     native_pass3(&helper, addr, alternate, is32bits);
     if(helper.abort) {
-        if(box64_dynarec_dump || box64_dynarec_log)dynarec_log(LOG_NONE, "Abort dynablock on pass1\n");
+        if(box64_dynarec_dump || box64_dynarec_log)dynarec_log(LOG_NONE, "Abort dynablock on pass3\n");
         CancelBlock64(0);
         return NULL;
     }
+    // no need for jmps anymore
+    helper.jmp_sz = helper.jmp_cap = 0;
+    helper.jmps = NULL;
     // keep size of instructions for signal handling
     block->instsize = instsize;
     helper.table64 = NULL;
@@ -695,7 +764,7 @@ void* FillBlock64(dynablock_t* block, uintptr_t addr, int alternate, int is32bit
     __clear_cache(actual_p, actual_p+sz);   // need to clear the cache before execution...
     block->hash = X31_hash_code(block->x64_addr, block->x64_size);
     // Check if something changed, to abort if it is
-    if((block->hash != hash)) {
+    if((helper.abort || (block->hash != hash))) {
         dynarec_log(LOG_DEBUG, "Warning, a block changed while being processed hash(%p:%ld)=%x/%x\n", block->x64_addr, block->x64_size, block->hash, hash);
         CancelBlock64(0);
         return NULL;

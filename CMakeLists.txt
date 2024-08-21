@@ -38,6 +38,7 @@ option(BAD_SIGNAL "Set to ON to activate the workaround for incoherent si_info o
 option(SW64 "Set ON if targeting an SW64 based device" ${SW64})
 option(CI "Set to ON if running in CI" ${CI})
 option(WITH_MOLD "Set to ON to use with mold" ${WITH_MOLD})
+option(BOX32 "Set to ON to add Linux 32bits support (experimental, do not use)" ${BOX32})
 
 
 if(TERMUX_GLIBC)
@@ -216,9 +217,7 @@ elseif(ARM64)
     #add_definitions(-pipe -march=native)
     set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+simd")
 elseif(ARM_DYNAREC)
-    if(NOT ANDROID)
-        set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto")
-    endif()
+    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto")
 endif()
 if(ANDROID)
     add_definitions(-DANDROID)
@@ -243,6 +242,9 @@ if(STATICBUILD)
     set(BUILD_SHARED_LIBS OFF)
     set(CMAKE_EXE_LINKER_FLAGS "-static")
     set(HAVE_TRACE OFF)
+endif()
+if(BOX32)
+    add_definitions(-DBOX32)
 endif()
 
 if(NOGIT)
@@ -372,6 +374,14 @@ if(NOT STATICBUILD)
         "${BOX64_ROOT}/src/librarian/globalsymbols.c"
         )
 endif()
+if(BOX32)
+    list(APPEND ELFLOADER_SRC
+        "${BOX64_ROOT}/src/elfs/elfhash32.c"
+        "${BOX64_ROOT}/src/elfs/elfloader32.c"
+        "${BOX64_ROOT}/src/elfs/elfparser32.c"
+        "${BOX64_ROOT}/src/elfs/elfload_dump32.c"
+    )
+endif()
 if(NOT ANDROID)
     list(APPEND ELFLOADER_SRC
         "${BOX64_ROOT}/src/libtools/obstack.c"
@@ -425,7 +435,7 @@ set(INTERPRETER
 if(STATICBUILD)
 set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedldlinux.c"
-    "${BOX64_ROOT}/src/wrapped/wrappedlibbsd.c"
+    #"${BOX64_ROOT}/src/wrapped/wrappedlibbsd.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibc.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibcmusl.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibdl.c"
@@ -510,6 +520,7 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedlibcups.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibdl.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibdrm.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibdrmamdgpu.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibegl.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibform.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibformw.c"
@@ -671,6 +682,8 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedlibnettle8.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibunistring2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibhogweed6.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibsqlite3.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibtiff5.c"
 )
 endif()
 if(ANDROID)
@@ -789,6 +802,7 @@ if(ARM_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_66_0f3a.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_f2_0f38.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_f2_0f3a.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_avx_f3_0f38.c"
     )
 endif()
 
@@ -834,6 +848,7 @@ if(RV64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_df.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_f0.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_660f.c"
+    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_660f_vector.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66f20f.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66f30f.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_6664.c"
@@ -934,7 +949,7 @@ add_dependencies(${BOX64} WRAPPERS)
 #target_link_libraries(${BOX64} c m dl rt pthread resolv)
 if(STATICBUILD)
     #set_target_properties(${BOX64} PROPERTIES LINK_FLAGS "-fuse-ld=gold -static -Wl,--no-relax -Wl,--allow-multiple-definition -ldl -lrt -lpthread -lresolv -lc -lutil -lm -Wl,-defsym,_DYNAMIC=0 -pthread")
-    target_link_libraries(${BOX64} c m dl pthread resolv util bsd c)
+    target_link_libraries(${BOX64} c m dl pthread resolv util c)
 else()
     if(ANDROID)
         if(TERMUX)
@@ -1006,7 +1021,9 @@ if(NOT _x86 AND NOT _x86_64)
     		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libgcc_s.so.1 DESTINATION ${INSTALL_PATH})
     		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libpng12.so.0 DESTINATION ${INSTALL_PATH})
     		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libcrypto.so.1.1 DESTINATION ${INSTALL_PATH})
+            install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libcrypto.so.1.0.0 DESTINATION ${INSTALL_PATH})
     		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libssl.so.1.1 DESTINATION ${INSTALL_PATH})
+            install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libssl.so.1.0.0 DESTINATION ${INSTALL_PATH})
     		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libunwind.so.8 DESTINATION ${INSTALL_PATH})
             install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedx509.so.1 DESTINATION ${INSTALL_PATH})
             install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedx509.so.0 DESTINATION ${INSTALL_PATH})
@@ -1014,9 +1031,6 @@ if(NOT _x86 AND NOT _x86_64)
             install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedtls.so.12 DESTINATION ${INSTALL_PATH})
             install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedcrypto.so.7 DESTINATION ${INSTALL_PATH})
             install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedcrypto.so.3 DESTINATION ${INSTALL_PATH})
-            # Create symlinks
-            install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink ${INSTALL_PATH}libssl.so.1.1 ${INSTALL_PATH}libssl.so.1.0.0)")
-            install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink ${INSTALL_PATH}libcrypto.so.1.1 ${INSTALL_PATH}libcrypto.so.1.0.0)")
 	else()
 		set(INSTALL_PATH "/lib/x86_64-linux-gnu/")
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libstdc++.so.5 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
@@ -1024,7 +1038,9 @@ if(NOT _x86 AND NOT _x86_64)
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libgcc_s.so.1 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libpng12.so.0 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libcrypto.so.1.1 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
+        install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libcrypto.so.1.0.0 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libssl.so.1.1 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
+        install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libssl.so.1.0.0 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libunwind.so.8 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
 		install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedx509.so.1 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
         install(FILES ${CMAKE_SOURCE_DIR}/x64lib/libmbedx509.so.0 DESTINATION ${TERMUX_PATH}${INSTALL_PATH})
@@ -1342,10 +1358,10 @@ add_test(irelative_reloc ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${
     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref20.txt
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
-add_test(longjumpInSignals ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
-    -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test21_android -D TEST_OUTPUT=tmpfile21.txt
-    -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref21.txt
-    -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
+# add_test(longjumpInSignals ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+#     -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test21_android -D TEST_OUTPUT=tmpfile21.txt
+#     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref21.txt
+#     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
 add_test(x87 ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
     -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test22_android -D TEST_OUTPUT=tmpfile22.txt

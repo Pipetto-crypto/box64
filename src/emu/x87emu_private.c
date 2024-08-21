@@ -85,22 +85,22 @@ void LD2D(void* ld, void* d)
         *(uint64_t*)d = *(uint64_t*)ld;
         return;
     }
-	FPU_t result;
+    FPU_t result;
     #pragma pack(push, 1)
-	struct {
-		FPU_t f;
-		int16_t b;
-	} val;
+    struct {
+        FPU_t f;
+        int16_t b;
+    } val;
     #pragma pack(pop)
     #if 1
     memcpy(&val, ld, 10);
     #else
-	val.f.ud[0] = *(uint32_t*)ld;
+    val.f.ud[0] = *(uint32_t*)ld;
     val.f.ud[1] = *(uint32_t*)(char*)(ld+4);
-	val.b  = *(int16_t*)((char*)ld+8);
+    val.b  = *(int16_t*)((char*)ld+8);
     #endif
-	int32_t exp64 = (((uint32_t)(val.b&0x7fff) - BIAS80) + BIAS64);
-	int32_t exp64final = exp64&0x7ff;
+    int32_t exp64 = (((uint32_t)(val.b&0x7fff) - BIAS80) + BIAS64);
+    int32_t exp64final = exp64&0x7ff;
     // do specific value first (0, infinite...)
     // bit 63 is "integer part"
     // bit 62 is sign
@@ -157,12 +157,12 @@ void LD2D(void* ld, void* d)
         return;
     }
 
-	uint64_t mant64 = (val.f.q >> 11) & 0xfffffffffffffL;
-	uint32_t sign = (val.b&0x8000)?1:0;
+    uint64_t mant64 = (val.f.q >> 11) & 0xfffffffffffffL;
+    uint32_t sign = (val.b&0x8000)?1:0;
     result.q = mant64;
-	result.ud[1] |= (sign <<31)|((exp64final&0x7ff) << 20);
+    result.ud[1] |= (sign <<31)|((exp64final&0x7ff) << 20);
 
-	*(uint64_t*)d = result.q;
+    *(uint64_t*)d = result.q;
 }
 
 // double (64bits) -> long double (80bits)
@@ -173,10 +173,10 @@ void D2LD(void* d, void* ld)
         return;
     }
     #pragma pack(push, 1)
-	struct {
-		FPU_t f;
-		int16_t b;
-	} val;
+    struct {
+        FPU_t f;
+        int16_t b;
+    } val;
     #pragma pack(pop)
     FPU_t s;
     s.q = *(uint64_t*)d;   // use memcpy to avoid risk of Bus Error?
@@ -192,11 +192,11 @@ void D2LD(void* d, void* ld)
         return;
     }
 
-	int32_t sign80 = (s.ud[1]&0x80000000)?1:0;
-	int32_t exp80 =  s.ud[1]&0x7ff00000;
-	int32_t exp80final = (exp80>>20);
-	uint64_t mant80 = s.q&0x000fffffffffffffL;
-	uint64_t mant80final = (mant80 << 11);
+    int32_t sign80 = (s.ud[1]&0x80000000)?1:0;
+    int32_t exp80 =  s.ud[1]&0x7ff00000;
+    int32_t exp80final = (exp80>>20);
+    uint64_t mant80 = s.q&0x000fffffffffffffL;
+    uint64_t mant80final = (mant80 << 11);
     if(exp80final==0x7ff) {
         // NaN and Infinite
         exp80final = 0x7fff;
@@ -216,8 +216,8 @@ void D2LD(void* d, void* ld)
             mant80final<<=one;
         }
     }
-	val.b = ((int16_t)(sign80)<<15)| (int16_t)(exp80final);
-	val.f.q = mant80final;
+    val.b = ((int16_t)(sign80)<<15)| (int16_t)(exp80final);
+    val.f.q = mant80final;
     memcpy(ld, &val, 10);
     /*memcpy(ld, &f.ll, 8);
     memcpy((char*)ld + 8, &val.b, 2);*/
@@ -473,13 +473,11 @@ void fpu_xsave_mask(x64emu_t* emu, void* ed, int is32bits, uint64_t mask)
     }
     // copy SSE regs
     if(h->xstate_bv&0b10) {
-        for(int i=0; i<(is32bits?8:16); ++i)
-            memcpy(&p->XmmRegisters[i], &emu->xmm[i], 16);
+        memcpy(&p->XmmRegisters[0], &emu->xmm[0], 16*(is32bits?8:16));
     }
     if(h->xstate_bv&0b100) {
         sse_regs_t* avx = (sse_regs_t*)(h+1);
-        for(int i=0; i<(is32bits?8:16); ++i)
-            memcpy(&avx[i], &emu->ymm[i], 16);
+        memcpy(&avx[0], &emu->ymm[0], 16*(is32bits?8:16));
     }
 }
 
@@ -525,20 +523,16 @@ void fpu_xrstor(x64emu_t* emu, void* ed, int is32bits)
     }
     if(to_restore&0b010) {
         // copy SSE regs
-        for(int i=0; i<(is32bits?8:16); ++i)
-            memcpy(&emu->xmm[i], &p->XmmRegisters[i], 16);
+        memcpy(&emu->xmm[0], &p->XmmRegisters[0], 16*(is32bits?8:16));
     } else if(to_init&0b010) {
-        for(int i=0; i<(is32bits?8:16); ++i)
-            memset(&emu->xmm[i], 0, 16);
+        memset(&emu->xmm[0], 0, 16*(is32bits?8:16));
     }
     if(to_restore&0b100) {
         // copy AVX upper part of regs
         sse_regs_t* avx = (sse_regs_t*)(h+1);
-        for(int i=0; i<(is32bits?8:16); ++i)
-            memcpy(&emu->ymm[i], &avx[i], 16);
+        memcpy(&emu->ymm[0], &avx[0], 16*(is32bits?8:16));
     } else if(to_init&0b100) {
-        for(int i=0; i<(is32bits?8:16); ++i)
-            memset(&emu->ymm[i], 0, 16);
+        memset(&emu->ymm[0], 0, 16*(is32bits?8:16));
     }
 }
 

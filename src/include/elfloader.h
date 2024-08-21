@@ -1,6 +1,7 @@
 #ifndef __ELF_LOADER_H_
 #define __ELF_LOADER_H_
 #include <stdio.h>
+#include <elf.h>
 
 typedef struct elfheader_s elfheader_t;
 typedef struct lib_s lib_t;
@@ -14,6 +15,24 @@ typedef struct kh_defaultversion_s kh_defaultversion_t;
 typedef struct dynablock_s dynablock_t;
 #endif
 
+// Define for handling .relr.dyn section (since glibc 2.36)
+// See Also https://lists.gnu.org/archive/html/info-gnu/2022-08/msg00000.html
+//
+// if glibc 2.36 is widely used in the future, this part can be removed
+#ifndef DT_RELR
+
+// Copy from (glibc 2.36) elf.h
+
+#define SHT_RELR	  19            /* RELR relative relocations */
+
+typedef Elf32_Word	Elf32_Relr;
+typedef Elf64_Xword	Elf64_Relr;
+
+#define DT_RELRSZ	35		/* Total size of RELR relative relocations */
+#define DT_RELR		36		/* Address of RELR relative relocations */
+#define DT_RELRENT	37		/* Size of one RELR relative relocaction */
+#endif // DT_RELR
+
 // Open an elfheader. Transfert control of f to elfheader also!
 elfheader_t* LoadAndCheckElfHeader(FILE* f, const char* name, int exec); // exec : 0 = lib, 1 = exec
 void FreeElfHeader(elfheader_t** head);
@@ -26,7 +45,6 @@ int CalcLoadAddr(elfheader_t* head);
 int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin);
 void FreeElfMemory(elfheader_t* head);
 int isElfHasNeededVer(elfheader_t* head, const char* libname, elfheader_t* verneeded);
-void GrabX64CopyMainElfReloc(elfheader_t* head);
 int RelocateElf(lib_t *maplib, lib_t* local_maplib, int bindnow, int deepbind, elfheader_t* head);
 int RelocateElfPlt(lib_t *maplib, lib_t* local_maplib, int bindnow, int deepbind, elfheader_t* head);
 void CalcStack(elfheader_t* h, uint64_t* stacksz, size_t* stackalign);
@@ -72,7 +90,7 @@ int GetNeededVersionForLib(elfheader_t* h, const char* libname, const char* ver)
 void* ElfGetLocalSymbolStartEnd(elfheader_t* head, uintptr_t *offs, uintptr_t *sz, const char* symname, int* ver, const char** vername, int local, int* veropt);
 void* ElfGetGlobalSymbolStartEnd(elfheader_t* head, uintptr_t *offs, uintptr_t *sz, const char* symname, int* ver, const char** vername, int local, int* veropt);
 void* ElfGetWeakSymbolStartEnd(elfheader_t* head, uintptr_t *offs, uintptr_t *sz, const char* symname, int* ver, const char** vername, int local, int* veropt);
-int ElfGetSymTabStartEnd(elfheader_t* head, uintptr_t *offs, uintptr_t *end, const char* symname);
+int ElfGetSymTabStartEnd64(elfheader_t* head, uintptr_t *offs, uintptr_t *end, const char* symname);
 
 void* GetNativeSymbolUnversioned(void* lib, const char* name);
 

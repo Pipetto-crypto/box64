@@ -532,7 +532,7 @@ void adjustregs(x64emu_t* emu) {
         }
         ++idx;
     }
-    dynarec_log(LOG_INFO, "Checking opcode: rex=%02hhx is32bits=%d, is66=%d %02hhX %02hhX %02hhX %02hhX\n", rex.rex, rex.is32bits, is66, mem[idx+0], mem[idx+1], mem[idx+2], mem[idx+3]);
+    dynarec_log(LOG_INFO, "Checking opcode: rex=%02hhx is32bits=%d, rep=%d is66=%d %02hhX %02hhX %02hhX %02hhX\n", rex.rex, rex.is32bits, rep, is66, mem[idx+0], mem[idx+1], mem[idx+2], mem[idx+3]);
 #ifdef DYNAREC
 #ifdef ARM64
     if(mem[idx+0]==0xA4) {
@@ -975,7 +975,7 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
     int used_stack = 0;
     if(new_ss) {
         if(new_ss->ss_flags == SS_ONSTACK) { // already using it!
-            frame = (uintptr_t)emu->regs[_SP].q[0];
+            frame = ((uintptr_t)emu->regs[_SP].q[0] - 128) & ~0x0f;
         } else {
             frame = (uintptr_t)(((uintptr_t)new_ss->ss_sp + new_ss->ss_size - 16) & ~0x0f);
             used_stack = 1;
@@ -1082,6 +1082,20 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
 #error Unsupported architecture
 #endif
 #endif
+    if(R_CS==0x23) {
+        // trucate regs to 32bits, just in case
+        #define GO(R)   sigcontext->uc_mcontext.gregs[X64_R##R]&=0xFFFFFFFF
+        GO(AX);
+        GO(CX);
+        GO(DX);
+        GO(DI);
+        GO(SI);
+        GO(BP);
+        GO(SP);
+        GO(BX);
+        GO(IP);
+        #undef GO
+    }
     // get FloatPoint status
     sigcontext->uc_mcontext.fpregs = xstate;//(struct x64_libc_fpstate*)&sigcontext->xstate;
     fpu_xsave_mask(emu, xstate, 0, 0b111);
@@ -1126,12 +1140,12 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
             sigcontext->uc_mcontext.gregs[X64_TRAPNO] = ((info->si_code==SEGV_ACCERR) || (info->si_errno==0x1234) || (info->si_errno==0xdead) || ((uintptr_t)info->si_addr==0))?13:14;
         } else if(info->si_code==SEGV_ACCERR && !(prot&PROT_WRITE)) {
             sigcontext->uc_mcontext.gregs[X64_ERR] = 0x0002;    // write flag issue
-            if(labs((intptr_t)info->si_addr-(intptr_t)sigcontext->uc_mcontext.gregs[X64_RSP])<16)
+            sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 14;
+        } else {
+            if((info->si_code!=SEGV_ACCERR) && labs((intptr_t)info->si_addr-(intptr_t)sigcontext->uc_mcontext.gregs[X64_RSP])<16)
                 sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 12; // stack overflow probably
             else
-                sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 14;
-        } else {
-            sigcontext->uc_mcontext.gregs[X64_TRAPNO] = (info->si_code == SEGV_ACCERR)?13:14;
+                sigcontext->uc_mcontext.gregs[X64_TRAPNO] = (info->si_code == SEGV_ACCERR)?13:14;
             //X64_ERR seems to be INT:8 CODE:8. So for write access segfault it's 0x0002 For a read it's 0x0004 (and 8 for exec). For an int 2d it could be 0x2D01 for example
             sigcontext->uc_mcontext.gregs[X64_ERR] = 0x0004;    // read error? there is no execute control in box64 anyway
         }
@@ -1150,11 +1164,9 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
                 info2->si_signo = SIGTRAP;
                 sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 3;
                 sigcontext->uc_mcontext.gregs[X64_ERR] = 0;
-                sigcontext->uc_mcontext.gregs[X64_RIP]+=2;   // segfault after the INT
             } else if(int_n==0x04) {
                 sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 4;
                 sigcontext->uc_mcontext.gregs[X64_ERR] = 0;
-                sigcontext->uc_mcontext.gregs[X64_RIP]+=2;   // segfault after the INT
             } else if (int_n==0x29 || int_n==0x2c || int_n==0x2d) {
                 sigcontext->uc_mcontext.gregs[X64_ERR] = 0x02|(int_n<<3);
             } else {
@@ -1172,9 +1184,13 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
             sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 19;
     } else if(sig==SIGILL)
         sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 6;
-    else if(sig==SIGTRAP)
+    else if(sig==SIGTRAP) {
+        info2->si_code = 128;
         sigcontext->uc_mcontext.gregs[X64_TRAPNO] = info->si_code;
+        sigcontext->uc_mcontext.gregs[X64_ERR] = 0;
+    }
     //TODO: SIGABRT generate what?
+    printf_log(LOG_DEBUG, "Signal %d: si_addr=%p, TRAPNO=%d, ERR=%d, RIP=%p\n", sig, (void*)info2->si_addr, sigcontext->uc_mcontext.gregs[X64_TRAPNO], sigcontext->uc_mcontext.gregs[X64_ERR],sigcontext->uc_mcontext.gregs[X64_RIP]);
     // call the signal handler
     x64_ucontext_t sigcontext_copy = *sigcontext;
     // save old value from emu
@@ -1238,7 +1254,6 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
             GO(R15);
             #undef GO
             emu->ip.q[0]=sigcontext->uc_mcontext.gregs[X64_RIP];
-            sigcontext->uc_mcontext.gregs[X64_RIP] = R_RIP;
             // flags
             emu->eflags.x64=sigcontext->uc_mcontext.gregs[X64_EFL];
             // get segments
@@ -1253,11 +1268,9 @@ void my_sigactionhandler_oldcode(int32_t sig, int simple, siginfo_t* info, void 
             #undef GO
             for(int i=0; i<6; ++i)
                 emu->segs_serial[i] = 0;
-            printf_log(LOG_DEBUG, "Context has been changed in Sigactionhanlder, doing siglongjmp to resume emu at %p\n", (void*)R_RIP);
+            printf_log(LOG_DEBUG, "Context has been changed in Sigactionhanlder, doing siglongjmp to resume emu at %p, RSP=%p\n", (void*)R_RIP, (void*)R_RSP);
             if(old_code)
                 *old_code = -1;    // re-init the value to allow another segfault at the same place
-            if(used_stack)  // release stack
-                new_ss->ss_flags = 0;
             //relockMutex(Locks);   // do not relock mutex, because of the siglongjmp, whatever was running is canceled
             #ifdef DYNAREC
             if(Locks & is_dyndump_locked)
@@ -1598,7 +1611,6 @@ dynarec_log(/*LOG_DEBUG*/LOG_INFO, "Repeated SIGSEGV with Access error on %p for
         const char* name = (log_minimum<=box64_log)?GetNativeName(pc):NULL;
         uintptr_t x64pc = (uintptr_t)-1;
         const char* x64name = NULL;
-        const char* elfname = NULL;
         // Adjust RIP for special case of NULL function run
         if(sig==SIGSEGV && R_RIP==0x1 && (uintptr_t)info->si_addr==0x0)
             R_RIP = 0x0;
@@ -1633,15 +1645,16 @@ dynarec_log(/*LOG_DEBUG*/LOG_INFO, "Repeated SIGSEGV with Access error on %p for
         if(!db && (sig==SIGSEGV) && ((uintptr_t)addr==(x64pc-1)))
             x64pc--;
         if(log_minimum<=box64_log) {
-            signal_jmpbuf_active = 1;
-            if(sigsetjmp(SIG_JMPBUF, 1)) {
-                // segfault while gathering function name...
-            } else
-                x64name = getAddrFunctionName(x64pc);
-            signal_jmpbuf_active = 0;
             elfheader_t* elf = FindElfAddress(my_context, x64pc);
-            if(elf)
-                elfname = ElfName(elf);
+            if(elf) {
+                signal_jmpbuf_active = 1;
+                if(sigsetjmp(SIG_JMPBUF, 1)) {
+                    // segfault while gathering function name...
+                    x64name = "?";
+                } else
+                    x64name = getAddrFunctionName(x64pc);
+                signal_jmpbuf_active = 0;
+            }
         }
         if(jit_gdb) {
             pid_t pid = getpid();
@@ -1750,8 +1763,8 @@ dynarec_log(/*LOG_DEBUG*/LOG_INFO, "Repeated SIGSEGV with Access error on %p for
             uint32_t hash = 0;
             if(db)
                 hash = X31_hash_code(db->x64_addr, db->x64_size);
-            printf_log(log_minimum, "%04d|%s @%p (%s) (x64pc=%p/%s:\"%s\", rsp=%p, stack=%p:%p own=%p fp=%p), for accessing %p (code=%d/prot=%x), db=%p(%p:%p/%p:%p/%s:%s, hash:%x/%x) handler=%p",
-                GetTID(), signame, pc, name, (void*)x64pc, elfname?:"???", x64name?:"???", rsp,
+            printf_log(log_minimum, "%04d|%s @%p (%s) (x64pc=%p/\"%s\", rsp=%p, stack=%p:%p own=%p fp=%p), for accessing %p (code=%d/prot=%x), db=%p(%p:%p/%p:%p/%s:%s, hash:%x/%x) handler=%p",
+                GetTID(), signame, pc, name, (void*)x64pc, x64name?:"???", rsp,
                 emu->init_stack, emu->init_stack+emu->size_stack, emu->stack2free, (void*)R_RBP,
                 addr, info->si_code,
                 prot, db, db?db->block:0, db?(db->block+db->size):0,
@@ -1808,7 +1821,7 @@ dynarec_log(/*LOG_DEBUG*/LOG_INFO, "Repeated SIGSEGV with Access error on %p for
             #warning TODO
 #endif
 #else
-            printf_log(log_minimum, "%04d|%s @%p (%s) (x64pc=%p/%s:\"%s\", rsp=%p), for accessing %p (code=%d)", GetTID(), signame, pc, name, (void*)x64pc, elfname?:"???", x64name?:"???", rsp, addr, info->si_code);
+            printf_log(log_minimum, "%04d|%s @%p (%s) (x64pc=%p/\"%s\", rsp=%p), for accessing %p (code=%d)", GetTID(), signame, pc, name, (void*)x64pc, x64name?:"???", rsp, addr, info->si_code);
 #endif
             if(!shown_regs) {
                 for (int i=0; i<16; ++i) {
@@ -1954,7 +1967,7 @@ EXPORT sighandler_t my_signal(x64emu_t* emu, int signum, sighandler_t handler)
         return signal(signum, handler);
 }
 EXPORT sighandler_t my___sysv_signal(x64emu_t* emu, int signum, sighandler_t handler) __attribute__((alias("my_signal")));
-EXPORT sighandler_t my_sysv_signal(x64emu_t* emu, int signum, sighandler_t handler) __attribute__((alias("my_signal")));    // not completly exact
+EXPORT sighandler_t my_sysv_signal(x64emu_t* emu, int signum, sighandler_t handler) __attribute__((alias("my_signal")));    // not completely exact
 
 int EXPORT my_sigaction(x64emu_t* emu, int signum, const x64_sigaction_t *act, x64_sigaction_t *oldact)
 {

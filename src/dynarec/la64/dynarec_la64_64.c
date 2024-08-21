@@ -70,6 +70,15 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETEDO(x4, 0);
             emit_add32(dyn, ninst, rex, gd, ed, x3, x4, x5);
             break;
+        case 0x2B:
+            INST_NAME("SUB Gd, Seg:Ed");
+            SETFLAGS(X_ALL, SF_SET_PENDING);
+            grab_segdata(dyn, addr, ninst, x4, seg);
+            nextop = F8;
+            GETGD;
+            GETEDO(x4, 0);
+            emit_sub32(dyn, ninst, rex, gd, ed, x3, x4, x5);
+            break;
         case 0x33:
             INST_NAME("XOR Gd, Seg:Ed");
             SETFLAGS(X_ALL, SF_SET_PENDING);
@@ -88,6 +97,81 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0x66:
             addr = dynarec64_6664(dyn, addr, ip, ninst, rex, seg, ok, need_epilog);
             break;
+        case 0x80:
+            nextop = F8;
+            switch ((nextop >> 3) & 7) {
+                case 0: // ADD
+                    INST_NAME("ADD Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    emit_add8c(dyn, ninst, x1, u8, x2, x4, x5);
+                    EBBACK();
+                    break;
+                case 1: // OR
+                    INST_NAME("OR Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    emit_or8c(dyn, ninst, x1, u8, x2, x4, x5);
+                    EBBACK();
+                    break;
+                case 3: // SBB
+                    INST_NAME("SBB Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    READFLAGS(X_CF);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    emit_sbb8c(dyn, ninst, x1, u8, x2, x4, x5, x6);
+                    EBBACK();
+                    break;
+                case 4: // AND
+                    INST_NAME("AND Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    emit_and8c(dyn, ninst, x1, u8, x2, x4);
+                    EBBACK();
+                    break;
+                case 5: // SUB
+                    INST_NAME("SUB Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    emit_sub8c(dyn, ninst, x1, u8, x2, x4, x5, x6);
+                    EBBACK();
+                    break;
+                case 6: // XOR
+                    INST_NAME("XOR Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    emit_xor8c(dyn, ninst, x1, u8, x2, x4);
+                    EBBACK();
+                    break;
+                case 7: // CMP
+                    INST_NAME("CMP Eb, Ib");
+                    grab_segdata(dyn, addr, ninst, x1, seg);
+                    SETFLAGS(X_ALL, SF_SET_PENDING);
+                    GETEBO(x1, 1);
+                    u8 = F8;
+                    if (u8) {
+                        MOV32w(x2, u8);
+                        emit_cmp8(dyn, ninst, x1, x2, x3, x4, x5, x6);
+                    } else {
+                        emit_cmp8_0(dyn, ninst, x1, x3, x4);
+                    }
+                    break;
+                default:
+                    DEFAULT;
+            }
+            break;
         case 0x81:
         case 0x83:
             nextop = F8;
@@ -105,9 +189,7 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         i64 = F32S;
                     else
                         i64 = F8S;
-                    emit_add32c(dyn, ninst, rex, ed, i64, x3, x4, x5, xMASK);
-                    IFXA (X_CF, !la64_lbt)
-                        REGENERATE_MASK(); // use xMASK as a scratch
+                    emit_add32c(dyn, ninst, rex, ed, i64, x3, x4, x5, x7);
                     WBACKO(x6);
                     break;
                 case 1:
@@ -141,10 +223,9 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     MOV64xw(x5, i64);
                     IFXA (X_ALL, !la64_lbt)
                         ST_D(x6, xEmu, offsetof(x64emu_t, scratch));
-                    emit_adc32(dyn, ninst, rex, ed, x5, x3, x4, x6, xMASK);
+                    emit_adc32(dyn, ninst, rex, ed, x5, x3, x4, x6, x7);
                     IFXA (X_ALL, !la64_lbt) {
                         LD_D(x6, xEmu, offsetof(x64emu_t, scratch));
-                        REGENERATE_MASK(); // use xMASK as a scratch
                     }
                     WBACKO(x6);
                     break;
@@ -162,9 +243,7 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     else
                         i64 = F8S;
                     MOV64xw(x5, i64);
-                    emit_sbb32(dyn, ninst, rex, ed, x5, x3, x4, xMASK);
-                    IFXA (X_CF, !la64_lbt)
-                        REGENERATE_MASK(); // use xMASK as a scratch
+                    emit_sbb32(dyn, ninst, rex, ed, x5, x3, x4, x7);
                     WBACKO(x6);
                     break;
                 case 4:
@@ -194,9 +273,7 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         i64 = F32S;
                     else
                         i64 = F8S;
-                    emit_sub32c(dyn, ninst, rex, ed, i64, x3, x4, x5, xMASK);
-                    IFXA (X_CF, !la64_lbt)
-                        REGENERATE_MASK(); // use xMASK as a scratch
+                    emit_sub32c(dyn, ninst, rex, ed, i64, x3, x4, x5, x7);
                     WBACKO(x6);
                     break;
                 case 6:
@@ -260,6 +337,34 @@ uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, 0);
                 ADD_D(x4, ed, x4);
                 LDxw(gd, x4, fixedaddress);
+            }
+            break;
+        case 0xC6:
+            INST_NAME("MOV Seg:Eb, Ib");
+            grab_segdata(dyn, addr, ninst, x4, seg);
+            nextop = F8;
+            if (MODREG) { // reg <= u8
+                u8 = F8;
+                if (!rex.rex) {
+                    ed = (nextop & 7);
+                    eb1 = TO_LA64(ed & 3); // Ax, Cx, Dx or Bx
+                    eb2 = (ed & 4) >> 2;   // L or H
+                } else {
+                    eb1 = TO_LA64((nextop & 7) + (rex.b << 3));
+                    eb2 = 0;
+                }
+                MOV32w(x3, u8);
+                BSTRINS_D(eb1, x3, eb2 * 8 + 7, eb2 * 8);
+            } else { // mem <= u8
+                addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, 1);
+                u8 = F8;
+                if (u8) {
+                    ADDI_D(x3, xZR, u8);
+                    ed = x3;
+                } else
+                    ed = xZR;
+                STX_B(x3, wback, x4);
+                SMWRITE2();
             }
             break;
         case 0xC7:

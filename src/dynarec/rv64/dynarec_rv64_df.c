@@ -48,6 +48,10 @@ uintptr_t dynarec64_DF(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0xE0:
             INST_NAME("FNSTSW AX");
             LWU(x2, xEmu, offsetof(x64emu_t, top));
+            if (dyn->e.x87stack) {
+                ADDI(x2, x2, -dyn->e.x87stack);
+                ANDI(x2, x2, 0x7);
+            }
             LHU(x1, xEmu, offsetof(x64emu_t, sw));
             MOV32w(x3, 0b1100011111111111); // mask
             AND(x1, x1, x3);
@@ -151,6 +155,33 @@ uintptr_t dynarec64_DF(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SH(x4, wback, fixedaddress);
                     X87_POP_OR_FAIL(dyn, ninst, x3);
                     break;
+                case 2:
+                    INST_NAME("FIST Ew, ST0");
+                    v1 = x87_get_st(dyn, ninst, x1, x2, 0, EXT_CACHE_ST_F);
+                    u8 = x87_setround(dyn, ninst, x1, x2);
+                    addr = geted(dyn, addr, ninst, nextop, &wback, x2, x3, &fixedaddress, rex, NULL, 1, 0);
+                    if(!box64_dynarec_fastround) {
+                        FSFLAGSI(0); // reset all bits
+                    }
+                    if (ST_IS_F(0)) {
+                        FCVTWS(x4, v1, RD_DYN);
+                    } else {
+                        FCVTWD(x4, v1, RD_DYN);
+                    }
+                    x87_restoreround(dyn, ninst, u8);
+                    if(!box64_dynarec_fastround) {
+                        FRFLAGS(x5);   // get back FPSR to check the IOC bit
+                        ANDI(x5, x5, 1<<FR_NV);
+                        BNEZ_MARK(x5);
+                        SLLIW(x5, x4, 16);
+                        SRAIW(x5, x5, 16);
+                        BEQ_MARK2(x5, x4);
+                        MARK;
+                        MOV32w(x4, 0x8000);
+                    }
+                    MARK2;
+                    SH(x4, wback, fixedaddress);
+                    break;
                 case 3:
                     INST_NAME("FISTP Ew, ST0");
                     v1 = x87_get_st(dyn, ninst, x1, x2, 0, EXT_CACHE_ST_F);
@@ -178,6 +209,15 @@ uintptr_t dynarec64_DF(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     MARK2;
                     SH(x4, wback, fixedaddress);
                     X87_POP_OR_FAIL(dyn, ninst, x3);
+                    break;
+                case 4:
+                    INST_NAME("FBLD ST0, tbytes");
+                    X87_PUSH_EMPTY_OR_FAIL(dyn, ninst, x1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
+                    if(ed != x1) { MV(x1, ed); }
+                    s0 = x87_stackcount(dyn, ninst, x3);
+                    CALL(fpu_fbld, -1);
+                    x87_unstackcount(dyn, ninst, x3, s0);
                     break;
                 case 5:
                     INST_NAME("FILD ST0, i64");

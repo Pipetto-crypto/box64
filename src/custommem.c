@@ -304,7 +304,7 @@ int printBlockCoherent(int i)
         m = n;
     }
     if(m!=last) {
-        printf_log(LOG_NONE, "Last block %p is behond expexted block %p for block %d\n", m, last, i);
+        printf_log(LOG_NONE, "Last block %p is beyond expected block %p for block %d\n", m, last, i);
         ret = 0;
     }
 
@@ -1224,6 +1224,7 @@ void updateProtection(uintptr_t addr, size_t size, uint32_t prot)
         uintptr_t bend;
         uint32_t oprot;
         rb_get_end(memprot, cur, &oprot, &bend);
+        if(bend>end) bend = end;
         uint32_t dyn=(oprot&PROT_DYN);
         if(!(dyn&PROT_NEVERPROT)) {
             if(dyn && (prot&PROT_WRITE)) {   // need to remove the write protection from this block
@@ -1259,8 +1260,10 @@ void setProtection_mmap(uintptr_t addr, size_t size, uint32_t prot)
     size = ALIGN(size);
     LOCK_PROT();
     rb_set(mmapmem, addr, addr+size, 1);
-    if(!prot)
+    if(!prot) {
         rb_set(mapallmem, addr, addr+size, 1);
+        rb_unset(memprot, addr, addr+size);
+    }
     UNLOCK_PROT();
     if(prot)
         setProtection(addr, size, prot);
@@ -1275,6 +1278,7 @@ void setProtection_elf(uintptr_t addr, size_t size, uint32_t prot)
     else {
         LOCK_PROT();
         rb_set(mapallmem, addr, addr+size, 1);
+        rb_unset(memprot, addr, addr+size);
         UNLOCK_PROT();
     }
 }
@@ -1334,14 +1338,17 @@ void loadProtectionFromMap()
     box64_mapclean = 1;
 }
 
+int isAddrInPrereserve(uintptr_t addr);
 void freeProtection(uintptr_t addr, size_t size)
 {
     size = ALIGN(size);
     addr &= ~(box64_pagesize-1);
     dynarec_log(LOG_DEBUG, "freeProtection %p:%p\n", (void*)addr, (void*)(addr+size-1));
     LOCK_PROT();
-    rb_unset(mapallmem, addr, addr+size);
-    rb_unset(mmapmem, addr, addr+size);
+    if(!isAddrInPrereserve(addr)) {
+        rb_unset(mapallmem, addr, addr+size);
+        rb_unset(mmapmem, addr, addr+size);
+    }
     rb_unset(memprot, addr, addr+size);
     UNLOCK_PROT();
 }
@@ -1360,13 +1367,14 @@ int getMmapped(uintptr_t addr)
 }
 
 #define LOWEST (void*)0x10000
+#define WINE_LOWEST (void*)0x30000000
 #define MEDIUM (void*)0x40000000
 #define HIGH   (void*)0x60000000
 
 void* find31bitBlockNearHint(void* hint, size_t size, uintptr_t mask)
 {
     uint32_t prot;
-    if(hint<LOWEST) hint = LOWEST;
+    if(hint<LOWEST) hint = box64_wine?WINE_LOWEST:LOWEST;
     uintptr_t bend = 0;
     uintptr_t cur = (uintptr_t)hint;
     if(!mask) mask = 0xffff;
@@ -1427,6 +1435,21 @@ void* find47bitBlockElf(size_t size, int mainbin, uintptr_t mask)
         ret = find31bitBlockNearHint(LOWEST, size, mask);
     if(!mainbin)
         startingpoint = (void*)(((uintptr_t)startingpoint+size+0x1000000LL)&~0xffffffLL);
+    return ret;
+}
+
+void* find31bitBlockElf(size_t size, int mainbin, uintptr_t mask)
+{
+    static void* startingpoint = NULL;
+    if(!startingpoint) {
+        startingpoint = (void*)WINE_LOWEST;
+    }
+    void* mainaddr = (void*)0x1000000;
+    void* ret = find31bitBlockNearHint(MEDIUM, size, mask);
+    if(!ret)
+        ret = find31bitBlockNearHint(LOWEST, size, mask);
+    if(!mainbin)
+        startingpoint = (void*)(((uintptr_t)startingpoint+size+0x1000000)&~0xffffff);
     return ret;
 }
 
@@ -1502,10 +1525,10 @@ static void atfork_child_custommem(void)
 void my_reserveHighMem()
 {
     static int reserved = 0;
-    if(reserved || !have48bits)
+    if(reserved || (!have48bits && !box64_is32bits))
         return;
     reserved = 1;
-    uintptr_t cur = 1ULL<<47;
+    uintptr_t cur = box64_is32bits?(1ULL<<32):(1ULL<<47);
     uintptr_t bend = 0;
     uint32_t prot;
     while (bend!=0xffffffffffffffffLL) {
@@ -1525,12 +1548,13 @@ void my_reserveHighMem()
 void reserveHighMem()
 {
     char* p = getenv("BOX64_RESERVE_HIGH");
+    if(!box64_is32bits)
     #if 0//def ADLINK
-    if(p && p[0]=='0')
+        if(p && p[0]=='0')
     #else
-    if(!p || p[0]=='0')
+        if(!p || p[0]=='0')
     #endif
-        return; // don't reserve by default
+            return; // don't reserve by default
     my_reserveHighMem();
 }
 

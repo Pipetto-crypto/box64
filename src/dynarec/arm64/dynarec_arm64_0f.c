@@ -1643,12 +1643,17 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xA4:
             nextop = F8;
             INST_NAME("SHLD Ed, Gd, Ib");
-            SETFLAGS(X_ALL, SF_SET_PENDING);
-            GETED(1);
-            GETGD;
-            u8 = F8;
-            emit_shld32c(dyn, ninst, rex, ed, gd, u8, x3, x4);
-            WBACK;
+            if(geted_ib(dyn, addr, ninst, nextop)) {
+                SETFLAGS(X_ALL, SF_SET_PENDING);
+                GETED(1);
+                GETGD;
+                u8 = F8;
+                emit_shld32c(dyn, ninst, rex, ed, gd, u8, x3, x4);
+                WBACK;
+            } else {
+                FAKEED;
+                F8;
+            }
             break;
         case 0xA5:
             nextop = F8;
@@ -1719,12 +1724,17 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xAC:
             nextop = F8;
             INST_NAME("SHRD Ed, Gd, Ib");
-            SETFLAGS(X_ALL, SF_SET_PENDING);
-            GETED(1);
-            GETGD;
-            u8 = F8;
-            emit_shrd32c(dyn, ninst, rex, ed, gd, u8, x3, x4);
-            WBACK;
+            if(geted_ib(dyn, addr, ninst, nextop)) {
+                SETFLAGS(X_ALL, SF_SET_PENDING);
+                GETED(1);
+                GETGD;
+                u8 = F8;
+                emit_shrd32c(dyn, ninst, rex, ed, gd, u8, x3, x4);
+                WBACK;
+            } else {
+                FAKEED;
+                F8;
+            }
             break;
         case 0xAD:
             nextop = F8;
@@ -2138,7 +2148,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
         case 0xBC:
             INST_NAME("BSF Gd, Ed");
-            SETFLAGS(X_ZF, SF_SUBSET);
+            SETFLAGS(X_ZF, SF_SET_DF);
             SET_DFNONE(x1);
             nextop = F8;
             GETED(0);
@@ -2148,12 +2158,14 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             RBITxw(x1, ed);   // reverse
             CLZxw(gd, x1);    // x2 gets leading 0 == BSF
             MARK;
-            CSETw(x1, cEQ);    //ZF not set
-            BFIw(xFlags, x1, F_ZF, 1);
+            IFX(X_ZF) {
+                CSETw(x1, cEQ);    //other flags are undefined
+                BFIw(xFlags, x1, F_ZF, 1);
+            }
             break;
         case 0xBD:
             INST_NAME("BSR Gd, Ed");
-            SETFLAGS(X_ZF, SF_SUBSET);
+            SETFLAGS(X_ZF, SF_SET_DF);
             SET_DFNONE(x1);
             nextop = F8;
             GETED(0);
@@ -2164,8 +2176,10 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             SUBxw_U12(gd, gd, rex.w?63:31);
             NEGxw_REG(gd, gd);   // complement
             MARK;
-            CSETw(x1, cEQ);    //ZF not set
-            BFIw(xFlags, x1, F_ZF, 1);
+            IFX(X_ZF) {
+                CSETw(x1, cEQ);    //other flags are undefined
+                BFIw(xFlags, x1, F_ZF, 1);
+            }
             break;
         case 0xBE:
             INST_NAME("MOVSX Gd, Eb");
@@ -2333,7 +2347,29 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xC7:
             // rep has no impact here
             nextop = F8;
-            switch((nextop>>3)&7) {
+            if(MODREG) switch((nextop>>3)&7) { 
+            case 6:
+                INST_NAME("RDRAND Ed");
+                SETFLAGS(X_ALL, SF_SET_DF);
+                SET_DFNONE(x1);
+                GETED(0);
+                IFX(X_OF|X_SF|X_ZF|X_PF|X_AF) {
+                    MOV32w(x1, (1<<F_OF)|(1<<F_SF)|(1<<F_ZF)|(1<<F_PF)|(1<<F_AF));
+                    BICw(xFlags, xFlags, x1);
+                }
+                if(arm64_rndr) {
+                    MRS_rndr(x1);
+                    IFX(X_CF) { CSETw(x3, cNE); }
+                } else {
+                    CALL(rex.w?((void*)get_random64):((void*)get_random32), x1);
+                    IFX(X_CF) { MOV32w(x3, 1); }
+                }
+                IFX(X_CF) { BFIw(xFlags, x3, F_CF, 1); }
+                MOVxw_REG(ed, x1);
+                break;
+            default:
+                DEFAULT;
+            } else switch((nextop>>3)&7) {
             case 1:
                 INST_NAME("CMPXCHG8B Gq, Eq");
                 SETFLAGS(X_ZF, SF_SUBSET);
@@ -2364,6 +2400,25 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 INST_NAME("Unsupported XSAVEC Ed");
                 FAKEED;
                 UDF(0);
+                break;
+            case 6:
+                INST_NAME("RDRAND Ed");
+                SETFLAGS(X_ALL, SF_SET_DF);
+                SET_DFNONE(x1);
+                IFX(X_OF|X_SF|X_ZF|X_PF|X_AF) {
+                    MOV32w(x1, (1<<F_OF)|(1<<F_SF)|(1<<F_ZF)|(1<<F_PF)|(1<<F_AF));
+                    BICw(xFlags, xFlags, x1);
+                }
+                if(arm64_rndr) {
+                    MRS_rndr(x1);
+                    IFX(X_CF) { CSETw(x3, cNE); }
+                } else {
+                    CALL(rex.w?((void*)get_random64):((void*)get_random32), x1);
+                    IFX(X_CF) { MOV32w(x3, 1); }
+                }
+                IFX(X_CF) { BFIw(xFlags, x3, F_CF, 1); }
+                addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff<<(2+rex.w), (1<<(2+rex.w))-1, rex, NULL, 0, 0);
+                STxw(x1, wback, fixedaddress);
                 break;
             default:
                 DEFAULT;

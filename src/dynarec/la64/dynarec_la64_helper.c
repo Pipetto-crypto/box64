@@ -133,7 +133,7 @@ uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, 
             i64 = F32S;
         else
             i64 = F8S;
-        if (i64 == 0 || ((i64 >= -2048) && (i64 <= 2047) && i12)) {
+        if (i64 == 0 || ((i64 >= -2048) && (i64 <= maxval) && i12)) {
             *fixaddress = i64;
             if ((nextop & 7) == 4) {
                 if (sib_reg != 4) {
@@ -249,7 +249,7 @@ static uintptr_t geted_32(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_
         } else {
             ret = TO_LA64((nextop & 7));
             if (ret == hint) {
-                AND(hint, ret, xMASK); // to clear upper part
+                ZEROUP2(hint, ret); // to clear upper part
             }
         }
     } else {
@@ -265,7 +265,7 @@ static uintptr_t geted_32(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_
             i32 = F32S;
         else
             i32 = F8S;
-        if (i32 == 0 || ((i32 >= -2048) && (i32 <= 2047) && i12)) {
+        if (i32 == 0 || ((i32 >= -2048) && (i32 <= maxval) && i12)) {
             *fixaddress = i32;
             if ((nextop & 7) == 4) {
                 if (sib_reg != 4) {
@@ -397,7 +397,7 @@ uintptr_t geted32(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop
         } else {
             ret = TO_LA64((nextop & 7) + (rex.b << 3));
             if (ret == hint) {
-                AND(hint, ret, xMASK); // to clear upper part
+                ZEROUP2(hint, ret); // to clear upper part
             }
         }
     } else {
@@ -413,7 +413,7 @@ uintptr_t geted32(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop
             i64 = F32S;
         else
             i64 = F8S;
-        if (i64 == 0 || ((i64 >= -2048) && (i64 <= 2047) && i12)) {
+        if (i64 == 0 || ((i64 >= -2048) && (i64 <= maxval) && i12)) {
             *fixaddress = i64;
             if ((nextop & 7) == 4) {
                 if (sib_reg != 4) {
@@ -685,7 +685,6 @@ void call_c(dynarec_la64_t* dyn, int ninst, void* fnc, int reg, int ret, int sav
             LD_D(xRIP, xEmu, offsetof(x64emu_t, ip));
 #undef GO
     }
-    REGENERATE_MASK();
 
     fpu_popcache(dyn, ninst, reg, 0);
     if (saveflags) {
@@ -740,18 +739,18 @@ int sse_setround(dynarec_la64_t* dyn, int ninst, int s1, int s2)
     // MMX/x87 Round mode: 0..3: Nearest, Down, Up, Chop
     // LA64: 0..3: Nearest, TowardZero, TowardsPositive, TowardsNegative
     // 0->0, 1->3, 2->2, 3->1
-    BEQ(s1, xZR, 32);
+    BEQ(s1, xZR, 4 + 4 * 8); // done + 4
     ADDI_D(s2, xZR, 2);
-    BEQ(s1, s2, 24);
+    BEQ(s1, s2, 4 + 4 * 5); // done
     ADDI_D(s2, xZR, 3);
-    BEQ(s1, s2, 12);
+    BEQ(s1, s2, 4 + 4 * 2);
     ADDI_D(s1, xZR, 3);
     B(8);
     ADDI_D(s1, xZR, 1);
     // done
     SLLI_D(s1, s1, 8);
     MOVFCSR2GR(s2, FCSR3);
-    MOVGR2FCSR(FCSR3, s1); // exange RM with current
+    MOVGR2FCSR(FCSR3, s1); // exchange RM with current
     return s2;
 }
 

@@ -459,7 +459,7 @@
 #define GETVX_empty(a)                  \
     a = sse_get_reg_empty(dyn, ninst, x1, vex.v)
 
-// Get empty VX, and non-writen  EX
+// Get empty VX, and non-written  EX
 #define GETVX_empty_EX(vx, ex, D)           \
     GETEX_Y(ex, 0, D);                      \
     GETVX_empty(vx)
@@ -484,29 +484,29 @@
     b = ymm_get_reg(dyn, ninst, x1, vex.v, w2, gd, k1, k2); \
     a = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, k1, k2)
 
-// Get empty GX, and non-writen VX and EX
+// Get empty GX, and non-written VX and EX
 #define GETGX_empty_VXEX(gx, vx, ex, D)     \
     GETVX(vx, 0);                           \
     GETEX_Y(ex, 0, D);                      \
     GETGX_empty(gx)
 
-// Get empty GX, and non-writen EX
+// Get empty GX, and non-written EX
 #define GETGX_empty_EX(gx, ex, D)           \
     GETEX_Y(ex, 0, D);                      \
     GETGX_empty(gx)
 
-// Get empty GX, and non-writen VX
+// Get empty GX, and non-written VX
 #define GETGX_empty_VX(gx, vx)              \
     GETVX(vx, 0);                           \
     GETGX_empty(gx)
 
-// Get EX and and non-writen VX and GX
+// Get EX and and non-written VX and GX
 #define GETGXVXEX(gx, vx, ex, D)            \
     GETVX(vx, 0);                           \
     GETEX_Y(ex, 1, D);                      \
     GETGX(gx, 0)
 
-// Get GX and and non-writen VX and EX
+// Get GX and and non-written VX and EX
 #define GETGX_VXEX(gx, vx, ex, D)            \
     GETVX(vx, 0);                           \
     GETEX_Y(ex, 0, D);                      \
@@ -517,7 +517,7 @@
     GETGX(gx, 0);                           \
     GETEX_empty_Y(ex, D);
 
-// Get empty GY, and non-writen VY and EY
+// Get empty GY, and non-written VY and EY
 #define GETGY_empty_VYEY(gy, vy, ey)                                                            \
     vy = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
     if(MODREG)                                                                                  \
@@ -526,7 +526,7 @@
         VLDR128_U12(ey, ed, fixedaddress+16);                                                   \
     gy = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1)
 
-// Get EY and non-writen VY and GY
+// Get EY and non-written VY and GY
 #define GETGYVYEY(gy, vy, ey)                                                                   \
     vy = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
     if(MODREG)                                                                                  \
@@ -535,7 +535,7 @@
         VLDR128_U12(ey, ed, fixedaddress+16);                                                   \
     gy = ymm_get_reg(dyn, ninst, x1, gd, 0, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1)
 
-// Get GY and non-writen VY and EY
+// Get GY and non-written VY and EY
 #define GETGY_VYEY(gy, vy, ey)                                                                  \
     vy = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
     if(MODREG)                                                                                  \
@@ -544,14 +544,14 @@
         VLDR128_U12(ey, ed, fixedaddress+16);                                                   \
     gy = ymm_get_reg(dyn, ninst, x1, gd, 1, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1)
 
-// Get empty EY and non-writen VY and GY
+// Get empty EY and non-written VY and GY
 #define GETGYVYEY_empty(gy, vy, ey)                                                             \
     vy = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
     gy = ymm_get_reg(dyn, ninst, x1, gd, 0, vex.v, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1);    \
     if(MODREG)                                                                                  \
         ey = ymm_get_reg_empty(dyn, ninst, x1, (nextop&7)+(rex.b<<3), gd, vex.v, -1)
 
-// Get EY and non-writen GY
+// Get EY and non-written GY
 #define GETGYEY(gy, ey)                                                                         \
     if(MODREG)                                                                                  \
         ey = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 1, gd, -1, -1);                 \
@@ -573,13 +573,13 @@
     else                                                                                        \
         VLDR128_U12(ey, ed, fixedaddress+16);                                                   \
 
-// Get empty EY and non-writen GY
+// Get empty EY and non-written GY
 #define GETGYEY_empty(gy, ey)                                                                   \
     gy = ymm_get_reg(dyn, ninst, x1, gd, 0, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1, -1);       \
     if(MODREG)                                                                                  \
         ey = ymm_get_reg_empty(dyn, ninst, x1, (nextop&7)+(rex.b<<3), gd, -1, -1)
 
-// Get empty GY, and non-writen EY
+// Get empty GY, and non-written EY
 #define GETGY_empty_EY(gy, ey)                                                      \
     if(MODREG)                                                                      \
         ey = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0, gd, -1, -1);     \
@@ -587,7 +587,7 @@
         VLDR128_U12(ey, ed, fixedaddress+16);                                       \
     gy = ymm_get_reg_empty(dyn, ninst, x1, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1, -1, -1)
 
-// Get empty VY, and non-writen EY
+// Get empty VY, and non-written EY
 #define GETVY_empty_EY(vy, ey)                                                      \
     if(MODREG)                                                                      \
         ey = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0, vex.v, -1, -1);  \
@@ -1019,7 +1019,7 @@
     x87_do_pop(dyn, ninst, scratch)
 #endif
 
-#define SET_DFNONE(S)    if(!dyn->f.dfnone) {STRw_U12(wZR, xEmu, offsetof(x64emu_t, df)); dyn->f.dfnone=1;}
+#define SET_DFNONE(S)    do {dyn->f.dfnone_here=1; if(!dyn->f.dfnone) {STRw_U12(wZR, xEmu, offsetof(x64emu_t, df)); dyn->f.dfnone=1;}} while(0);
 #define SET_DF(S, N)        \
     if((N)!=d_none) {       \
         MOVZw(S, (N));      \
@@ -1032,10 +1032,10 @@
         dyn->f.dfnone=0;    \
     } else SET_DFNONE(S)
 #define SET_NODF()          dyn->f.dfnone = 0
-#define SET_DFOK()          dyn->f.dfnone = 1
+#define SET_DFOK()          dyn->f.dfnone = 1; dyn->f.dfnone_here=1
 
 #ifndef MAYSETFLAGS
-#define MAYSETFLAGS()
+#define MAYSETFLAGS() do {} while (0)
 #endif
 
 #ifndef READFLAGS
@@ -1078,9 +1078,6 @@
 #ifndef BARRIER
 #define BARRIER(A)
 #endif
-#ifndef BARRIER_NEXT
-#define BARRIER_NEXT(A)
-#endif
 #ifndef SET_HASCALLRET
 #define SET_HASCALLRET()
 #endif
@@ -1107,6 +1104,7 @@
     dyn->smread = dyn->smwrite = 0; \
     dyn->doublepush = 0;            \
     dyn->doublepop = 0;
+#define ARCH_RESET()
 
 #if STEP < 2
 #define GETIP(A) TABLE64(0, 0)
@@ -1196,6 +1194,7 @@ void* arm64_next(x64emu_t* emu, uintptr_t addr);
 #define dynarec64_AVX_66_0F3A   STEPNAME(dynarec64_AVX_66_0F3A)
 #define dynarec64_AVX_F2_0F38   STEPNAME(dynarec64_AVX_F2_0F38)
 #define dynarec64_AVX_F2_0F3A   STEPNAME(dynarec64_AVX_F2_0F3A)
+#define dynarec64_AVX_F3_0F38   STEPNAME(dynarec64_AVX_F3_0F38)
 
 #define geted           STEPNAME(geted)
 #define geted32         STEPNAME(geted32)
@@ -1626,6 +1625,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
 uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 uintptr_t dynarec64_AVX_F2_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 uintptr_t dynarec64_AVX_F2_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_F3_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 
 #if STEP < 2
 #define PASS2(A)

@@ -5,7 +5,7 @@
     dyn->insts[ninst].x64.addr = addr;  \
     if(ninst) dyn->insts[ninst-1].x64.size = dyn->insts[ninst].x64.addr - dyn->insts[ninst-1].x64.addr
 
-#define MESSAGE(A, ...)  
+#define MESSAGE(A, ...) do {} while (0)
 #define MAYSETFLAGS()   dyn->insts[ninst].x64.may_set = 1
 #define READFLAGS(A)    \
         dyn->insts[ninst].x64.use_flags = A; dyn->f.dfnone = 1;\
@@ -18,25 +18,28 @@
 #define EMIT(A)         dyn->native_size+=4
 #define JUMP(A, C)         add_jump(dyn, ninst); add_next(dyn, (uintptr_t)A); SMEND(); dyn->insts[ninst].x64.jmp = A; dyn->insts[ninst].x64.jmp_cond = C; dyn->insts[ninst].x64.jmp_insts = 0
 #define BARRIER(A)      if(A!=BARRIER_MAYBE) {fpu_purgecache(dyn, ninst, 0, x1, x2, x3); dyn->insts[ninst].x64.barrier = A;} else dyn->insts[ninst].barrier_maybe = 1
-#define BARRIER_NEXT(A) dyn->insts[ninst].x64.barrier_next = A
 #define SET_HASCALLRET()    dyn->insts[ninst].x64.has_callret = 1
-#define NEW_INST \
-        ++dyn->size;                            \
-        memset(&dyn->insts[ninst], 0, sizeof(instruction_native_t));     \
-        dyn->insts[ninst].x64.addr = ip;        \
-        dyn->e.combined1 = dyn->e.combined2 = 0;\
-        dyn->e.swapped = 0; dyn->e.barrier = 0; \
-        for(int i=0; i<16; ++i) dyn->e.olds[i].v = 0;\
-        dyn->insts[ninst].f_entry = dyn->f;     \
-        dyn->insts[ninst].ymm0_in = dyn->ymm_zero;\
-        if(ninst) {dyn->insts[ninst-1].x64.size = dyn->insts[ninst].x64.addr - dyn->insts[ninst-1].x64.addr;}
+#define NEW_INST                                                                   \
+    ++dyn->size;                                                                   \
+    memset(&dyn->insts[ninst], 0, sizeof(instruction_native_t));                   \
+    dyn->insts[ninst].x64.addr = ip;                                               \
+    dyn->e.combined1 = dyn->e.combined2 = 0;                                       \
+    dyn->e.swapped = 0;                                                            \
+    dyn->e.barrier = 0;                                                            \
+    for (int i = 0; i < 16; ++i)                                                   \
+        dyn->e.olds[i].v = 0;                                                      \
+    dyn->insts[ninst].f_entry = dyn->f;                                            \
+    if (reset_n != -1)                                                             \
+        dyn->vector_sew = ninst ? dyn->insts[ninst - 1].vector_sew : VECTOR_SEWNA; \
+    if (ninst)                                                                     \
+        dyn->insts[ninst - 1].x64.size = dyn->insts[ninst].x64.addr - dyn->insts[ninst - 1].x64.addr;
 
-#define INST_EPILOG                             \
-        dyn->insts[ninst].f_exit = dyn->f;      \
-        dyn->insts[ninst].e = dyn->e;           \
-        dyn->insts[ninst].ymm0_out = dyn->ymm_zero;\
-        dyn->insts[ninst].x64.has_next = (ok>0)?1:0;
-#define INST_NAME(name) 
+#define INST_EPILOG                                 \
+    dyn->insts[ninst].f_exit = dyn->f;              \
+    dyn->insts[ninst].e = dyn->e;                   \
+    dyn->insts[ninst].vector_sew = dyn->vector_sew; \
+    dyn->insts[ninst].x64.has_next = (ok > 0) ? 1 : 0;
+#define INST_NAME(name)
 #define DEFAULT                         \
         --dyn->size;                    \
         *ok = -1;                       \
@@ -52,3 +55,22 @@
         printFunctionAddr(ip, " => ");  \
         dynarec_log(LOG_NONE, "\n");    \
         }
+
+#define DEFAULT_VECTOR                                                                                       \
+    if (box64_dynarec_log >= LOG_INFO || box64_dynarec_dump || box64_dynarec_missing) {                      \
+        dynarec_log(LOG_NONE, "%p: Dynarec fallback to scalar version because of %s Opcode"                  \
+                              " %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", \
+            (void*)ip, rex.is32bits ? "x86 " : "x64 ",                                                       \
+            PKip(0),                                                                                         \
+            PKip(1), PKip(2), PKip(3),                                                                       \
+            PKip(4), PKip(5), PKip(6),                                                                       \
+            PKip(7), PKip(8), PKip(9),                                                                       \
+            PKip(10), PKip(11), PKip(12),                                                                    \
+            PKip(13), PKip(14));                                                                             \
+        printFunctionAddr(ip, " => ");                                                                       \
+        dynarec_log(LOG_NONE, "\n");                                                                         \
+    }                                                                                                        \
+    return 0
+
+#define SET_ELEMENT_WIDTH(s1, sew) \
+    dyn->vector_sew = sew;

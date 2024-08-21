@@ -32,23 +32,23 @@
 
 static uint8_t ff_mult(uint8_t a, uint8_t b)
 {
-	int retval = 0;
+    int retval = 0;
 
-	for(int i = 0; i < 8; i++) {
-		if((b & 1) == 1)
-			retval ^= a;
+    for(int i = 0; i < 8; i++) {
+        if((b & 1) == 1)
+            retval ^= a;
 
-		if((a & 0x80)) {
-			a <<= 1;
-			a  ^= 0x1b;
-		} else {
-			a <<= 1;
-		}
+        if((a & 0x80)) {
+            a <<= 1;
+            a  ^= 0x1b;
+        } else {
+            a <<= 1;
+        }
 
-		b >>= 1;
-	}
+        b >>= 1;
+    }
 
-	return retval;
+    return retval;
 }
 
 #ifdef TEST_INTERPRETER
@@ -1390,7 +1390,7 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GETVY;
             tmp8u = F8; //SIB
             // compute base
-            tmp64u = emu->regs[(tmp8u&0x7)+(rex.b<<3)].q[0];
+            tmp64u = ((tmp8u&0x7)==5 && !(nextop&0xC0))?(F32S64):emu->regs[(tmp8u&0x7)+(rex.b<<3)].q[0];
             if(nextop&0x40)
                 tmp64u += F8S;
             else if(nextop&0x80)
@@ -1457,7 +1457,7 @@ uintptr_t RunAVX_660F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GETVY;
             tmp8u = F8; //SIB
             // compute base
-            tmp64u = emu->regs[(tmp8u&0x7)+(rex.b<<3)].q[0];
+            tmp64u = (((tmp8u&0x7)==5) && !(nextop&0xC0))?(F32S64):emu->regs[(tmp8u&0x7)+(rex.b<<3)].q[0];
             if(nextop&0x40)
                 tmp64u += F8S;
             else if(nextop&0x80)

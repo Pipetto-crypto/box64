@@ -26,12 +26,12 @@
 #include "wrapper.h"
 #include "box64context.h"
 #include "librarian.h"
-#include "elfload_dump.h"
 #include "signals.h"
 #include "tools/bridge_private.h"
 
 #include <elf.h>
 #include "elfloader.h"
+#include "elfload_dump.h"
 #include "elfs/elfloader_private.h"
 
 typedef int32_t (*iFpppp_t)(void*, void*, void*, void*);
@@ -127,14 +127,14 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 const char *s = bridge->name;
                 if(!s)
                     s = GetNativeName((void*)a);
-                if(a==(uintptr_t)PltResolver) {
+                if(a==(uintptr_t)PltResolver64) {
                     if(cycle_log) {
                         uintptr_t addr = *((uint64_t*)(R_RSP));
                         int slot = *((uint64_t*)(R_RSP+8));
                         elfheader_t *h = (elfheader_t*)addr;
                         Elf64_Rela * rel = (Elf64_Rela *)(h->jmprel + h->delta) + slot;
-                        Elf64_Sym *sym = &h->DynSym[ELF64_R_SYM(rel->r_info)];
-                        const char* symname = SymName(h, sym);
+                        Elf64_Sym *sym = &h->DynSym._64[ELF64_R_SYM(rel->r_info)];
+                        const char* symname = SymName64(h, sym);
                         snprintf(buff, 256, "%04d|PltResolver \"%s\"", tid, symname?symname:"???");
                     } else {
                         snprintf(buff, 256, "%s", " ... ");
@@ -209,6 +209,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 } else if (strstr(s, "puts")==s) {
                     tmp = (char*)(R_RDI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\")", tid, *(void**)(R_RSP), s, (tmp)?tmp:"(nil)");
+                } else if (!strcmp(s, "syscall")) {
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%d, %p, %p....)", tid, *(void**)(R_RSP), s, (int)R_EDI, (void*)R_RSI, (void*)R_RDX);
+                    perr = 1;
                 } else if (strstr(s, "strlen")==s) {
                     tmp = (char*)(R_RDI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\")", tid, *(void**)(R_RSP), s, (tmp)?tmp:"(nil)");
@@ -345,11 +348,11 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     }
                     break;
                 }
-                if(perr==1 && ((int)R_EAX)<0)
+                if(perr==1 && (S_EAX)<0)
                     snprintf(buff3, 64, " (errno=%d:\"%s\")", errno, strerror(errno));
                 else if(perr==2 && R_EAX==0)
                     snprintf(buff3, 64, " (errno=%d:\"%s\")", errno, strerror(errno));
-                else if(perr==3 && ((int64_t)R_RAX)==-1)
+                else if(perr==3 && (S_RAX)==-1)
                     snprintf(buff3, 64, " (errno=%d:\"%s\")", errno, strerror(errno));
 
                 if(cycle_log)
@@ -364,12 +367,13 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
         }
         return;
     }
-     if(!box64_ignoreint3 && my_context->signals[SIGTRAP])
-        emit_signal(emu, SIGTRAP, (void*)R_RIP, 128);
-   else {
+    if(!box64_ignoreint3 && my_context->signals[SIGTRAP]) {
+        R_RIP = *addr;  // update RIP
+        emit_signal(emu, SIGTRAP, NULL, 3);
+    } else {
         printf_log(LOG_DEBUG, "%04d|Warning, ignoring unsupported Int 3 call @%p\n", GetTID(), (void*)R_RIP);
         R_RIP = *addr;
-   }
+    }
     //emu->quit = 1;
 }
 

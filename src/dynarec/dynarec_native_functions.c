@@ -188,7 +188,7 @@ void native_singlestep(x64emu_t* emu)
 
 void native_int3(x64emu_t* emu)
 {
-    emit_signal(emu, SIGTRAP, (void*)R_RIP, 128);
+    emit_signal(emu, SIGTRAP, NULL, 3);
 }
 
 void native_div0(x64emu_t* emu)
@@ -268,23 +268,23 @@ void native_fprem1(x64emu_t* emu)
 
 static uint8_t ff_mult(uint8_t a, uint8_t b)
 {
-	int retval = 0;
+    int retval = 0;
 
-	for(int i = 0; i < 8; i++) {
-		if((b & 1) == 1)
-			retval ^= a;
+    for(int i = 0; i < 8; i++) {
+        if((b & 1) == 1)
+            retval ^= a;
 
-		if((a & 0x80)) {
-			a <<= 1;
-			a  ^= 0x1b;
-		} else {
-			a <<= 1;
-		}
+        if((a & 0x80)) {
+            a <<= 1;
+            a  ^= 0x1b;
+        } else {
+            a <<= 1;
+        }
 
-		b >>= 1;
-	}
+        b >>= 1;
+    }
 
-	return retval;
+    return retval;
 }
 
 void native_aesimc(x64emu_t* emu, int xmm)
@@ -584,7 +584,7 @@ uintptr_t fakeed(dynarec_native_t* dyn, uintptr_t addr, int ninst, uint8_t nexto
     }
     return addr;
 }
-// return Ib on a mod/rm opcode without emiting anything
+// return Ib on a mod/rm opcode without emitting anything
 uint8_t geted_ib(dynarec_native_t* dyn, uintptr_t addr, int ninst, uint8_t nextop)
 {
     addr = fakeed(dyn, addr, ninst, nextop);
@@ -608,7 +608,7 @@ int isNativeCall(dynarec_native_t* dyn, uintptr_t addr, uintptr_t* calladdress, 
     if(!addr || !getProtection(addr))
         return 0;
     onebridge_t *b = (onebridge_t*)(addr);
-    if(b->CC==0xCC && b->S=='S' && b->C=='C' && b->w!=(wrapper_t)0 && b->f!=(uintptr_t)PltResolver) {
+    if(b->CC==0xCC && b->S=='S' && b->C=='C' && b->w!=(wrapper_t)0 && b->f!=(uintptr_t)PltResolver64) {
         // found !
         if(retn) *retn = (b->C3==0xC2)?b->N:0;
         if(calladdress) *calladdress = addr+1;

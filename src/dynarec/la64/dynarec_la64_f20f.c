@@ -24,7 +24,8 @@
 
 uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog)
 {
-    (void)ip; (void)need_epilog;
+    (void)ip;
+    (void)need_epilog;
 
     uint8_t opcode = F8;
     uint8_t nextop;
@@ -44,12 +45,12 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
     MAYUSE(v0);
     MAYUSE(v1);
 
-    switch(opcode) {
+    switch (opcode) {
         case 0x10:
             INST_NAME("MOVSD Gx, Ex");
             nextop = F8;
             GETG;
-            if(MODREG) {
+            if (MODREG) {
                 ed = (nextop & 7) + (rex.b << 3);
                 v0 = sse_get_reg(dyn, ninst, x1, gd, 1);
                 v1 = sse_get_reg(dyn, ninst, x1, ed, 0);
@@ -68,7 +69,7 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             GETG;
             v0 = sse_get_reg(dyn, ninst, x1, gd, 0);
-            if(MODREG) {
+            if (MODREG) {
                 ed = (nextop & 7) + (rex.b << 3);
                 d0 = sse_get_reg(dyn, ninst, x1, ed, 0);
                 VEXTRINS_D(d0, v0, 0); // d0[63:0] = v0[63:0]
@@ -76,6 +77,21 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 1, 0);
                 FST_D(v0, ed, fixedaddress);
                 SMWRITE2();
+            }
+            break;
+        case 0x12:
+            INST_NAME("MOVDDUP Gx, Ex");
+            nextop = F8;
+            GETG;
+            if (MODREG) {
+                d0 = sse_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), 0);
+                v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
+                VREPLVE_D(v0, d0, xZR);
+            } else {
+                SMREAD();
+                v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
+                VLDREPL_D(v0, ed, 0);
             }
             break;
         case 0x2A:
@@ -279,13 +295,20 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             GETEX(v1, 0, 1);
             GETGX(v0, 1);
             u8 = F8;
-            VSHUF4I_H(v0, v1, u8);
+            if (v0 != v1) {
+                VSHUF4I_H(v0, v1, u8);
+                VEXTRINS_D(v0, v1, 0x11); // v0[127:64] = v1[127:64]
+            } else {
+                q0 = fpu_get_scratch(dyn);
+                VSHUF4I_H(q0, v1, u8);
+                VEXTRINS_D(v0, q0, 0x0); // v0[63:0] = q0[63:0]
+            }
             break;
         case 0xC2:
             INST_NAME("CMPSD Gx, Ex, Ib");
             nextop = F8;
             GETGX(v0, 1);
-            GETEXSS(v1, 0, 1);
+            GETEXSD(v1, 0, 1);
             u8 = F8;
             switch (u8 & 7) {
                 case 0: FCMP_D(fcc0, v0, v1, cEQ); break;  // Equal

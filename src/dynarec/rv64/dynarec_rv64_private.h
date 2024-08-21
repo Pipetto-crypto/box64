@@ -18,6 +18,9 @@ typedef struct instsize_s instsize_t;
 #define EXT_CACHE_SS     5
 #define EXT_CACHE_SD     6
 #define EXT_CACHE_SCR    7
+#define EXT_CACHE_XMMW   8
+#define EXT_CACHE_XMMR   9
+
 typedef union ext_cache_s {
     int8_t           v;
     struct {
@@ -25,13 +28,18 @@ typedef union ext_cache_s {
         uint8_t n:4;   // reg number
     };
 } ext_cache_t;
+
 typedef union sse_cache_s {
-    int8_t      v;
+    int16_t v;
     struct {
-        uint8_t     reg:7;
-        uint8_t     single:1;
+        uint16_t reg : 7;
+        uint16_t vector : 1;
+        uint16_t single : 1;
+        uint16_t write : 1;
+        uint16_t unused : 7;
     };
 } sse_cache_t;
+
 typedef union sse_old_s {
     int8_t      v;
     struct {
@@ -41,6 +49,7 @@ typedef union sse_old_s {
         uint8_t     single:1;
     };
 } sse_old_t;
+
 typedef struct extcache_s {
     // ext cache
     ext_cache_t         extcache[24];
@@ -72,7 +81,8 @@ typedef struct extcache_s {
 
 typedef struct flagcache_s {
     int                 pending;    // is there a pending flags here, or to check?
-    int                 dfnone;     // if deferred flags is already set to df_none
+    uint8_t             dfnone;     // if deferred flags is already set to df_none
+    uint8_t             dfnone_here;// defered flags is cleared in this opcode
 } flagcache_t;
 
 typedef struct instruction_rv64_s {
@@ -100,6 +110,7 @@ typedef struct instruction_rv64_s {
     flagcache_t         f_exit;     // flags status at end of intruction
     extcache_t          e;          // extcache at end of intruction (but before poping)
     flagcache_t         f_entry;    // flags status before the instruction begin
+    uint8_t             vector_sew;
 } instruction_rv64_t;
 
 typedef struct dynarec_rv64_s {
@@ -138,17 +149,19 @@ typedef struct dynarec_rv64_s {
     uint16_t            ymm_zero;   // bitmap of ymm to zero at purge
     uint8_t             always_test;
     uint8_t             abort;
+    uint8_t             vector_sew;
 } dynarec_rv64_t;
 
 // convert idx (0..24) to reg index (10..31 0..1)
 #define EXTREG(A)   (((A)+10)&31)
-// convert reg index (10..31 0..1) or idx (0..24)
+// convert reg index (10..31 0..1) to idx (0..24)
 #define EXTIDX(A)   (((A)-10)&31)
 
 void add_next(dynarec_rv64_t *dyn, uintptr_t addr);
 uintptr_t get_closest_next(dynarec_rv64_t *dyn, uintptr_t addr);
 void add_jump(dynarec_rv64_t *dyn, int ninst);
 int get_first_jump(dynarec_rv64_t *dyn, int next);
+int get_first_jump_addr(dynarec_rv64_t *dyn, uintptr_t next);
 int is_nops(dynarec_rv64_t *dyn, uintptr_t addr, int n);
 int is_instructions(dynarec_rv64_t *dyn, uintptr_t addr, int n);
 
@@ -159,11 +172,9 @@ void CreateJmpNext(void* addr, void* next);
 #define GO_TRACE(A, B, s0)  \
     GETIP(addr);            \
     MV(A1, xRIP);           \
-    FLAGS_ADJUST_TO11(xFlags, xFlags, s0); \
     STORE_XEMU_CALL(s0);    \
     MOV64x(A2, B);          \
     CALL(A, -1);            \
-    LOAD_XEMU_CALL();       \
-    FLAGS_ADJUST_FROM11(xFlags, xFlags, s0);
+    LOAD_XEMU_CALL()
 
 #endif //__DYNAREC_RV64_PRIVATE_H_

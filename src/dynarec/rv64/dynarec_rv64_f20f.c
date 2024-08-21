@@ -83,7 +83,7 @@ uintptr_t dynarec64_F20F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             INST_NAME("MOVDDUP Gx, Ex");
             nextop = F8;
             GETGX();
-            GETEX(x2, 0);
+            GETEX(x2, 0, 1);
             LD(x3, wback, fixedaddress+0);
             SD(x3, gback, gdoffset+0);
             SD(x3, gback, gdoffset+8);
@@ -312,7 +312,7 @@ uintptr_t dynarec64_F20F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             INST_NAME("PSHUFLW Gx, Ex, Ib");
             nextop = F8;
             GETGX();
-            GETEX(x2, 1);
+            GETEX(x2, 1, 8);
             u8 = F8;
             int32_t idx;
 
@@ -339,7 +339,7 @@ uintptr_t dynarec64_F20F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             INST_NAME("HADDPS Gx, Ex");
             nextop = F8;
             GETGX();
-            GETEX(x2, 0);
+            GETEX(x2, 0, 12);
             s0 = fpu_get_scratch(dyn);
             s1 = fpu_get_scratch(dyn);
             // GX->f[0] += GX->f[1];
@@ -416,11 +416,42 @@ uintptr_t dynarec64_F20F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             NEG(x2, x2);
             FMVDX(d0, x2);
             break;
+        case 0xD0:
+            INST_NAME("ADDSUBPS Gx, Ex");
+            nextop = F8;
+            GETGX();
+            GETEX(x2, 0, 12);
+            d0 = fpu_get_scratch(dyn);
+            d1 = fpu_get_scratch(dyn);
+            // GX->f[0] -= EX->f[0];
+            FLW(d0, wback, fixedaddress + 0);
+            FLW(d1, gback, gdoffset + 0);
+            FSUBS(d1, d1, d0);
+            FSW(d1, gback, gdoffset + 0);
+
+            // GX->f[1] += EX->f[1];
+            FLW(d0, wback, fixedaddress + 4);
+            FLW(d1, gback, gdoffset + 4);
+            FADDS(d1, d1, d0);
+            FSW(d1, gback, gdoffset + 4);
+
+            // GX->f[2] -= EX->f[2];
+            FLW(d0, wback, fixedaddress + 8);
+            FLW(d1, gback, gdoffset + 8);
+            FSUBS(d1, d1, d0);
+            FSW(d1, gback, gdoffset + 8);
+
+            // GX->f[3] += EX->f[3];
+            FLW(d0, wback, fixedaddress + 12);
+            FLW(d1, gback, gdoffset + 12);
+            FADDS(d1, d1, d0);
+            FSW(d1, gback, gdoffset + 12);
+            break;
         case 0xE6:
             INST_NAME("CVTPD2DQ Gx, Ex");
             nextop = F8;
             GETGX();
-            GETEX(x2, 0);
+            GETEX(x2, 0, 8);
             d0 = fpu_get_scratch(dyn);
             u8 = sse_setround(dyn, ninst, x6, x4);
             for (int i=0; i<2 ; ++i) {
@@ -438,7 +469,7 @@ uintptr_t dynarec64_F20F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             INST_NAME("LDDQU Gx,Ex");
             nextop = F8;
             GETGX();
-            GETEX(x2, 0);
+            GETEX(x2, 0, 8);
             SSE_LOOP_MV_Q(x3);
             break;
         default:

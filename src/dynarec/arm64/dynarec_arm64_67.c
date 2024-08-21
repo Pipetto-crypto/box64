@@ -271,6 +271,19 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                                 SMWRITE();
                             }
                             break;
+                        case 2:
+                            INST_NAME("MOVDQU Ex, Gx");
+                            nextop = F8;
+                            GETGX(v0, 0);
+                            if(MODREG) {
+                                v1 = sse_get_reg_empty(dyn, ninst, x1, nextop&7);
+                                VMOVQ(v1, v0);
+                            } else {
+                                addr = geted32(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                                VST128(v0, ed, fixedaddress);
+                                SMWRITE();
+                            }
+                            break;
                         default:
                             DEFAULT;
                     }
@@ -680,6 +693,14 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                             }
                             break;
 
+                        case 0xFE:
+                            INST_NAME("PADDD Gx,Ex");
+                            nextop = F8;
+                            GETGX(v0, 1);
+                            GETEX32(v1, 0, 0);
+                            VADDQ_32(v0, v0, v1);
+                            break;
+
                             default:
                                 DEFAULT;
                     }
@@ -1024,12 +1045,31 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             }
             break;
 
+        case 0x90:
+        case 0x91:
+        case 0x92:
+        case 0x93:
+        case 0x94:
+        case 0x95:
+        case 0x96:
+        case 0x97:
+            gd = xRAX+(opcode&0x07)+(rex.b<<3);
+            if(gd==xRAX) {
+                INST_NAME("NOP");
+            } else {
+                INST_NAME("XCHG EAX, Reg");
+                MOVxw_REG(x2, xRAX);
+                MOVxw_REG(xRAX, gd);
+                MOVxw_REG(gd, x2);
+            }
+            break;
+
         case 0xC1:
             nextop = F8;
             switch((nextop>>3)&7) {
                 case 0:
                     INST_NAME("ROL Ed, Ib");
-                    SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                    SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                     GETED32(1);
                     u8 = (F8)&(rex.w?0x3f:0x1f);
                     emit_rol32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -1037,7 +1077,7 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     break;
                 case 1:
                     INST_NAME("ROR Ed, Ib");
-                    SETFLAGS(X_OF|X_CF, SF_SUBSET_PENDING);
+                    SETFLAGS(X_OF|X_CF, SF_SUBSET); // removed PENDING on purpose
                     GETED32(1);
                     u8 = (F8)&(rex.w?0x3f:0x1f);
                     emit_ror32c(dyn, ninst, rex, ed, u8, x3, x4);
@@ -1418,7 +1458,6 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     GETED32(0);
                     if(box64_dynarec_callret && box64_dynarec_bigblock>1) {
                         BARRIER(BARRIER_FULL);
-                        BARRIER_NEXT(BARRIER_FULL);
                     } else {
                         BARRIER(BARRIER_FLOAT);
                         *need_epilog = 0;

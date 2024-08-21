@@ -62,7 +62,8 @@ typedef struct lsxcache_s {
 
 typedef struct flagcache_s {
     int                 pending;    // is there a pending flags here, or to check?
-    int                 dfnone;     // if deferred flags is already set to df_none
+    uint8_t             dfnone;     // if deferred flags is already set to df_none
+    uint8_t             dfnone_here;// defered flags is cleared in this opcode
 } flagcache_t;
 
 typedef struct instruction_la64_s {
@@ -136,6 +137,7 @@ void add_next(dynarec_la64_t *dyn, uintptr_t addr);
 uintptr_t get_closest_next(dynarec_la64_t *dyn, uintptr_t addr);
 void add_jump(dynarec_la64_t *dyn, int ninst);
 int get_first_jump(dynarec_la64_t *dyn, int next);
+int get_first_jump_addr(dynarec_la64_t *dyn, uintptr_t next);
 int is_nops(dynarec_la64_t *dyn, uintptr_t addr, int n);
 int is_instructions(dynarec_la64_t *dyn, uintptr_t addr, int n);
 

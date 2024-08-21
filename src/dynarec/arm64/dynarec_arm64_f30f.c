@@ -251,11 +251,24 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
         case 0x59:
             INST_NAME("MULSS Gx, Ex");
             nextop = F8;
-            GETGX(v0, 1);
-            d1 = fpu_get_scratch(dyn, ninst);
+            GETGX(d1, 1);
+            v1 = fpu_get_scratch(dyn, ninst);
             GETEXSS(d0, 0, 0);
-            FMULS(d1, v0, d0);
-            VMOVeS(v0, 0, d1, 0);
+            if(!box64_dynarec_fastnan) {
+                v0 = fpu_get_scratch(dyn, ninst);
+                q0 = fpu_get_scratch(dyn, ninst);
+                // check if any input value was NAN
+                FMAXS(v0, d0, d1);    // propagate NAN
+                FCMEQS(v0, v0, v0);    // 0 if NAN, 1 if not NAN
+                FMULS(v1, d1, d0);
+                FCMEQS(q0, v1, v1);    // 0 => out is NAN
+                VBIC(q0, v0, q0);      // forget it in any input was a NAN already
+                VSHL_32(q0, q0, 31);   // only keep the sign bit
+                VORR(v1, v1, q0);      // NAN -> -NAN
+            } else {
+                FMULS(v1, d1, d0);
+            }
+            VMOVeS(d1, 0, v1, 0);
             break;
         case 0x5A:
             INST_NAME("CVTSS2SD Gx, Ex");
@@ -481,14 +494,18 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             nextop = F8;
             GETED(0);
             GETGD;
-            TSTxw_REG(ed, ed);
-            CSETw(x3, cEQ);
-            BFIw(xFlags, x3, F_CF, 1);  // CF = is source 0?
+            IFX(X_CF) {
+                TSTxw_REG(ed, ed);
+                CSETw(x3, cEQ);
+                BFIw(xFlags, x3, F_CF, 1);  // CF = is source 0?
+            }
             RBITxw(x3, ed);   // reverse
             CLZxw(gd, x3);    // x2 gets leading 0 == TZCNT
-            TSTxw_REG(gd, gd);
-            CSETw(x3, cEQ);
-            BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
+            IFX(X_ZF) {
+                TSTxw_REG(gd, gd);
+                CSETw(x3, cEQ);
+                BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
+            }
             break;
         case 0xBD:
             INST_NAME("LZCNT Gd, Ed");
@@ -497,13 +514,17 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             nextop = F8;
             GETED(0);
             GETGD;
-            TSTxw_REG(ed, ed);
-            CSETw(x3, cEQ);
-            BFIw(xFlags, x3, F_CF, 1);  // CF = is source 0?
+            IFX(X_CF) {
+                TSTxw_REG(ed, ed);
+                CSETw(x3, cEQ);
+                BFIw(xFlags, x3, F_CF, 1);  // CF = is source 0?
+            }
             CLZxw(gd, ed);    // x2 gets leading 0 == LZCNT
-            TSTxw_REG(gd, gd);
-            CSETw(x3, cEQ);
-            BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
+            IFX(X_ZF) {
+                TSTxw_REG(gd, gd);
+                CSETw(x3, cEQ);
+                BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
+            }
             break;
 
         case 0xC2:

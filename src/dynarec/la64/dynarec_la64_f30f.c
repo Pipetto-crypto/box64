@@ -116,7 +116,39 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 MOVFR2GR_S(gd, d1);
                 ZEROUP(gd);
             }
-            if (!rex.w) ZEROUP(gd);
+            if (!box64_dynarec_fastround) {
+                MOVFCSR2GR(x5, FCSR2); // get back FPSR to check
+                MOV32w(x3, (1 << FR_V) | (1 << FR_O));
+                AND(x5, x5, x3);
+                CBZ_NEXT(x5);
+                if (rex.w) {
+                    MOV64x(gd, 0x8000000000000000LL);
+                } else {
+                    MOV32w(gd, 0x80000000);
+                }
+            }
+            break;
+        case 0x2D:
+            INST_NAME("CVTSS2SI Gd, Ex");
+            if (addr >= 0x1033f98d && addr <= 0x1033f98d + 8)
+                EMIT(0);
+            nextop = F8;
+            GETGD;
+            GETEXSS(d0, 0, 0);
+            if (!box64_dynarec_fastround) {
+                MOVGR2FCSR(FCSR2, xZR); // reset all bits
+            }
+            u8 = sse_setround(dyn, ninst, x5, x6);
+            d1 = fpu_get_scratch(dyn);
+            if (rex.w) {
+                FTINT_L_S(d1, d0);
+                MOVFR2GR_D(gd, d1);
+            } else {
+                FTINT_W_S(d1, d0);
+                MOVFR2GR_S(gd, d1);
+                ZEROUP(gd);
+            }
+            x87_restoreround(dyn, ninst, u8);
             if (!box64_dynarec_fastround) {
                 MOVFCSR2GR(x5, FCSR2); // get back FPSR to check
                 MOV32w(x3, (1 << FR_V) | (1 << FR_O));
@@ -248,6 +280,21 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 VLD(v0, ed, fixedaddress);
             }
             break;
+        case 0x70:
+            INST_NAME("PSHUFHW Gx, Ex, Ib");
+            nextop = F8;
+            GETEX(v1, 0, 1);
+            GETGX(v0, 1);
+            u8 = F8;
+            if (v0 == v1) {
+                q0 = fpu_get_scratch(dyn);
+                VSHUF4I_H(q0, v1, u8);
+                VEXTRINS_D(v0, q0, 0x11); // v0[127:64] = q0[127:64]
+            } else {
+                VSHUF4I_H(v0, v1, u8);
+                VEXTRINS_D(v0, v1, 0); // v0[63:0] = v1[63:0]
+            }
+            break;
         case 0x7E:
             INST_NAME("MOVQ Gx, Ex");
             nextop = F8;
@@ -292,7 +339,7 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             GETED(0);
             GETGD;
             if (!rex.w && MODREG) {
-                AND(x4, ed, xMASK);
+                ZEROUP2(x4, ed);
                 ed = x4;
             }
             RESTORE_EFLAGS(x1);

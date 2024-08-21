@@ -18,6 +18,7 @@
 #include "callback.h"
 #include "emu/x64run_private.h"
 #include "emu/x87emu_private.h"
+#include "rv64_emitter.h"
 #include "x64trace.h"
 #include "signals.h"
 #include "dynarec_native.h"
@@ -362,12 +363,30 @@ int fpuCacheNeedsTransform(dynarec_rv64_t* dyn, int ninst) {
             if(!cache_i2.extcache[i].v) {    // but there is nothing at i2 for i
                 ret = 1;
             } else if(dyn->insts[ninst].e.extcache[i].v!=cache_i2.extcache[i].v) {  // there is something different
-                ret = 1;
+                if (dyn->insts[ninst].e.extcache[i].n != cache_i2.extcache[i].n) {  // not the same x64 reg
+                    ret = 1;
+                } else if (dyn->insts[ninst].e.extcache[i].t == EXT_CACHE_XMMR && cache_i2.extcache[i].t == EXT_CACHE_XMMW) { /* nothing */
+                } else
+                    ret = 1;
             }
         } else if(cache_i2.extcache[i].v)
             ret = 1;
     }
     return ret;
+}
+
+int sewNeedsTransform(dynarec_rv64_t* dyn, int ninst)
+{
+    int i2 = dyn->insts[ninst].x64.jmp_insts;
+
+    if (dyn->insts[i2].vector_sew == VECTOR_SEWNA)
+        return 0;
+    else if (dyn->insts[i2].vector_sew == VECTOR_SEWANY && dyn->insts[ninst].vector_sew != VECTOR_SEWNA)
+        return 0;
+    else if (dyn->insts[i2].vector_sew == dyn->insts[ninst].vector_sew)
+        return 0;
+
+    return 1;
 }
 
 void extcacheUnwind(extcache_t* cache)
@@ -401,14 +420,15 @@ void extcacheUnwind(extcache_t* cache)
         cache->news = 0;
     }
     // add/change bad regs
-    for(int i=0; i<16; ++i) {
-        if(cache->olds[i].changed) {
-            cache->extcache[i].t = cache->olds[i].single?EXT_CACHE_SS:EXT_CACHE_SD;
-        } else if(cache->olds[i].purged) {
+    for (int i = 0; i < 16; ++i) {
+        if (cache->olds[i].changed) {
+            cache->extcache[i].t = cache->olds[i].single ? EXT_CACHE_SS : EXT_CACHE_SD;
+        } else if (cache->olds[i].purged) {
             cache->extcache[i].n = i;
-            cache->extcache[i].t = cache->olds[i].single?EXT_CACHE_SS:EXT_CACHE_SD;
+            cache->extcache[i].t = cache->olds[i].single ? EXT_CACHE_SS : EXT_CACHE_SD;
         }
     }
+
     if(cache->stack_push) {
         // unpush
         for(int j=0; j<24; ++j) {
@@ -465,12 +485,21 @@ void extcacheUnwind(extcache_t* cache)
                     break;
                 case EXT_CACHE_SS:
                     cache->ssecache[cache->extcache[i].n].reg = EXTREG(i);
+                    cache->ssecache[cache->extcache[i].n].vector = 0;
                     cache->ssecache[cache->extcache[i].n].single = 1;
                     ++cache->fpu_reg;
                     break;
                 case EXT_CACHE_SD:
                     cache->ssecache[cache->extcache[i].n].reg = EXTREG(i);
+                    cache->ssecache[cache->extcache[i].n].vector = 0;
                     cache->ssecache[cache->extcache[i].n].single = 0;
+                    ++cache->fpu_reg;
+                    break;
+                case EXT_CACHE_XMMR:
+                case EXT_CACHE_XMMW:
+                    cache->ssecache[cache->extcache[i].n].reg = EXTREG(i);
+                    cache->ssecache[cache->extcache[i].n].vector = 1;
+                    cache->ssecache[cache->extcache[i].n].write = (cache->extcache[i].t == EXT_CACHE_XMMW) ? 1 : 0;
                     ++cache->fpu_reg;
                     break;
                 case EXT_CACHE_ST_F:
@@ -556,6 +585,8 @@ const char* getCacheName(int t, int n)
         case EXT_CACHE_SS: sprintf(buff, "SS%d", n); break;
         case EXT_CACHE_SD: sprintf(buff, "SD%d", n); break;
         case EXT_CACHE_SCR: sprintf(buff, "Scratch"); break;
+        case EXT_CACHE_XMMW: sprintf(buff, "XMM%d", n); break;
+        case EXT_CACHE_XMMR: sprintf(buff, "xmm%d", n); break;
         case EXT_CACHE_NONE: buff[0]='\0'; break;
     }
     return buff;
@@ -570,24 +601,30 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
         "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9", "fs10", "fs11",
         "ft8", "ft9", "ft10", "ft11"
     };
+    static const char* vnames[] = {
+        "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+        "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+        "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+        "v24", "v25", "v26", "v27", "v8", "v9", "v30", "v31",
+    };
     if(box64_dynarec_dump) {
         printf_x64_instruction(rex.is32bits?my_context->dec32:my_context->dec, &dyn->insts[ninst].x64, name);
-        dynarec_log(LOG_NONE, "%s%p: %d emitted opcodes, inst=%d, barrier=%d state=%d/%d(%d), %s=%X/%X, use=%X, need=%X/%X, sm=%d/%d",
-            (box64_dynarec_dump>1)?"\e[32m":"",
-            (void*)(dyn->native_start+dyn->insts[ninst].address),
-            dyn->insts[ninst].size/4,
+        dynarec_log(LOG_NONE, "%s%p: %d emitted opcodes, inst=%d, barrier=%d state=%d/%d(%d), %s=%X/%X, use=%X, need=%X/%X, sm=%d/%d, sew=%d",
+            (box64_dynarec_dump > 1) ? "\e[32m" : "",
+            (void*)(dyn->native_start + dyn->insts[ninst].address),
+            dyn->insts[ninst].size / 4,
             ninst,
             dyn->insts[ninst].x64.barrier,
             dyn->insts[ninst].x64.state_flags,
             dyn->f.pending,
             dyn->f.dfnone,
-            dyn->insts[ninst].x64.may_set?"may":"set",
+            dyn->insts[ninst].x64.may_set ? "may" : "set",
             dyn->insts[ninst].x64.set_flags,
             dyn->insts[ninst].x64.gen_flags,
             dyn->insts[ninst].x64.use_flags,
             dyn->insts[ninst].x64.need_before,
             dyn->insts[ninst].x64.need_after,
-            dyn->smread, dyn->smwrite);
+            dyn->smread, dyn->smwrite, dyn->insts[ninst].vector_sew);
         if(dyn->insts[ninst].pred_sz) {
             dynarec_log(LOG_NONE, ", pred=");
             for(int ii=0; ii<dyn->insts[ninst].pred_sz; ++ii)
@@ -607,6 +644,8 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
                 case EXT_CACHE_MM: dynarec_log(LOG_NONE, " %s:%s", fnames[EXTREG(ii)], getCacheName(dyn->insts[ninst].e.extcache[ii].t, dyn->insts[ninst].e.extcache[ii].n)); break;
                 case EXT_CACHE_SS: dynarec_log(LOG_NONE, " %s:%s", fnames[EXTREG(ii)], getCacheName(dyn->insts[ninst].e.extcache[ii].t, dyn->insts[ninst].e.extcache[ii].n)); break;
                 case EXT_CACHE_SD: dynarec_log(LOG_NONE, " %s:%s", fnames[EXTREG(ii)], getCacheName(dyn->insts[ninst].e.extcache[ii].t, dyn->insts[ninst].e.extcache[ii].n)); break;
+                case EXT_CACHE_XMMR: dynarec_log(LOG_NONE, " %s:%s", vnames[EXTREG(ii)], getCacheName(dyn->insts[ninst].e.extcache[ii].t, dyn->insts[ninst].e.extcache[ii].n)); break;
+                case EXT_CACHE_XMMW: dynarec_log(LOG_NONE, " %s:%s", vnames[EXTREG(ii)], getCacheName(dyn->insts[ninst].e.extcache[ii].t, dyn->insts[ninst].e.extcache[ii].n)); break;
                 case EXT_CACHE_SCR: dynarec_log(LOG_NONE, " %s:%s", fnames[EXTREG(ii)], getCacheName(dyn->insts[ninst].e.extcache[ii].t, dyn->insts[ninst].e.extcache[ii].n)); break;
                 case EXT_CACHE_NONE:
                 default:    break;

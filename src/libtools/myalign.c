@@ -516,7 +516,7 @@ void UnalignStat64(const void* source, void* dest)
     struct stat *st = (struct stat*) source;
     
     x64st->__pad0 = 0;
-	memset(x64st->__glibc_reserved, 0, sizeof(x64st->__glibc_reserved));
+    memset(x64st->__glibc_reserved, 0, sizeof(x64st->__glibc_reserved));
     x64st->st_dev      = st->st_dev;
     x64st->st_ino      = st->st_ino;
     x64st->st_mode     = st->st_mode;
@@ -622,6 +622,14 @@ uintptr_t getVArgs(x64emu_t* emu, int pos, uintptr_t* b, int N)
     if((pos+N)>5)
         return b[pos+N-6];
     return emu->regs[regs_abi[pos+N]].q[0];
+}
+
+void setVArgs(x64emu_t* emu, int pos, uintptr_t* b, int N, uintptr_t a)
+{
+    if((pos+N)>5)
+        b[pos+N-6] = a;
+    else
+        emu->regs[regs_abi[pos+N]].q[0] = a;
 }
 
 #ifndef CONVERT_VALIST

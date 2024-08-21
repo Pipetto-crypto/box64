@@ -1653,7 +1653,14 @@ void CreateCPUInfoFile(int fd)
         P;
         sprintf(buff, "bogomips\t: %g\n", getBogoMips());
         P;
-        sprintf(buff, "flags\t\t: fpu cx8 sep ht cmov clflush mmx sse sse2 syscall tsc lahf_lm ssse3 ht tm lm fxsr cpuid pclmulqdq cx16 aes movbe pni sse4_1%s%s lzcnt popcnt%s%s%s%s%s\n", box64_sse42?" sse4_2":"", box64_avx?" avx":"", box64_avx?" bmi1":"", box64_avx2?" avx2":"", box64_avx?" bmi2":"", box64_avx2?" vaes":"", box64_avx2?" fma":"");
+        sprintf(buff, "flags\t\t: fpu cx8 sep ht cmov clflush mmx sse sse2 syscall tsc lahf_lm ssse3 ht tm lm fxsr cpuid pclmulqdq cx16 aes movbe pni "\
+                      "sse4_1%s%s%s lzcnt popcnt%s%s%s%s%s%s%s%s%s\n", 
+                      box64_sse42?" sse4_2":"", box64_avx?" avx":"", box64_shaext?"sha_ni":"", 
+                      box64_avx?" bmi1":"", box64_avx2?" avx2":"", box64_avx?" bmi2":"", 
+                      box64_avx2?" vaes":"", box64_avx2?" fma":"",
+                      box64_avx?" xsave":"", box64_avx?" f16c":"", box64_avx2?" randr":"",
+                      box64_avx2?" adx":""
+                      );
         P;
         sprintf(buff, "address sizes\t: 48 bits physical, 48 bits virtual\n");
         P;
@@ -2270,7 +2277,7 @@ EXPORT int32_t my_execve(x64emu_t* emu, const char* path, char* const argv[], ch
 EXPORT int32_t my_execvp(x64emu_t* emu, const char* path, char* const argv[])
 {
     // need to use BOX64_PATH / PATH here...
-    char* fullpath = ResolveFile(path, &my_context->box64_path);
+    char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath...
     int self = isProcSelf(fullpath, "exe");
     int x64 = FileIsX64ELF(fullpath);
@@ -2387,7 +2394,7 @@ EXPORT int32_t my_execle(x64emu_t* emu, const char* path)
 EXPORT int32_t my_execlp(x64emu_t* emu, const char* path)
 {
     // need to use BOX64_PATH / PATH here...
-    char* fullpath = ResolveFile(path, &my_context->box64_path);
+    char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath...
     int self = isProcSelf(fullpath, "exe");
     int x64 = FileIsX64ELF(fullpath);
@@ -2465,7 +2472,7 @@ EXPORT int32_t my_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
     // need to use BOX64_PATH / PATH here...
-    char* fullpath = ResolveFile(path, &my_context->box64_path);
+    char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath...
     int self = isProcSelf(fullpath, "exe");
     int x64 = FileIsX64ELF(fullpath);
@@ -2798,7 +2805,7 @@ EXPORT int my_readlinkat(x64emu_t* emu, int fd, void* path, void* buf, size_t bu
     return readlinkat(fd, path, buf, bufsize);
 }
 #ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE	0x200000
+#define MAP_FIXED_NOREPLACE 0x200000
 #endif
 #ifndef MAP_32BIT
 #define MAP_32BIT 0x40
@@ -2881,6 +2888,22 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, unsigned long length, int prot
             if((flags&O_ACCMODE)==O_RDWR) {
                 if((box64_log>=LOG_DEBUG || box64_dynarec_log>=LOG_DEBUG)) {printf_log(LOG_NONE, "Note: Marking the region (%p-%p prot=%x) as NEVERCLEAN because fd have O_RDWR attribute\n", ret, ret+length, prot);}
                 prot |= PROT_NEVERCLEAN;
+            }
+        }
+        static int unityplayer_detected = 0;
+        if(fd>0 && box64_unityplayer && !unityplayer_detected) {
+            char filename[4096];
+            char buf[128];
+            sprintf(buf, "/proc/self/fd/%d", fd);
+            ssize_t r = readlink(buf, filename, sizeof(filename)-1);
+            if(r!=1) filename[r]=0;
+            if(r>0 && strlen(filename)>strlen("UnityPlayer.dll") && !strcasecmp(filename+strlen(filename)-strlen("UnityPlayer.dll"), "UnityPlayer.dll")) {
+                printf_log(LOG_INFO, "BOX64: Detected UnityPlayer.dll\n");
+                #ifdef DYNAREC
+                if(!box64_dynarec_strongmem)
+                    box64_dynarec_strongmem = 1;
+                #endif
+                unityplayer_detected = 1;
             }
         }
         if(emu)
@@ -3158,9 +3181,9 @@ EXPORT int my_setrlimit(x64emu_t* emu, int ressource, const struct rlimit *rlim)
 
 #if 0
 #ifdef PANDORA
-#define RENAME_NOREPLACE	(1 << 0)
-#define RENAME_EXCHANGE		(1 << 1)
-#define RENAME_WHITEOUT		(1 << 2)
+#define RENAME_NOREPLACE    (1 << 0)
+#define RENAME_EXCHANGE     (1 << 1)
+#define RENAME_WHITEOUT     (1 << 2)
 EXPORT int my_renameat2(int olddirfd, void* oldpath, int newdirfd, void* newpath, uint32_t flags)
 {
     // simulate that function, but
@@ -3193,8 +3216,8 @@ EXPORT int my_renameat2(int olddirfd, void* oldpath, int newdirfd, void* newpath
 #endif
 
 #ifndef __NR_memfd_create
-#define MFD_CLOEXEC		    0x0001U
-#define MFD_ALLOW_SEALING	0x0002U
+#define MFD_CLOEXEC         0x0001U
+#define MFD_ALLOW_SEALING   0x0002U
 EXPORT int my_memfd_create(x64emu_t* emu, void* name, uint32_t flags)
 {
     // try to simulate that function
@@ -3209,7 +3232,7 @@ EXPORT int my_memfd_create(x64emu_t* emu, void* name, uint32_t flags)
 #endif
 
 #ifndef GRND_RANDOM
-#define GRND_RANDOM	0x0002
+#define GRND_RANDOM 0x0002
 #endif
 EXPORT int my_getentropy(x64emu_t* emu, void* buffer, size_t length)
 {
@@ -3659,6 +3682,11 @@ EXPORT char* my_program_invocation_short_name = NULL;
 EXPORT char my___libc_single_threaded = 0;
 
 #ifdef STATICBUILD
+uint32_t get_random32();
+__attribute__((weak)) uint32_t arc4random()
+{
+    return get_random32();
+}
 #include "libtools/static_libc.h"
 #endif
 
@@ -3669,7 +3697,17 @@ EXPORT char my___libc_single_threaded = 0;
     else
 #endif
 
-#ifdef ANDROID
+#if defined(ANDROID)
+#ifdef STATICBUILD
+#define NEEDED_LIBS_DEF   3,\
+    "libpthread.so",        \
+    "libdl.so" ,            \
+    "libm.so"
+#define NEEDED_LIBS_234 3,  \
+    "libpthread.so",        \
+    "libdl.so" ,            \
+    "libm.so"
+#else
 #define NEEDED_LIBS_DEF   4,\
     "libpthread.so",        \
     "libdl.so" ,            \
@@ -3680,6 +3718,22 @@ EXPORT char my___libc_single_threaded = 0;
     "libdl.so" ,            \
     "libm.so",              \
     "libbsd.so"
+#endif
+#else
+#ifdef STATICBUILD
+#define NEEDED_LIBS_DEF   5,\
+    "ld-linux-x86-64.so.2", \
+    "libpthread.so.0",      \
+    "libdl.so.2",           \
+    "libutil.so.1",         \
+    "librt.so.1"
+#define NEEDED_LIBS_234 6,  \
+    "ld-linux-x86-64.so.2", \
+    "libpthread.so.0",      \
+    "libdl.so.2",           \
+    "libutil.so.1",         \
+    "libresolv.so.2",       \
+    "librt.so.1"
 #else
 #define NEEDED_LIBS_DEF   6,\
     "ld-linux-x86-64.so.2", \
@@ -3696,6 +3750,7 @@ EXPORT char my___libc_single_threaded = 0;
     "libresolv.so.2",       \
     "librt.so.1",           \
     "libbsd.so.0"
+#endif
 #endif
 
 #undef HAS_MY
