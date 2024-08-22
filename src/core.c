@@ -57,7 +57,7 @@ int box64_malloc_hack = 0;
 int box64_dynarec_test = 0;
 path_collection_t box64_addlibs = {0};
 int box64_maxcpu = 0;
-int box64_maxcpu_immutable = 0
+int box64_maxcpu_immutable = 0;
 #if defined(SD845) || defined(SD888) || defined(SD8G2) || defined(TEGRAX1) || defined(TERMUX_GLIBC) || defined(TERMUX)
 int box64_is32bits = 0;
 int box64_mmap32 = 1;
@@ -1752,7 +1752,7 @@ static void load_rcfiles()
     char* rcpath = getenv("BOX64_RCFILE");
 
     if(rcpath && FileExist(rcpath, IS_FILE))
-		LoadRCFile(rcpath)
+		LoadRCFile(rcpath);
     #ifndef TERMUX
     else if(FileExist("/etc/box64.box64rc", IS_FILE))
         LoadRCFile("/etc/box64.box64rc");
