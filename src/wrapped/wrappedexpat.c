@@ -567,6 +567,11 @@ EXPORT void my_XML_SetElementHandler(x64emu_t* emu, void* p, void* start, void* 
     my->XML_SetElementHandler(p, find_Start_Fct(start), find_End_Fct(end));
 }
 
+EXPORT void my_XML_SetDoctypeDeclHandler(x64emu_t* emu, void* p, void* start, void* end)
+{
+    my->XML_SetDoctypeDeclHandler(p, find_Start_Fct(start), find_End_Fct(end));
+}	    
+
 EXPORT void my_XML_SetCharacterDataHandler(x64emu_t* emu, void* p, void* h)
 {
     my->XML_SetCharacterDataHandler(p, find_CharData_Fct(h));
