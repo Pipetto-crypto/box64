@@ -19,6 +19,7 @@
 #include "myalign.h"
 
 const char* gcryptName = "libgcrypt.so.20";
+#define ALTNAME "libgcrypt.so"
 #define LIBNAME gcrypt
 
 typedef uint32_t  (*uFpppp_t)(void*, void*, void*, void*);
