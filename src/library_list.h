@@ -375,6 +375,7 @@ GO("libgdk-x11-2.0.so", gdkx112)
 GO("libpangocairo-1.0.so", pangocairo)
 #ifdef ANDROID
 GO("libandroid-shmem.so", androidshmem)
+GO("libandroid-spawn.so", androidspawn)
 #endif
 
 GO("libc.so.6", libc)
