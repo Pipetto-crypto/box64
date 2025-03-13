@@ -262,6 +262,27 @@ GO(vkCmdSetStencilOp, vFpuiiii)
 GO(vkCmdSetStencilTestEnable, vFpu)
 GO(vkCmdSetViewportWithCount, vFpup)
 
+// VK_VERSION_1_4
+GO(vkCmdBindDescriptorSets2, vFpp)
+GO(vkCmdBindIndexBuffer2, vFpUUUi)
+GO(vkCmdPushConstants2, vFpp)
+GO(vkCmdPushDescriptorSet, vFpiUuup)
+GO(vkCmdPushDescriptorSet2,vFpp)
+GO(vkCmdPushDescriptorSetWithTemplate, vFpUUup)
+GO(vkCmdPushDescriptorSetWithTemplate2, vFpp)
+GO(vkCmdSetLineStipple, vFpuW)
+GO(vkCmdSetRenderingAttachmentLocations, vFpp)
+GO(vkCmdSetRenderingInputAttachmentIndices, vFpp)
+GO(vkCopyImageToImage, iFpp)
+GO(vkCopyImageToMemory, iFpp)
+GO(vkCopyMemoryToImage, iFpp)
+GO(vkGetDeviceImageSubresourceLayout, vFppp)
+GO(vkGetImageSubresourceLayout2, vFpUpp)
+GO(vkGetRenderingAreaGranularity, vFppp)
+GO(vkMapMemory2, iFppp)
+GO(vkTransitionImageLayout, iFpup)
+GO(vkUnmapMemory2, iFpp)
+
 // VK_EXT_debug_report
 GOM(vkCreateDebugReportCallbackEXT, iFEpppp)
 GO(vkDebugReportMessageEXT, vFpuiULipp)
@@ -1000,3 +1021,27 @@ GO(wine_vkReleaseKeyedMutex, iFpUU)
 
 // VK_NV_cooperative_matrix2
 GO(vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV, iFppp)
+
+// VK_AMD_anti_lag
+GO(vkAntiLagUpdateAMD, vFpp)
+
+// VK_EXT_device_generated_commands
+GO(vkCmdExecuteGeneratedCommandsEXT, vFpup)
+GO(vkCmdPreprocessGeneratedCommandsEXT, vFppp)
+GOM(vkCreateIndirectCommandsLayoutEXT, iFEpppp)
+GOM(vkCreateIndirectExecutionSetEXT, iFEpppp)
+GOM(vkDestroyIndirectCommandsLayoutEXT, vFEpUp)
+GOM(vkDestroyIndirectExecutionSetEXT, vFEpUp)
+GO(vkGetGeneratedCommandsMemoryRequirementsEXT, vFppp)
+GO(vkUpdateIndirectExecutionSetPipelineEXT, vFpUup)
+GO(vkUpdateIndirectExecutionSetShaderEXT, vFpUup)
+
+// VK_KHR_pipeline_binary
+GOM(vkCreatePipelineBinariesKHR, iFEpppp)
+GOM(vkDestroyPipelineBinaryKHR, vFEpUp)
+GO(vkGetPipelineBinaryDataKHR, iFppppp)
+GO(vkGetPipelineKeyKHR, iFppp)
+GOM(vkReleaseCapturedPipelineDataKHR, iFEppp)
+
+// VK_EXT_depth_clamp_control
+GO(vkCmdSetDepthClampRangeEXT, vFpup)
