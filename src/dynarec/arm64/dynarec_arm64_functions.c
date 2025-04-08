@@ -10,9 +10,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -65,6 +64,8 @@ void fpu_reset_scratch(dynarec_arm_t* dyn)
     dyn->n.ymm_regs = 0;
     dyn->n.ymm_write = 0;
     dyn->n.ymm_removed = 0;
+    dyn->n.xmm_write = 0;
+    dyn->n.xmm_removed = 0;
 }
 // Get a x87 double reg
 int fpu_get_reg_x87(dynarec_arm_t* dyn, int ninst, int t, int n)
@@ -95,6 +96,11 @@ void fpu_free_reg(dynarec_arm_t* dyn, int reg)
             dyn->n.ymm_regs |= (8LL+reg-SCRATCH0)<<(dyn->n.neoncache[reg].n*4);
         else
             dyn->n.ymm_regs |= ((uint64_t)(reg-EMM0))<<(dyn->n.neoncache[reg].n*4);
+    }
+    if(dyn->n.neoncache[reg].t==NEON_CACHE_XMMR || dyn->n.neoncache[reg].t==NEON_CACHE_XMMW) {
+        dyn->n.xmm_removed |= 1<<dyn->n.neoncache[reg].n;
+        if(dyn->n.neoncache[reg].t==NEON_CACHE_XMMW)
+            dyn->n.xmm_write |= 1<<dyn->n.neoncache[reg].n;
     }
     if(dyn->n.neoncache[reg].t!=NEON_CACHE_ST_F && dyn->n.neoncache[reg].t!=NEON_CACHE_ST_D && dyn->n.neoncache[reg].t!=NEON_CACHE_ST_I64)
         dyn->n.neoncache[reg].v = 0;
@@ -174,6 +180,8 @@ static void fpu_reset_reg_neoncache(neoncache_t* n)
     n->ymm_removed = 0;
     n->ymm_used = 0;
     n->ymm_write = 0;
+    n->xmm_removed = 0;
+    n->xmm_write = 0;
 
 }
 void fpu_reset_reg(dynarec_arm_t* dyn)
@@ -578,7 +586,17 @@ void neoncacheUnwind(neoncache_t* cache)
             cache->fpuused[i] = 0;
         }
     }
-    // add back removed YMM
+    // add back removed XMM
+    if(cache->xmm_removed) {
+        for(int i=0; i<16; ++i)
+            if(cache->xmm_removed&(1<<i)) {
+                int reg = (i<8)?(XMM0+i):(XMM8+i-8);
+                cache->neoncache[reg].t = (cache->xmm_write&(1<<i))?NEON_CACHE_XMMW:NEON_CACHE_XMMR;
+                cache->neoncache[reg].n = i;
+            }
+        cache->xmm_write = cache->xmm_removed = 0;
+    }
+        // add back removed YMM
     if(cache->ymm_removed) {
         for(int i=0; i<16; ++i)
             if(cache->ymm_removed&(1<<i)) {
@@ -587,8 +605,8 @@ void neoncacheUnwind(neoncache_t* cache)
                     reg = reg - 8 + SCRATCH0;
                 else
                     reg = reg + EMM0;
-                if(cache->neoncache[reg].v)
-                    printf_log(LOG_INFO, "Warning, recreating YMM%d on non empty slot %s", i, getCacheName(cache->neoncache[reg].t, cache->neoncache[reg].n));
+                //if(cache->neoncache[reg].v)   // this is normal when a ymm is purged to make space for another one
+                //    printf_log(LOG_INFO, "Warning, recreating YMM%d on non empty slot %s", i, getCacheName(cache->neoncache[reg].t, cache->neoncache[reg].n));
                 cache->neoncache[reg].t = (cache->ymm_write&(1<<i))?NEON_CACHE_YMMW:NEON_CACHE_YMMR;
                 cache->neoncache[reg].n = i;
             }

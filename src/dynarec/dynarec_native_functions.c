@@ -8,12 +8,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
 #include "tools/bridge_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -186,42 +186,37 @@ void native_ud(x64emu_t* emu)
 {
     if(BOX64ENV(dynarec_test))
         emu->test.test = 0;
-    emit_signal(emu, SIGILL, (void*)R_RIP, 0);
+    EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
 }
 
 void native_br(x64emu_t* emu)
 {
     if(BOX64ENV(dynarec_test))
         emu->test.test = 0;
-    emit_signal(emu, SIGSEGV, (void*)R_RIP, 0xb09d);
+    EmitSignal(emu, SIGSEGV, (void*)R_RIP, 0xb09d);
 }
 
 void native_priv(x64emu_t* emu)
 {
     emu->test.test = 0;
-    emit_signal(emu, SIGSEGV, (void*)R_RIP, 0xbad0);
+    EmitSignal(emu, SIGSEGV, (void*)R_RIP, 0xbad0);
 }
 
 void native_int(x64emu_t* emu, int num)
 {
     emu->test.test = 0;
-    emit_interruption(emu, num, (void*)R_RIP);
-}
-
-void native_singlestep(x64emu_t* emu)
-{
-    emit_signal(emu, SIGTRAP, (void*)R_RIP, 1);
+    EmitInterruption(emu, num, (void*)R_RIP);
 }
 
 void native_int3(x64emu_t* emu)
 {
-    emit_signal(emu, SIGTRAP, NULL, 3);
+    EmitSignal(emu, SIGTRAP, NULL, 3);
 }
 
 void native_div0(x64emu_t* emu)
 {
     emu->test.test = 0;
-    emit_div0(emu,  (void*)R_RIP, 1);
+    EmitDiv0(emu, (void*)R_RIP, 1);
 }
 
 void native_fsave(x64emu_t* emu, uint8_t* ed)
@@ -618,35 +613,6 @@ uint8_t geted_ib(dynarec_native_t* dyn, uintptr_t addr, int ninst, uint8_t nexto
     return F8;
 }
 #undef F8
-
-int isNativeCall(dynarec_native_t* dyn, uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t* retn)
-{
-    (void)dyn;
-    if(is32bits)
-        addr &= 0xFFFFFFFFLL;
-
-#define PK(a)       *(uint8_t*)(addr+a)
-#define PK32(a)     *(int32_t*)(addr+a)
-
-    if(!addr || !getProtection(addr))
-        return 0;
-    if(PK(0)==0xff && PK(1)==0x25) {            // "absolute" jump, maybe the GOT (well, RIP relative in fact)
-        uintptr_t a1 = addr + 6 + (PK32(2));    // need to add a check to see if the address is from the GOT !
-        addr = (uintptr_t)getAlternate(*(void**)a1);
-    }
-    if(!addr || !getProtection(addr))
-        return 0;
-    onebridge_t *b = (onebridge_t*)(addr);
-    if(b->CC==0xCC && b->S=='S' && b->C=='C' && b->w!=(wrapper_t)0 && b->f!=(uintptr_t)PltResolver64) {
-        // found !
-        if(retn) *retn = (b->C3==0xC2)?b->N:0;
-        if(calladdress) *calladdress = addr+1;
-        return 1;
-    }
-    return 0;
-#undef PK32
-#undef PK
-}
 
 // AVX
 void avx_mark_zero(dynarec_native_t* dyn, int ninst, int reg)

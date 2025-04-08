@@ -22,12 +22,13 @@
 #endif
 #include <sys/resource.h>
 #include <poll.h>
-#include <linux/futex.h> 
+#include <linux/futex.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64stack.h"
 #include "x64emu.h"
-#include "x64run.h"
+#include "box64cpu.h"
 #include "x64emu_private.h"
 #include "x64trace.h"
 #include "myalign32.h"

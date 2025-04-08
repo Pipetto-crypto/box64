@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -118,10 +116,16 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETGX(v0, 1);
             GETED(0);
             d1 = fpu_get_scratch(dyn, ninst);
+            if(BOX64ENV(dynarec_fastround)<2) {
+                u8 = sse_setround(dyn, ninst, x3, x4, x5);
+            }
             if(rex.w) {
                 SCVTFSx(d1, ed);
             } else {
                 SCVTFSw(d1, ed);
+            }
+            if(BOX64ENV(dynarec_fastround)<2) {
+                x87_restoreround(dyn, ninst, u8);
             }
             VMOVeS(v0, 0, d1, 0);
             break;
@@ -131,13 +135,23 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             nextop = F8;
             GETGD;
             GETEXSS(d0, 0, 0);
-            if(!BOX64ENV(dynarec_fastround)) {
+            if(!BOX64ENV(dynarec_fastround) && !arm64_frintts) {
                 MRS_fpsr(x5);
                 BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
                 MSR_fpsr(x5);
             }
-            FCVTZSxwS(gd, d0);
-            if(!BOX64ENV(dynarec_fastround)) {
+            if(!BOX64ENV(dynarec_fastround) && arm64_frintts) {
+                v0 = fpu_get_scratch(dyn, ninst);
+                if(rex.w) {
+                    FRINT64ZS(v0, q0);
+                } else {
+                    FRINT32ZS(v0, q0);
+                }
+                FCVTZSxwS(gd, v0);
+            } else {
+                FCVTZSxwS(gd, d0);
+            }
+            if(!BOX64ENV(dynarec_fastround) && !arm64_frintts) {
                 MRS_fpsr(x5);   // get back FPSR to check the IOC bit
                 TBZ_NEXT(x5, FPSR_IOC);
                 if(rex.w) {
@@ -152,17 +166,25 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             nextop = F8;
             GETGD;
             GETEXSS(q0, 0, 0);
-            if(!BOX64ENV(dynarec_fastround)) {
+            if(!BOX64ENV(dynarec_fastround) && !arm64_frintts) {
                 MRS_fpsr(x5);
                 BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
                 MSR_fpsr(x5);
             }
             u8 = sse_setround(dyn, ninst, x1, x2, x3);
             d1 = fpu_get_scratch(dyn, ninst);
-            FRINTIS(d1, q0);
+            if(!BOX64ENV(dynarec_fastround) && arm64_frintts) {
+                if(rex.w) {
+                    FRINT64XS(d1, q0);
+                } else {
+                    FRINT32XS(d1, q0);
+                }
+            } else {
+                FRINTIS(d1, q0);
+            }
             x87_restoreround(dyn, ninst, u8);
             FCVTZSxwS(gd, d1);
-            if(!BOX64ENV(dynarec_fastround)) {
+            if(!BOX64ENV(dynarec_fastround) && !arm64_frintts) {
                 MRS_fpsr(x5);   // get back FPSR to check the IOC bit
                 TBZ_NEXT(x5, FPSR_IOC);
                 if(rex.w) {
@@ -304,20 +326,23 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             if(BOX64ENV(dynarec_fastround)) {
                 VFCVTZSQS(v0, v1);
             } else {
-                MRS_fpsr(x5);
-                BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
-                MSR_fpsr(x5);
-                ORRw_mask(x4, xZR, 1, 0);    //0x80000000
-                d0 = fpu_get_scratch(dyn, ninst);
-                for(int i=0; i<4; ++i) {
-                    BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
-                    MSR_fpsr(x5);
-                    VMOVeS(d0, 0, v1, i);
-                    VFCVTZSs(d0, d0);
-                    MRS_fpsr(x5);   // get back FPSR to check the IOC bit
-                    TBZ(x5, FPSR_IOC, 4+4);
-                    VMOVQSfrom(d0, 0, x4);
-                    VMOVeS(v0, i, d0, 0);
+                if(arm64_frintts) {
+                    VFRINT32ZSQ(v0, v1);
+                    VFCVTZSQS(v0, v0);
+                } else {
+                    MRS_fpsr(x5);
+                    ORRw_mask(x4, xZR, 1, 0);    //0x80000000
+                    d0 = fpu_get_scratch(dyn, ninst);
+                    for(int i=0; i<4; ++i) {
+                        BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
+                        MSR_fpsr(x5);
+                        VMOVeS(d0, 0, v1, i);
+                        VFCVTZSs(d0, d0);
+                        MRS_fpsr(x5);   // get back FPSR to check the IOC bit
+                        TBZ(x5, FPSR_IOC, 4+4);
+                        VMOVQSfrom(d0, 0, x4);
+                        VMOVeS(v0, i, d0, 0);
+                    }
                 }
             }
             break;
@@ -461,6 +486,7 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 VMOVQ(v1, v0);
             } else {
                 IF_UNALIGNED(ip) {
+                    MESSAGE(LOG_DEBUG, "\tUnaligned path");
                     addr = geted(dyn, addr, ninst, nextop, &wback, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
                     if(wback!=x1) {
                         MOVx_REG(x1, wback);

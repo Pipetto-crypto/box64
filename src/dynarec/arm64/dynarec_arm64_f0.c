@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -52,7 +50,7 @@ uintptr_t dynarec64_F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
 
 
     GETREX();
-    SKIPTEST(x1);   // DYNAREC_TEST doesn't work, by nature, on atomic opration
+    //SKIPTEST(x1);   // DYNAREC_TEST doesn't work, by nature, on atomic opration
 
     switch(opcode) {
         case 0x00:
@@ -285,11 +283,9 @@ uintptr_t dynarec64_F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                                 UFLAG_IF {emit_cmp8(dyn, ninst, x6, ed, x3, x4, x5);}
                                 SUBxw_REG(x6, x6, x2);
                                 CBNZxw_MARK2(x6);
-                                BFIx(wback, x2, wb2, 8);
-                                MOVxw_REG(ed, gd);
+                                BFIx(wback, gd, wb2, 8);
                                 MARK2;
                                 BFIx(xRAX, x2, 0, 8);
-                                B_NEXT_nocond;
                             } else {
                                 addr = geted(dyn, addr, ninst, nextop, &wback, x3, &fixedaddress, NULL, 0, 0, rex, LOCK_LOCK, 0, 0);
                                 if(arm64_atomics) {
@@ -375,7 +371,6 @@ uintptr_t dynarec64_F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                                     // EAX == Ed
                                     STLXRxw(x4, gd, wback);
                                     CBNZx_MARKLOCK(x4);
-                                    SMDMB();
                                     // done
                                     if(!ALIGNED_ATOMICxw) {
                                         B_MARK_nocond;
@@ -394,9 +389,9 @@ uintptr_t dynarec64_F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                                     STLXRB(x4, gd, wback);
                                     CBNZx_MARK3(x4);
                                     STRxw_U12(gd, wback, 0);
-                                    SMDMB();
                                 }
                                 MARK;
+                                SMDMB();
                                 // Common part (and fallback for EAX != Ed)
                                 UFLAG_IF {emit_cmp32(dyn, ninst, rex, xRAX, x1, x3, x4, x5); MOVxw_REG(xRAX, x1);}
                                 else {
@@ -1368,22 +1363,27 @@ uintptr_t dynarec64_F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     } else {
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, NULL, 0, 0, rex, LOCK_LOCK, 0, (opcode==0x81)?4:1);
                         if(opcode==0x81) i64 = F32S; else i64 = F8S;
-                        if(arm64_atomics) {
-                            MOV64xw(x5, i64);
-                            UFLAG_IF {
-                                LDSETALxw(x5, x1, wback);
-                                emit_or32(dyn, ninst, rex, x1, x5, x3, x4);
-                            } else {
-                                STSETLxw(x5, wback);
-                            }
+                        if(wback==xRSP && !i64) {
+                            // this is __faststorefence
+                            DMB_ST();
                         } else {
-                            MARKLOCK;
-                            LDAXRxw(x1, wback);
-                            emit_or32c(dyn, ninst, rex, x1, i64, x3, x4);
-                            STLXRxw(x3, x1, wback);
-                            CBNZx_MARKLOCK(x3);
+                            if(arm64_atomics) {
+                                MOV64xw(x5, i64);
+                                UFLAG_IF {
+                                    LDSETALxw(x5, x1, wback);
+                                    emit_or32(dyn, ninst, rex, x1, x5, x3, x4);
+                                } else {
+                                    STSETLxw(x5, wback);
+                                }
+                            } else {
+                                MARKLOCK;
+                                LDAXRxw(x1, wback);
+                                emit_or32c(dyn, ninst, rex, x1, i64, x3, x4);
+                                STLXRxw(x3, x1, wback);
+                                CBNZx_MARKLOCK(x3);
+                            }
+                            SMDMB();
                         }
-                        SMDMB();
                     }
                     break;
                 case 2: //ADC

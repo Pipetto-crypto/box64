@@ -11,10 +11,10 @@
 #include <pthread.h>
 #include <signal.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64stack.h"
 #include "x64emu.h"
-#include "x64run.h"
 #include "x64emu_private.h"
 #include "x64run_private.h"
 #include "x87emu_private.h"
@@ -47,8 +47,7 @@ extern int errno;
 void x86Int3(x64emu_t* emu, uintptr_t* addr)
 {
     onebridge_t* bridge = (onebridge_t*)(*addr-1);
-    if(Peek8(*addr, 0)=='S' && Peek8(*addr, 1)=='C') // Signature for "Out of x86 door"
-    {
+    if (IsBridgeSignature(Peek8(*addr, 0), Peek8(*addr, 1))) { // Signature for "Out of x86 door"
         *addr += 2;
         uintptr_t a = F64(addr);
         if(a==0) {
@@ -482,7 +481,7 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
     }
     if(!BOX64ENV(ignoreint3) && my_context->signals[SIGTRAP]) {
         R_RIP = *addr;  // update RIP
-        emit_signal(emu, SIGTRAP, NULL, 3);
+        EmitSignal(emu, SIGTRAP, NULL, 3);
     } else {
         printf_log(LOG_DEBUG, "%04d|Warning, ignoring unsupported Int 3 call @%p\n", GetTID(), (void*)R_RIP);
         R_RIP = *addr;

@@ -98,28 +98,28 @@
         LDxw(x1, wback, fixedaddress);                                                            \
         ed = x1;                                                                                  \
     }
-// GETEDH can use hint for ed, and x1 or x2 for wback (depending on hint), might also use x3. wback is 0 if ed is xEAX..xEDI
-#define GETEDH(hint, D)                                                                                                                 \
-    if (MODREG) {                                                                                                                       \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                                                       \
-        wback = 0;                                                                                                                      \
-    } else {                                                                                                                            \
-        SMREAD();                                                                                                                       \
-        addr = geted(dyn, addr, ninst, nextop, &wback, (hint == x2) ? x1 : x2, (hint == x1) ? x1 : x3, &fixedaddress, rex, NULL, 1, D); \
-        LDxw(hint, wback, fixedaddress);                                                                                                \
-        ed = hint;                                                                                                                      \
+// GETEDH can use hint for wback and ret for ed. wback is 0 if ed is xEAX..xEDI
+#define GETEDH(hint, ret, D)                                                                       \
+    if (MODREG) {                                                                                  \
+        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                  \
+        wback = 0;                                                                                 \
+    } else {                                                                                       \
+        SMREAD();                                                                                  \
+        addr = geted(dyn, addr, ninst, nextop, &wback, hint, ret, &fixedaddress, rex, NULL, 1, D); \
+        ed = ret;                                                                                  \
+        LDxw(ed, wback, fixedaddress);                                                             \
     }
 // GETEDW can use hint for wback and ret for ed. wback is 0 if ed is xEAX..xEDI
-#define GETEDW(hint, ret, D)                                                                                                            \
-    if (MODREG) {                                                                                                                       \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                                                       \
-        MV(ret, ed);                                                                                                                    \
-        wback = 0;                                                                                                                      \
-    } else {                                                                                                                            \
-        SMREAD();                                                                                                                       \
-        addr = geted(dyn, addr, ninst, nextop, &wback, (hint == x2) ? x1 : x2, (hint == x1) ? x1 : x3, &fixedaddress, rex, NULL, 0, D); \
-        ed = ret;                                                                                                                       \
-        LDxw(ed, wback, fixedaddress);                                                                                                  \
+#define GETEDW(hint, ret, D)                                                                       \
+    if (MODREG) {                                                                                  \
+        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                  \
+        MV(ret, ed);                                                                               \
+        wback = 0;                                                                                 \
+    } else {                                                                                       \
+        SMREAD();                                                                                  \
+        addr = geted(dyn, addr, ninst, nextop, &wback, hint, ret, &fixedaddress, rex, NULL, 0, D); \
+        ed = ret;                                                                                  \
+        LDxw(ed, wback, fixedaddress);                                                             \
     }
 // GETGW extract x64 register in gd, that is i
 #define GETGW(i)                                        \
@@ -1391,6 +1391,8 @@ void* rv64_next(void);
 #define sse_purgecache      STEPNAME(sse_purgecache)
 #define fpu_reflectcache    STEPNAME(fpu_reflectcache)
 #define fpu_unreflectcache  STEPNAME(fpu_unreflectcache)
+#define x87_reflectcount    STEPNAME(x87_reflectcount)
+#define x87_unreflectcount  STEPNAME(x87_unreflectcount)
 #define avx_purge_ymm       STEPNAME(avx_purge_ymm)
 
 #define CacheTransform STEPNAME(CacheTransform)
@@ -1647,6 +1649,8 @@ void mmx_purgecache(dynarec_rv64_t* dyn, int ninst, int next, int s1);
 void x87_purgecache(dynarec_rv64_t* dyn, int ninst, int next, int s1, int s2, int s3);
 void fpu_reflectcache(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_unreflectcache(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int s3);
+void x87_reflectcount(dynarec_rv64_t* dyn, int ninst, int s1, int s2);
+void x87_unreflectcount(dynarec_rv64_t* dyn, int ninst, int s1, int s2);
 void fpu_pushcache(dynarec_rv64_t* dyn, int ninst, int s1, int not07);
 void fpu_popcache(dynarec_rv64_t* dyn, int ninst, int s1, int not07);
 

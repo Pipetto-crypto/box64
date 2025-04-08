@@ -4,10 +4,8 @@
 #include <errno.h>
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -1408,7 +1406,7 @@ uintptr_t dynarec64_660F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t i
                 i32 = VECTOR_SEW64;
                 s8 = 2;
                 d2 = 32;
-                MOV32w(x2, 32);
+                MOV32w(x5, 32);
             }
             nextop = F8;
             SET_ELEMENT_WIDTH(x1, u8, 1);
@@ -1425,7 +1423,7 @@ uintptr_t dynarec64_660F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t i
             if (d2 < 32)
                 VSLL_VI(v0, v0, d2, VECTOR_UNMASKED);
             else
-                VSLL_VX(v0, v0, x2, VECTOR_UNMASKED);
+                VSLL_VX(v0, v0, x5, VECTOR_UNMASKED);
             VOR_VV(q0, d0, v0, VECTOR_UNMASKED);
             break;
         case 0x6B:

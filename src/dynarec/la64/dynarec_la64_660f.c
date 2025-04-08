@@ -5,11 +5,9 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
 #include "la64_emitter.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -39,7 +37,7 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
     int64_t j64;
     uint64_t tmp64u, tmp64u2;
     int v0, v1, v2;
-    int q0, q1;
+    int q0, q1, q2;
     int d0, d1, d2;
     int64_t fixedaddress, gdoffset;
     int unscaled;
@@ -51,12 +49,12 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
     MAYUSE(eb1);
     MAYUSE(eb2);
     MAYUSE(j64);
-    #if STEP > 1
+#if STEP > 1
     static const int8_t round_round[] = {
-        0xE, // round to nearest with ties to even
-        0x2, // round toward minus infinity
-        0x6, // round toward plus infinity
-        0xA  // round toward zero
+        0x3, // round to nearest with ties to even
+        0x0, // round toward minus infinity
+        0x1, // round toward plus infinity
+        0x2  // round toward zero
     };
 #endif
 
@@ -383,6 +381,18 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     XVSRLNI_H_W(v0, v0, 1);
                     XVPERMI_D(q0, v0, 0b1000);
                     break;
+                case 0x10:
+                    INST_NAME("PBLENDVB Gx,Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = sse_get_reg(dyn, ninst, x1, 0, 0); // XMM0
+                    v1 = fpu_get_scratch(dyn);
+                    if (q0 != q1) {
+                        VSLTI_B(v1, v0, 0); // bit[7]==1 -> fill with 0xff
+                        VBITSEL_V(q0, q0, q1, v1);
+                    }
+                    break;
                 case 0x14:
                     INST_NAME("BLENDVPS Gx,Ex");
                     nextop = F8;
@@ -392,6 +402,18 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     v1 = fpu_get_scratch(dyn);
                     if (q0 != q1) {
                         VSRA_W(v1, v0, 31);
+                        VBITSEL_V(q0, q0, q1, v1);
+                    }
+                    break;
+                case 0x15:
+                    INST_NAME("BLENDVPD Gx,Ex");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 0);
+                    v0 = sse_get_reg(dyn, ninst, x1, 0, 0); // XMM0
+                    v1 = fpu_get_scratch(dyn);
+                    if (q0 != q1) {
+                        VSLTI_D(v1, v0, 0);
                         VBITSEL_V(q0, q0, q1, v1);
                     }
                     break;
@@ -503,7 +525,7 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEX64(q1, 0, 0);
                     GETGX_empty(q0);
                     VSLLWIL_D_W(q0, q1, 0);
-                    break;                    
+                    break;
                 case 0x29:
                     INST_NAME("PCMPEQQ Gx, Ex"); // SSE4 opcode!
                     nextop = F8;
@@ -584,28 +606,28 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     VMIN_W(q0, q0, q1);
                     break;
                 case 0x3A:
-                    INST_NAME("PMINUW Gx, Ex");  // SSE4 opcode!
+                    INST_NAME("PMINUW Gx, Ex"); // SSE4 opcode!
                     nextop = F8;
                     GETEX(q1, 0, 0);
                     GETGX(q0, 1);
                     VMIN_HU(q0, q0, q1);
                     break;
                 case 0x3D:
-                    INST_NAME("PMAXSD Gx, Ex");  // SSE4 opcode!
+                    INST_NAME("PMAXSD Gx, Ex"); // SSE4 opcode!
                     nextop = F8;
                     GETEX(q1, 0, 0);
                     GETGX(q0, 1);
                     VMAX_W(q0, q0, q1);
                     break;
                 case 0x3E:
-                    INST_NAME("PMAXUW Gx, Ex");  // SSE4 opcode!
+                    INST_NAME("PMAXUW Gx, Ex"); // SSE4 opcode!
                     nextop = F8;
                     GETEX(q1, 0, 0);
                     GETGX(q0, 1);
                     VMAX_HU(q0, q0, q1);
                     break;
                 case 0x40:
-                    INST_NAME("PMULLD Gx, Ex");  // SSE4 opcode!
+                    INST_NAME("PMULLD Gx, Ex"); // SSE4 opcode!
                     nextop = F8;
                     GETEX(q1, 0, 0);
                     GETGX(q0, 1);
@@ -687,6 +709,25 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETGX(q0, 1);
                     VXOR_V(q0, q0, (d0 != -1) ? d0 : q1);
                     break;
+                case 0xF0:
+                    INST_NAME("MOVBE Gw, Ew");
+                    nextop = F8;
+                    GETGD;
+                    SMREAD();
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x3, x2, &fixedaddress, rex, NULL, 1, 0);
+                    LD_HU(x1, ed, fixedaddress);
+                    REVB_2H(x1, x1);
+                    BSTRINS_D(gd, x1, 15, 0);
+                    break;
+                case 0xF1:
+                    INST_NAME("MOVBE Ew, Gw");
+                    nextop = F8;
+                    GETGD;
+                    SMREAD();
+                    addr = geted(dyn, addr, ninst, nextop, &wback, x3, x2, &fixedaddress, rex, NULL, 1, 0);
+                    REVB_2H(x1, gd);
+                    ST_H(x1, wback, fixedaddress);
+                    break;
                 default:
                     DEFAULT;
             }
@@ -694,6 +735,52 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
         case 0x3A: // these are some more SSSE3+ opcodes
             opcode = F8;
             switch (opcode) {
+                case 0x08:
+                    INST_NAME("ROUNDPS Gx, Ex, Ib");
+                    nextop = F8;
+                    GETEX(q1, 0, 1);
+                    GETGX_empty(q0);
+                    u8 = F8;
+                    v1 = fpu_get_scratch(dyn);
+                    if (u8 & 4) {
+                        u8 = sse_setround(dyn, ninst, x1, x2);
+                        VFRINT_S(q0, q1);
+                        x87_restoreround(dyn, ninst, u8);
+                    } else {
+                        VFRINTRRD_S(q0, q1, round_round[u8 & 3]);
+                    }
+                    break;
+                case 0x09:
+                    INST_NAME("ROUNDPD Gx, Ex, Ib");
+                    nextop = F8;
+                    GETEX(q1, 0, 1);
+                    GETGX_empty(q0);
+                    u8 = F8;
+                    v1 = fpu_get_scratch(dyn);
+                    if (u8 & 4) {
+                        u8 = sse_setround(dyn, ninst, x1, x2);
+                        VFRINT_D(q0, q1);
+                        x87_restoreround(dyn, ninst, u8);
+                    } else {
+                        VFRINTRRD_D(q0, q1, round_round[u8 & 3]);
+                    }
+                    break;
+                case 0x0A:
+                    INST_NAME("ROUNDSS Gx, Ex, Ib");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEXSS(q1, 0, 1);
+                    u8 = F8;
+                    v1 = fpu_get_scratch(dyn);
+                    if (u8 & 4) {
+                        u8 = sse_setround(dyn, ninst, x1, x2);
+                        VFRINT_S(v1, q1);
+                        x87_restoreround(dyn, ninst, u8);
+                    } else {
+                        VFRINTRRD_S(v1, q1, round_round[u8 & 3]);
+                    }
+                    VEXTRINS_W(q0, v1, 0);
+                    break;
                 case 0x0B:
                     INST_NAME("ROUNDSD Gx, Ex, Ib");
                     nextop = F8;
@@ -709,6 +796,39 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         VFRINTRRD_D(v1, q1, round_round[u8 & 3]);
                     }
                     VEXTRINS_D(q0, v1, 0);
+                    break;
+                case 0x0C:
+                    INST_NAME("BLENDPS Gx, Ex, Ib");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEXSS(q1, 0, 1);
+                    u8 = F8 & 0b1111;
+                    if ((u8 & 0b11) == 0b11) {
+                        VEXTRINS_D(q0, q1, 0);
+                        u8 &= ~0b0011;
+                    }
+                    if ((u8 & 0b1100) == 0b1100) {
+                        VEXTRINS_D(q0, q1, 0b00010001);
+                        u8 &= ~0b1100;
+                    }
+                    for (int i = 0; i < 4; ++i)
+                        if (u8 & (1 << i)) {
+                            VEXTRINS_W(q0, q1, (i << 4) | i);
+                        }
+                    break;
+                case 0x0D:
+                    INST_NAME("BLENDPD Gx, Ex, Ib");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEXSD(q1, 0, 1);
+                    u8 = F8 & 0b11;
+                    if (u8 == 0b01) {
+                        VEXTRINS_D(q0, q1, 0b00000000);
+                    } else if (u8 == 0b10) {
+                        VEXTRINS_D(q0, q1, 0b00010001);
+                    } else if (u8 == 0b11) {
+                        VOR_V(q0, q1, q1);
+                    }
                     break;
                 case 0x0F:
                     INST_NAME("PALIGNR Gx, Ex, Ib");
@@ -827,6 +947,35 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     u8 = F8;
                     VINSGR2VR_B(q0, ed, (u8 & 0xf));
                     break;
+                case 0x21:
+                    INST_NAME("INSERTPS Gx, Ex, Ib");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    u8 = F8;
+                    uint8_t src_index = (u8 >> 6) & 3;
+                    uint8_t dst_index = (u8 >> 4) & 3;
+                    uint8_t zmask = u8 & 0xf;
+                    q2 = fpu_get_scratch(dyn);
+                    if (MODREG) {
+                        q1 = sse_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), 0);
+                        VEXTRINS_W(q0, q1, VEXTRINS_IMM_4_0(dst_index, src_index));
+                    } else {
+                        SMREAD();
+                        addr = geted(dyn, addr, ninst, nextop, &wback, x3, x5, &fixedaddress, rex, NULL, 0, 1);
+                        u8 = F8;
+                        FLD_S(q2, wback, fixedaddress);
+                        VEXTRINS_W(q0, q2, VEXTRINS_IMM_4_0(dst_index, 0)); // src index is zero when Ex is mem operand
+                    }
+                    VXOR_V(q2, q2, q2);
+                    if (zmask) {
+                        for (uint8_t i = 0; i < 4; i++) {
+                            if (zmask & (1 << i)) {
+                                VEXTRINS_W(q0, q2, VEXTRINS_IMM_4_0(i, 0));
+                            }
+                        }
+                    }
+
+                    break;
                 case 0x22:
                     INST_NAME("PINSRD Gx, ED, Ib");
                     nextop = F8;
@@ -837,6 +986,53 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         VINSGR2VR_D(q0, ed, (u8 & 1));
                     } else {
                         VINSGR2VR_W(q0, ed, (u8 & 3));
+                    }
+                    break;
+                case 0x40:
+                    INST_NAME("DPPS Gx, Ex, Ib");
+                    nextop = F8;
+                    GETGX(q0, 1);
+                    GETEX(q1, 0, 1);
+                    u8 = F8;
+                    v0 = fpu_get_scratch(dyn);
+                    v1 = fpu_get_scratch(dyn);
+                    VXOR_V(v0, v0, v0);
+                    VXOR_V(v1, v1, v1);
+                    if (u8 & 0x10) {
+                        VEXTRINS_W(v0, q0, 0x00);
+                        VEXTRINS_W(v1, q1, 0x00);
+                    }
+                    if (u8 & 0x20) {
+                        VEXTRINS_W(v0, q0, 0x11);
+                        VEXTRINS_W(v1, q1, 0x11);
+                    }
+                    if (u8 & 0x40) {
+                        VEXTRINS_W(v0, q0, 0x22);
+                        VEXTRINS_W(v1, q1, 0x22);
+                    }
+                    if (u8 & 0x80) {
+                        VEXTRINS_W(v0, q0, 0x33);
+                        VEXTRINS_W(v1, q1, 0x33);
+                    }
+                    VFMUL_S(v0, v0, v1);
+                    VPACKOD_W(v1, v0, v0);
+                    VPACKEV_W(v0, v0, v0);
+                    VFADD_S(v0, v0, v1);
+                    VPACKOD_D(v1, v0, v0);
+                    VPACKEV_D(v0, v0, v0);
+                    VFADD_S(v0, v0, v1);
+                    VXOR_V(q0, q0, q0);
+                    if (u8 & 0x1) {
+                        VEXTRINS_W(q0, v0, 0x00);
+                    }
+                    if (u8 & 0x2) {
+                        VEXTRINS_W(q0, v0, 0x11);
+                    }
+                    if (u8 & 0x4) {
+                        VEXTRINS_W(q0, v0, 0x22);
+                    }
+                    if (u8 & 0x8) {
+                        VEXTRINS_W(q0, v0, 0x33);
                     }
                     break;
                 case 0x44:
@@ -853,13 +1049,47 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     } else {
                         MOV32w(x2, 0);
                         addr = geted(dyn, addr, ninst, nextop, &ed, x3, x5, &fixedaddress, rex, NULL, 0, 1);
-                        if (ed != x3) {
-                            MV(x3, ed);
-                        }
+                        if (ed != x3) MV(x3, ed);
                     }
                     u8 = F8;
                     MOV32w(x4, u8);
                     CALL(native_pclmul, -1);
+                    break;
+                case 0x61:
+                    INST_NAME("PCMPESTRI Gx, Ex, Ib");
+                    nextop = F8;
+                    GETG;
+                    u8 = geted_ib(dyn, addr, ninst, nextop);
+                    SETFLAGS(X_ALL, SF_SET_DF, NAT_FLAGS_NOFUSION);
+                    if (gd > 7) // no need to reflect cache as xmm0-xmm7 will be saved before the function call anyway
+                        sse_reflect_reg(dyn, ninst, gd);
+                    ADDI_D(x3, xEmu, offsetof(x64emu_t, xmm[gd]));
+                    if (MODREG) {
+                        ed = (nextop & 7) + (rex.b << 3);
+                        if (ed > 7)
+                            sse_reflect_reg(dyn, ninst, ed);
+                        ADDI_D(x1, xEmu, offsetof(x64emu_t, xmm[ed]));
+                    } else {
+                        addr = geted(dyn, addr, ninst, nextop, &ed, x1, x5, &fixedaddress, rex, NULL, 0, 1);
+                        if (ed != x1) MV(x1, ed);
+                    }
+                    MV(x2, xRDX);
+                    MV(x4, xRAX);
+                    u8 = F8;
+                    MOV32w(x5, u8);
+                    CALL(sse42_compare_string_explicit_len, x1);
+                    ZEROUP(x1);
+                    BNEZ_MARK(x1);
+                    MOV32w(xRCX, (u8 & 1) ? 8 : 16);
+                    B_NEXT_nocond;
+                    MARK;
+                    if (u8 & 0b1000000) {
+                        CLZ_W(xRCX, x1);
+                        ADDI_D(x2, xZR, 31);
+                        SUB_D(xRCX, x2, xRCX);
+                    } else {
+                        CTZ_W(xRCX, x1);
+                    }
                     break;
                 case 0x63:
                     INST_NAME("PCMPISTRI Gx, Ex, Ib");
@@ -888,10 +1118,7 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         ADDI_D(x2, xZR, 31);
                         SUB_D(xRCX, x2, xRCX);
                     } else {
-                        if (rex.w)
-                            CTZ_D(xRCX, x1);
-                        else
-                            CTZ_W(xRCX, x1);
+                        CTZ_W(xRCX, x1);
                     }
                     break;
                 case 0xDF:
@@ -946,7 +1173,7 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
     BSTRINS_D(gd, ed, 15, 0);
 
             GOCOND(0x40, "CMOV", "Gd, Ed");
-        #undef GO
+#undef GO
 
         case 0x50:
             nextop = F8;
@@ -1113,6 +1340,22 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 VOR_V(q1, v0, v1);
             }
             break;
+        case 0x5D:
+            INST_NAME("MINPD Gx, Ex");
+            nextop = F8;
+            GETGX(v0, 1);
+            GETEX(v1, 0, 0);
+            // LoongArch FMIN/FMAX follow IEEE 754-2008 , it wll copy the none NaN value.
+            // If both NaN, then copy NaN.
+            // but x86 will copy the second if either v0[x] or v1[x] is NaN
+            if (!BOX64ENV(dynarec_fastnan)) {
+                q0 = fpu_get_scratch(dyn);
+                VFCMP_D(q0, v1, v0, cULE);
+                VBITSEL_V(v0, v0, v1, q0);
+            } else {
+                VFMIN_D(v0, v0, v1);
+            }
+            break;
         case 0x5E:
             INST_NAME("DIVPD Gx, Ex");
             nextop = F8;
@@ -1134,6 +1377,24 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 VOR_V(q1, v0, v1);
             }
             break;
+        case 0x5F:
+            INST_NAME("MAXPD Gx, Ex");
+            nextop = F8;
+            GETGX(v0, 1);
+            GETEX(v1, 0, 0);
+            // LoongArch FMIN/FMAX follow IEEE 754-2008 , it wll copy the none NaN value.
+            // If both NaN, then copy NaN.
+            // but x86 will copy the second if either v0[x] or v1[x] is NaN
+            if (!BOX64ENV(dynarec_fastnan) && v0 != v1) {
+                q0 = fpu_get_scratch(dyn);
+                q1 = fpu_get_scratch(dyn);
+                VFCMP_D(q0, v1, v0, cLT);  // ~cLT = un ge eq, if either v0/v1=nan ,choose v1. if eq either is ok,but when +0.0 == -0.0 x86 sse choose v1
+                VBITSEL_V(v0, v1, v0, q0); // swap v0 v1 => v1 v0 for ~cLT
+            } else {
+                VFMAX_D(v0, v0, v1);
+            }
+            break;
+
         case 0x60:
             INST_NAME("PUNPCKLBW Gx,Ex");
             nextop = F8;
@@ -1482,6 +1743,30 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             GETEX(q0, 0, 0);
             VSEQ_W(v0, v0, q0);
             break;
+        case 0x7C:
+            INST_NAME("HADDPD Gx, Ex");
+            nextop = F8;
+            GETGX(q1, 1);
+            GETEX(q0, 0, 0);
+            d0 = fpu_get_scratch(dyn);
+            VPICKEV_D(d0, q0, q1);
+            VPICKOD_D(q1, q0, q1);
+            if (!BOX64ENV(dynarec_fastnan)) {
+                v0 = fpu_get_scratch(dyn);
+                v1 = fpu_get_scratch(dyn);
+                VFCMP_D(v0, d0, q1, cUN);
+            }
+            VFADD_D(q1, d0, q1);
+            if (!BOX64ENV(dynarec_fastnan)) {
+                VFCMP_D(v1, q1, q1, cUN);
+                VANDN_V(v0, v0, v1);
+                VLDI(v1, 0b011111111000); // broadcast 0xFFFFFFFFFFFFFFF8
+                VSLLI_D(v1, v1, 48);
+                VAND_V(v1, v0, v1);
+                VANDN_V(v0, v0, q1);
+                VOR_V(q1, v0, v1);
+            }
+            break;
         case 0x7E:
             INST_NAME("MOVD Ed,Gx");
             nextop = F8;
@@ -1601,8 +1886,8 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     eb2 = 0;
                 } else {
                     ed = (nextop & 7);
-                    eb1 = TO_NAT(ed & 3);  // Ax, Cx, Dx or Bx
-                    eb2 = (ed & 4) >> 2;   // L or H
+                    eb1 = TO_NAT(ed & 3); // Ax, Cx, Dx or Bx
+                    eb2 = (ed & 4) >> 2;  // L or H
                 }
                 if (eb2) {
                     SRLI_D(x1, eb1, eb2 * 8);
@@ -1616,6 +1901,23 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 LD_B(x1, ed, fixedaddress);
             }
             BSTRINS_D(gd, x1, 15, 0);
+            break;
+        case 0xC2:
+            INST_NAME("CMPPD Gx, Ex, Ib");
+            nextop = F8;
+            GETGX(v0, 1);
+            GETEX(v1, 0, 1);
+            u8 = F8;
+            switch (u8 & 7) {
+                case 0: VFCMP_D(v0, v0, v1, cEQ); break;  // Equal => cEQ              True if EQ
+                case 1: VFCMP_D(v0, v0, v1, cLT); break;  // Less than => cLT          True if EQ LT
+                case 2: VFCMP_D(v0, v0, v1, cLE); break;  // Less or equal => CLE      True if LT EQ
+                case 3: VFCMP_D(v0, v0, v0, cUN); break;  // unordered => CUN          True if UN
+                case 4: VFCMP_D(v0, v0, v1, cUNE); break; // Not Equal or unordered    True if UN LT GT
+                case 5: VFCMP_D(v0, v1, v0, cULE); break; // grether or equal or un    True if UN EQ GT, use cULE UN LT, swap v0 v1
+                case 6: VFCMP_D(v0, v1, v0, cULT); break; // Greater or unordered      True if UN GT, use cULE UN EQ LT, swap v0 v1
+                case 7: VFCMP_D(v0, v0, v0, cOR); break;  // not NaN(ordered)          True if LT EQ GT
+            }
             break;
         case 0xC4:
             INST_NAME("PINSRW Gx, Ed, Ib");

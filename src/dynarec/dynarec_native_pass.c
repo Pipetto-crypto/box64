@@ -6,18 +6,17 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
 #include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
-#include "emu/x64run_private.h"
 #include "x64trace.h"
 #include "dynablock.h"
 #include "dynarec_native.h"
 #include "custommem.h"
 #include "elfloader.h"
+#include "x64test.h"
 
 #include "dynarec_arch.h"
 #include "dynarec_helper.h"
@@ -32,7 +31,7 @@
 #endif
 #endif
 
-uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int is32bits)
+uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int is32bits, int inst_max)
 {
     int ok = 1;
     int ninst = 0;
@@ -78,7 +77,7 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         // This test is here to prevent things like TABLE64 to be out of range
         // native_size is not exact at this point, but it should be larger, not smaller, and not by a huge margin anyway
         // so it's good enough to avoid overflow in relative to PC data fectching
-        if((dyn->native_size >= MAXBLOCK_SIZE) || (ninst >= MAX_INSTS)) {
+        if(ninst >= inst_max) {
             need_epilog = 1;
             break;
         }
@@ -118,7 +117,7 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         if(!ninst) {
             GOTEST(x1, x2);
         }
-        if(dyn->insts[ninst].pred_sz>1) {SMSTART();}
+        if(dyn->insts[ninst].pred_sz>1) {SMEND();}
         #if STEP > 1
         if (dyn->insts[ninst].lock) {
             WILLWRITELOCK(dyn->insts[ninst].lock);

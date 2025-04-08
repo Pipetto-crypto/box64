@@ -5,14 +5,12 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
 #include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
-#include "emu/x64run_private.h"
 #include "emu/x87emu_private.h"
 #include "x64trace.h"
 #include "dynarec_native.h"
@@ -783,6 +781,7 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CBZx_NEXT(xRCX);
                 TBNZ_MARK2(xFlags, F_DF);
                 IF_UNALIGNED(ip) {
+                    MESSAGE(LOG_DEBUG, "\tUnaligned path");
                     // special optim for large RCX value on forward case only
                     // but because it's unaligned path, check if a byte per byt is needed, and do 4-bytes per 4-bytes only instead
                     if(BOX64DRENV(dynarec_safeflags)) {

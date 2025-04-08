@@ -22,10 +22,11 @@
 #include <poll.h>
 #include <sys/epoll.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64stack.h"
 #include "x64emu.h"
-#include "x64run.h"
+#include "box64cpu.h"
 #include "x64emu_private.h"
 #include "x64run_private.h"
 //#include "x64primop.h"
@@ -447,7 +448,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
         uintptr_t ret_addr = R_RIP-2;
         if(/*ret_addr<0x700000000000LL &&*/ (my_context->signals[SIGSYS]>2) && !FindElfAddress(my_context, ret_addr)) {
             // not a linux elf, not a syscall to setup x86_64 arch. Signal SIGSYS
-            emit_signal(emu, SIGSYS, (void*)ret_addr, R_EAX&0xffff);  // what are the parameters?
+            EmitSignal(emu, SIGSYS, (void*)ret_addr, R_EAX&0xffff);  // what are the parameters?
             return;
         }
     }
@@ -876,10 +877,9 @@ void EXPORT x64Syscall(x64emu_t *emu)
                 S_RAX = -ENOSYS;
             break;
         default:
-            printf_log(LOG_INFO, "Error: Unsupported Syscall 0x%02Xh (%d)\n", s, s);
-            emu->quit = 1;
-            emu->error |= ERR_UNIMPL;
-            return;
+            printf_log(LOG_INFO, "Warning: Unsupported Syscall 0x%02Xh (%d)\n", s, s);
+            S_RAX = -ENOSYS;
+            break;
     }
     if(log) {
         if(BOX64ENV(rolling_log))

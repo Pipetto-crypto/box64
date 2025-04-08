@@ -50,6 +50,7 @@
 
 #include "box64stack.h"
 #include "x64emu.h"
+#include "box64cpu.h"
 #include "debug.h"
 #include "wrapper32.h"
 #include "bridge.h"
@@ -2137,6 +2138,13 @@ EXPORT int my32_setrlimit(x64emu_t* emu, int what, uint32_t* pr)
     l.rlim_cur = (pr[0]!=0xffffffff)?pr[0]:0xffffffffffffffffLL;
     l.rlim_max = (pr[1]!=0xffffffff)?pr[1]:0xffffffffffffffffLL;
     return setrlimit64(what, &l);
+}
+
+EXPORT void* my32___localtime64(x64emu_t* emu, void* t)
+{
+    static struct tm l = {};
+    l = *localtime(t);
+    return &l;
 }
 
 EXPORT void* my32_localtime(x64emu_t* emu, void* t)

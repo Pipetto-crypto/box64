@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -1068,10 +1066,12 @@ void emit_rol16c(dynarec_rv64_t* dyn, int ninst, int s1, uint32_t c, int s3, int
 
     SET_DFNONE();
 
-    SLLI(s3, s1, 48 + c);
-    SRLI(s3, s3, 48);
-    SRLI(s1, s1, 16 - c);
-    OR(s1, s1, s3);
+    if (c & 15) {
+        SRLI(s3, s1, 16 - (c & 15));
+        SLLI(s1, s1, c & 15);
+        OR(s1, s1, s3);
+        ZEXTH(s1, s1);
+    }
 
     if (dyn->insts[ninst].nat_flags_fusion) NAT_FLAGS_OPS(s1, xZR);
 
@@ -1148,10 +1148,12 @@ void emit_ror16c(dynarec_rv64_t* dyn, int ninst, int s1, uint32_t c, int s3, int
 
     SET_DFNONE();
 
-    SRLI(s3, s1, c);
-    SLLI(s1, s1, 64 - c);
-    SRLI(s1, s1, 48);
-    OR(s1, s1, s3);
+    if (c & 15) {
+        SRLI(s3, s1, c & 15);
+        SLLI(s1, s1, 16 - (c & 15));
+        OR(s1, s1, s3);
+        ZEXTH(s1, s1);
+    }
 
     if (dyn->insts[ninst].nat_flags_fusion) NAT_FLAGS_OPS(s1, xZR);
 
@@ -1692,10 +1694,10 @@ void emit_rcr16c(dynarec_rv64_t* dyn, int ninst, int s1, uint32_t c, int s3, int
     OR(s1, s1, s3); // insert CF to bit 16
 
     SRLI(s3, s1, c);
-    SLLI(s4, s1, 63 - c);
-    SLLI(s1, s4, s1);
-    SRLI(s1, s1, 48);
+    SLLI(s1, s1, 17 - c);
     OR(s1, s1, s3);
+    SLLI(s4, s1, 47);
+    ZEXTH(s1, s1);
 
     if (dyn->insts[ninst].nat_flags_fusion) NAT_FLAGS_OPS(s1, xZR);
 

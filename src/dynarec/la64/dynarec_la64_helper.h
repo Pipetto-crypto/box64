@@ -77,28 +77,27 @@
         LDxw(x1, wback, fixedaddress);                                                            \
         ed = x1;                                                                                  \
     }
-// GETEDH can use hint for ed, and x1 or x2 for wback (depending on hint), might also use x3. wback is 0 if ed is xEAX..xEDI
-#define GETEDH(hint, D)                                                                                                                 \
-    if (MODREG) {                                                                                                                       \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                                                       \
-        wback = 0;                                                                                                                      \
-    } else {                                                                                                                            \
-        SMREAD();                                                                                                                       \
-        addr = geted(dyn, addr, ninst, nextop, &wback, (hint == x2) ? x1 : x2, (hint == x1) ? x1 : x3, &fixedaddress, rex, NULL, 1, D); \
-        LDxw(hint, wback, fixedaddress);                                                                                                \
-        ed = hint;                                                                                                                      \
+// GETEDH can use hint for wback and ret for ed. wback is 0 if ed is xEAX..xEDI
+#define GETEDH(hint, ret, D)                                                                       \
+    if (MODREG) {                                                                                  \
+        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                  \
+        wback = 0;                                                                                 \
+    } else {                                                                                       \
+        SMREAD();                                                                                  \
+        addr = geted(dyn, addr, ninst, nextop, &wback, hint, ret, &fixedaddress, rex, NULL, 1, D); \
+        ed = ret;                                                                                  \
+        LDxw(ed, wback, fixedaddress);                                                             \
     }
-// GETEDW can use hint for wback and ret for ed. wback is 0 if ed is xEAX..xEDI
-#define GETEDW(hint, ret, D)                                                                                                            \
-    if (MODREG) {                                                                                                                       \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                                                       \
-        MV(ret, ed);                                                                                                                    \
-        wback = 0;                                                                                                                      \
-    } else {                                                                                                                            \
-        SMREAD();                                                                                                                       \
-        addr = geted(dyn, addr, ninst, nextop, &wback, (hint == x2) ? x1 : x2, (hint == x1) ? x1 : x3, &fixedaddress, rex, NULL, 0, D); \
-        ed = ret;                                                                                                                       \
-        LDxw(ed, wback, fixedaddress);                                                                                                  \
+#define GETEDW(hint, ret, D)                                                                       \
+    if (MODREG) {                                                                                  \
+        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                  \
+        MV(ret, ed);                                                                               \
+        wback = 0;                                                                                 \
+    } else {                                                                                       \
+        SMREAD();                                                                                  \
+        addr = geted(dyn, addr, ninst, nextop, &wback, hint, ret, &fixedaddress, rex, NULL, 0, D); \
+        ed = ret;                                                                                  \
+        LDxw(ed, wback, fixedaddress);                                                             \
     }
 // GETEWW will use i for ed, and can use w for wback.
 #define GETEWW(w, i, D)                                                                       \
@@ -394,6 +393,22 @@
         addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 1, D); \
         LD_HU(x2, ed, fixedaddress);                                                         \
         MOVGR2FR_D(a, x2);                                                                   \
+    }
+
+// Get GM, might use x1, x2 and x3
+#define GETGM(a)                 \
+    gd = ((nextop & 0x38) >> 3); \
+    a = mmx_get_reg(dyn, ninst, x1, x2, x3, gd)
+
+// Get EM, might use x1, x2 and x3
+#define GETEM(a, D)                                                                          \
+    if (MODREG) {                                                                            \
+        a = mmx_get_reg(dyn, ninst, x1, x2, x3, (nextop & 7));                               \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        FLD_D(a, ed, fixedaddress);                                                          \
     }
 
 // Write gb (gd) back to original register / memory, using s1 as scratch
@@ -953,6 +968,8 @@ void* la64_next(x64emu_t* emu, uintptr_t addr);
 
 #define x87_restoreround  STEPNAME(x87_restoreround)
 #define sse_setround      STEPNAME(sse_setround)
+#define mmx_get_reg       STEPNAME(mmx_get_reg)
+#define mmx_get_reg_empty STEPNAME(mmx_get_reg_empty)
 #define x87_forget        STEPNAME(x87_forget)
 #define sse_purge07cache  STEPNAME(sse_purge07cache)
 #define sse_get_reg       STEPNAME(sse_get_reg)
@@ -965,6 +982,8 @@ void* la64_next(x64emu_t* emu, uintptr_t addr);
 #define fpu_reset_cache     STEPNAME(fpu_reset_cache)
 #define fpu_propagate_stack STEPNAME(fpu_propagate_stack)
 #define fpu_purgecache      STEPNAME(fpu_purgecache)
+#define mmx_purgecache      STEPNAME(mmx_purgecache)
+#define x87_purgecache      STEPNAME(x87_purgecache)
 #define fpu_reflectcache    STEPNAME(fpu_reflectcache)
 #define fpu_unreflectcache  STEPNAME(fpu_unreflectcache)
 
@@ -1066,10 +1085,10 @@ void emit_pf(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
 // common coproc helpers
 // reset the cache with n
 void fpu_reset_cache(dynarec_la64_t* dyn, int ninst, int reset_n);
-// propagate stack state
 void fpu_propagate_stack(dynarec_la64_t* dyn, int ninst);
-// purge the FPU cache (needs 3 scratch registers)
 void fpu_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1, int s2, int s3);
+void mmx_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1);
+void x87_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1, int s2, int s3);
 void fpu_reflectcache(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_unreflectcache(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_pushcache(dynarec_la64_t* dyn, int ninst, int s1, int not07);
@@ -1092,6 +1111,13 @@ int sse_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int a);
 void sse_forget_reg(dynarec_la64_t* dyn, int ninst, int a);
 // Push current value to the cache
 void sse_reflect_reg(dynarec_la64_t* dyn, int ninst, int a);
+
+// MMX helpers
+//  get lsx register for a MMX reg, create the entry if needed
+int mmx_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int a);
+// get lsx register for a MMX reg, but don't try to synch it if it needed to be created
+int mmx_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int a);
+
 
 void CacheTransform(dynarec_la64_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3);
 

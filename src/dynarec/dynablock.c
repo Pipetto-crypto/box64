@@ -1,14 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <setjmp.h>
-#include <sys/mman.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -18,10 +16,11 @@
 #include "dynablock_private.h"
 #include "dynarec_private.h"
 #include "elfloader.h"
-#include "bridge.h"
 #include "signals.h"
+#include "alternate.h"
 
 #include "dynarec_native.h"
+#include "dynarec_arch.h"
 #include "native_lock.h"
 
 #include "custommem.h"
@@ -31,6 +30,9 @@
 uint32_t X31_hash_code(void* addr, int len)
 {
     if(!len) return 0;
+    #ifdef ARCH_CRC
+    ARCH_CRC(addr, len);
+    #endif
     uint8_t* p = (uint8_t*)addr;
     int32_t h = *p;
     for (--len, ++p; len; --len, ++p) h = (h << 5) - h + (int32_t)*p;
@@ -178,17 +180,11 @@ dynablock_t *AddNewDynablock(uintptr_t addr)
     return block;
 }
 
-//TODO: move this to dynrec_arm.c and track allocated structure to avoid memory leak
-static __thread JUMPBUFF dynarec_jmpbuf;
-#ifdef ANDROID
-#define DYN_JMPBUF dynarec_jmpbuf
-#else
-#define DYN_JMPBUF &dynarec_jmpbuf
-#endif
+NEW_JUMPBUFF(dynarec_jmpbuf);
 
 void cancelFillBlock()
 {
-    longjmp(DYN_JMPBUF, 1);
+    LongJmp(GET_JUMPBUFF(dynarec_jmpbuf), 1);
 }
 
 /* 
@@ -231,14 +227,14 @@ static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t 
 
     // fill the block
     block->x64_addr = (void*)addr;
-    if(sigsetjmp(DYN_JMPBUF, 1)) {
+    if (SigSetJmp(GET_JUMPBUFF(dynarec_jmpbuf), 1)) {
         printf_log(LOG_INFO, "FillBlock at %p triggered a segfault, canceling\n", (void*)addr);
         FreeDynablock(block, 0);
         if(need_lock)
             mutex_unlock(&my_context->mutex_dyndump);
         return NULL;
     }
-    void* ret = FillBlock64(block, filladdr, (addr==filladdr)?0:1, is32bits);
+    void* ret = FillBlock64(block, filladdr, (addr==filladdr)?0:1, is32bits, MAX_INSTS);
     if(!ret) {
         dynarec_log(LOG_DEBUG, "Fillblock of block %p for %p returned an error\n", block, (void*)addr);
         customFree(block);
@@ -276,8 +272,7 @@ dynablock_t* DBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int is32bits)
         return NULL;
     dynablock_t *db = internalDBGetBlock(emu, addr, addr, create, 1, is32bits);
     if(db && db->done && db->block && getNeedTest(addr)) {
-        if(db->always_test)
-            sched_yield();  // just calm down...
+        if (db->always_test) SchedYield(); // just calm down...
         uint32_t hash = X31_hash_code(db->x64_addr, db->x64_size);
         int need_lock = mutex_trylock(&my_context->mutex_dyndump);
         if(hash!=db->hash) {
@@ -314,8 +309,7 @@ dynablock_t* DBAlternateBlock(x64emu_t* emu, uintptr_t addr, uintptr_t filladdr,
     int create = 1;
     dynablock_t *db = internalDBGetBlock(emu, addr, filladdr, create, 1, is32bits);
     if(db && db->done && db->block && getNeedTest(filladdr)) {
-        if(db->always_test)
-            sched_yield();  // just calm down...
+        if (db->always_test) SchedYield(); // just calm down...
         int need_lock = mutex_trylock(&my_context->mutex_dyndump);
         uint32_t hash = X31_hash_code(db->x64_addr, db->x64_size);
         if(hash!=db->hash) {

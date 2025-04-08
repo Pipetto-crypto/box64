@@ -8,7 +8,6 @@
 #include "dynablock.h"
 #include "x64emu.h"
 #include "emu/x64emu_private.h"
-#include "x64run.h"
 #include "emu/x64run_private.h"
 #include "dynarec/dynablock_private.h"
 #include "dynarec_arm64_arch.h"
@@ -234,12 +233,11 @@ void* populate_arch(dynarec_arm_t* dyn, void* p, size_t tot_sz)
         arch_build_t* build = static_build+i;
         if(i && (!memcmp(build, previous, sizeof(arch_build_t))) && (seq<((1<<10)-1))) {
             // same sequence, increment
-            seq++;
-            arch->seq = seq;
+            arch->seq = ++seq;
         } else {
             int sz = sizeof_arch_build(build);
             if(total+sz>tot_sz) {
-                printf_log(LOG_INFO, "Warning: populate_arch oversized\n");
+                printf_log(LOG_INFO, "Warning: populate_arch on undersized buffer (%d+%d/%d, inst %d/%d)\n", total, sz, tot_sz, i, dyn->size);
                 return NULL;
             }
             arch = next;

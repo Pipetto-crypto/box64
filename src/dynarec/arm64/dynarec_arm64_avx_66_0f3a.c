@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -274,17 +272,21 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             } else if(q0==q1) {
                 for(int i=0; i<4; ++i)
                     if(u8&(1<<i)) {
-                        VMOVeS(q0, i, q1, i);
+                        //VMOVeS(q0, i, q1, i);
                     } else if(q0!=q2)
                         VMOVeS(q0, i, q2, i);
             } else {
                 if(q0!=q2)
                     VMOVQ(q0, q2);
-                if((u8&15)==0b0011) {
+                if((u8&0b0011)==0b0011) {
                     VMOVeD(q0, 0, q1, 0);
-                } else if((u8&15)==0b1100) {
+                    u8&=~0b0011;
+                } 
+                if((u8&0b1100)==0b1100) {
                     VMOVeD(q0, 1, q1, 1);
-                } else for(int i=0; i<4; ++i)
+                    u8&=~0b1100;
+                } 
+                for(int i=0; i<4; ++i)
                     if(u8&(1<<i)) {
                         VMOVeS(q0, i, q1, i);
                     }
@@ -296,17 +298,21 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 } else if(q0==q1) {
                     for(int i=0; i<4; ++i)
                         if(u8&(1<<(i+4))) {
-                            VMOVeS(q0, i, q1, i);
+                            //VMOVeS(q0, i, q1, i);
                         } else if(q0!=q2)
                             VMOVeS(q0, i, q2, i);
                 } else {
                     if(q0!=q2)
                         VMOVQ(q0, q2);
-                    if((u8>>4)==0b0011) {
+                    if(((u8>>4)&0b0011)==0b0011) {
                         VMOVeD(q0, 0, q1, 0);
-                    } else if((u8>>4)==0b1100) {
+                        u8&=~0b00110000;
+                    } 
+                    if(((u8>>4)&0b1100)==0b1100) {
                         VMOVeD(q0, 1, q1, 1);
-                    } else for(int i=0; i<4; ++i)
+                        u8&=~0b11000000;
+                    }
+                    for(int i=0; i<4; ++i)
                         if(u8&(1<<(i+4))) {
                             VMOVeS(q0, i, q1, i);
                         }
@@ -318,7 +324,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             nextop = F8;
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { GETGX_empty_VXEX(q0, q2, q1, 1); u8 = F8; } else { GETGY_empty_VYEY(q0, q2, q1); }
-                switch(u8>>(l*2)&3) {
+                switch((u8>>(l*2))&3) {
                     case 0b00: if(q0!=q2) VMOVQ(q0, q2); break;    //  VxVx
                     case 0b01: if(q0!=q1) VMOVeD(q0, 0, q1, 0); if(q0!=q2) VMOVeD(q0, 1, q2, 1); break; // Ex[0]Vx[1]
                     case 0b10: if(q0!=q2) VMOVeD(q0, 0, q2, 0); if(q0!=q1) VMOVeD(q0, 1, q1, 1); break; // Vx[0]Ex[1]
@@ -384,6 +390,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             VMOVBto(ed, v0, u8&0x0f);
             if(!MODREG) {
                 STB(ed, wback, fixedaddress);
+                SMWRITE2();
             }
             break;
         case 0x15:
@@ -401,6 +408,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             VMOVHto(ed, v0, u8&7);
             if(!MODREG) {
                 STH(ed, wback, fixedaddress);
+                SMWRITE2();
             }
             break;
         case 0x16:
@@ -422,6 +430,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             }
             if(!MODREG) {
                 STxw(ed, wback, fixedaddress);
+                SMWRITE2();
             }
             break;
         case 0x17:
@@ -439,6 +448,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             VMOVSto(ed, v0, u8&3);
             if(!MODREG) {
                 STW(ed, wback, fixedaddress);
+                SMWRITE2();
             }
             break;
         case 0x18:
@@ -485,6 +495,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x3, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 1);
                 VST128(v0, ed, fixedaddress);
+                SMWRITE2();
             }
             F8; // read u8, but it's been already handled
             break;
@@ -825,7 +836,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             u8 = F8;
             MOV32w(x4, u8);
             CALL(native_aeskeygenassist, -1);
-            if(!vex.l) YMM0(gd);
+            YMM0(gd);
             break;
 
         default:

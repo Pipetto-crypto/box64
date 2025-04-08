@@ -10,15 +10,15 @@
 
 #include "debug.h"
 #include "box64stack.h"
+#include "box64cpu_util.h"
 #include "x64emu.h"
-#include "x64run.h"
 #include "x64emu_private.h"
 #include "x64run_private.h"
 #include "x64primop.h"
 #include "x64trace.h"
 #include "x87emu_private.h"
 #include "box64context.h"
-#include "bridge.h"
+#include "alternate.h"
 #include "signals.h"
 
 #include "modrm.h"
@@ -43,6 +43,7 @@ uintptr_t Run64(x64emu_t *emu, rex_t rex, int seg, uintptr_t addr)
     #ifdef TEST_INTERPRETER
     x64emu_t* emu = test->emu;
     #endif
+    int is_nan;
     uintptr_t tlsdata = GetSegmentBaseEmu(emu, seg);
 
     opcode = F8;
@@ -217,8 +218,10 @@ uintptr_t Run64(x64emu_t *emu, rex_t rex, int seg, uintptr_t addr)
                             nextop = F8;
                             GETEX_OFFS(0, tlsdata);
                             GETGX;
+                            is_nan = isnanf(GX->f[0]) || isnanf(EX->f[0]);
                             NAN_PROPAGATION(GX->f[0], EX->f[0], break);
                             GX->f[0] += EX->f[0];
+                            if(!is_nan && isnanf(GX->f[0])) GX->f[0] = -NAN;
                             break;
 
                         default:
@@ -825,12 +828,12 @@ uintptr_t Run64(x64emu_t *emu, rex_t rex, int seg, uintptr_t addr)
                     break;
                 case 6:                 /* DIV Eb */
                     if(!EB->byte[0])
-                        emit_div0(emu, (void*)R_RIP, 1);
+                        EmitDiv0(emu, (void*)R_RIP, 1);
                     div8(emu, EB->byte[0]);
                     break;
                 case 7:                 /* IDIV Eb */
                     if(!EB->byte[0])
-                        emit_div0(emu, (void*)R_RIP, 1);
+                        EmitDiv0(emu, (void*)R_RIP, 1);
                     idiv8(emu, EB->byte[0]);
                     break;
             }

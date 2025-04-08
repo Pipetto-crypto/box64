@@ -176,7 +176,7 @@ GOW(creat, iEpu)
 GO(creat64, iEpu)
 // create_module    // Weak
 GO(ctermid, tEp)
-GOM(ctime, pEErl_)
+GOM(ctime, pErl_)   //%noE
 GO(ctime_r, pErl_p)
 DATAM(__ctype_b, 4)
 GOM(__ctype_b_loc, pEEv)
@@ -1057,6 +1057,7 @@ GO(llistxattr, iEppL)
 // loc2 // type B
 GOWM(localeconv, pEEv)
 GOM(localtime, pEEp)
+GOM(__localtime64, pEEp)
 GOWM(localtime_r, pEEpp)
 GO(lockf, iEiil)
 GO(lockf64, iEiiI)
@@ -1835,6 +1836,7 @@ GO(tempnam, pEpp)
 GOW(textdomain, tEp)
 // tfind    // Weak
 GO(time, LEBL_)
+GO2(__time64, IEp, time)
 GOM(timegm, lEEriiiiiiiiilt_)   //%%
 // timelocal    // Weak
 GO(timerfd_create, iEii)
@@ -2048,7 +2050,7 @@ GO(wctob, iEu)
 // wctrans  // Weak
 // __wctrans_l
 // wctrans_l    // Weak
-//GOW(wctype, uEp)
+GOW(wctype, uEp)
 GO(__wctype_l, hEpa)
 GOW(wctype_l, hEpa)
 GO(wcwidth, iEu)

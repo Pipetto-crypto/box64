@@ -141,68 +141,53 @@ endif()
 if(RPI3ARM64)
     add_definitions(-DRPI)
     add_definitions(-DRPI3ARM64)
-    add_definitions(-pipe -march=armv8-a+crc -mtune=cortex-a53)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc -mtune=cortex-a53")
+    set(CFLAGS -pipe -march=armv8-a+crc -mtune=cortex-a53)
 elseif(RPI4ARM64)
     add_definitions(-DRPI)
     add_definitions(-DRPI4ARM64)
-    add_definitions(-pipe -march=armv8-a+crc -mtune=cortex-a72)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc -mtune=cortex-a72")
+    set(CFLAGS -pipe -march=armv8-a+crc -mtune=cortex-a72)
 elseif(RPI5ARM64)
     add_definitions(-DRPI)
     add_definitions(-DRPI5ARM64)
-    add_definitions(-pipe -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -mtune=cortex-a76)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -mtune=cortex-a76")
+    set(CFLAGS -pipe -march=armv8.2-a+crc+crypto+fp16+rcpc+dotprod -mtune=cortex-a76)
 elseif(RK3326)
     add_definitions(-DRK3326)
-    add_definitions(-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a35+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a35+crypto")
+    set(CFLAGS -pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a35+crypto)
 elseif(RK3399)
     add_definitions(-DRK3399)
-    add_definitions(-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a72.cortex-a53+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a72.cortex-a53+crypto")
+    set(CFLAGS -pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a72.cortex-a53+crypto)
 elseif(RK3588)
     add_definitions(-DRK3588)
-    add_definitions(-pipe -mcpu=cortex-a76.cortex-a55+crypto)
     add_definitions(-DBAD_SIGNAL)
-    set(CMAKE_ASM_FLAGS  "-pipe -mcpu=cortex-a76.cortex-a55+crypto")
+    set(CFLAGS -pipe -mcpu=cortex-a76.cortex-a55+crypto)
 elseif(ODROIDN2)
     add_definitions(-DODROIDN2)
-    add_definitions(-march=armv8-a+crc+simd+crypto -mcpu=cortex-a73.cortex-a53+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a73.cortex-a53+crypto")
+    set(CFLAGS -march=armv8-a+crc+simd+crypto -mcpu=cortex-a73.cortex-a53+crypto)
 elseif(TEGRAX1)
     add_definitions(-DTEGRAX1)
-    add_definitions(-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a57+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a57+crypto")
+    set(CFLAGS -pipe -march=armv8-a+crc+simd+crypto -mcpu=cortex-a57+crypto)
 elseif(TEGRA_T194)
     add_definitions(-DTEGRA_T194)
-    add_definitions(-pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a76+crypto -mtune=cortex-a76)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a76+crypto -mtune=cortex-a76")
+    set(CFLAGS -pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a76+crypto -mtune=cortex-a76)
 elseif(TEGRA_T234)
     add_definitions(-DTEGRA_T234)
-    add_definitions(-pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a78ae+crypto -mtune=cortex-a78ae)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a78ae+crypto -mtune=cortex-a78ae")
+    set(CFLAGS -pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a78ae+crypto -mtune=cortex-a78ae)
 elseif(PHYTIUM)
     add_definitions(-DPHYTIUM)
-    add_definitions(-pipe -march=armv8.1-a+crc+simd+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.1-a+crc+simd+crypto+aes")
+    set(CFLAGS -pipe -march=armv8.1-a+crc+simd+crypto)
 elseif(SD845)
     add_definitions(-DSD845)
-    add_definitions(-pipe -march=armv8.2-a+simd+crypto -mtune=cortex-a75.cortex-a55)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.2-a+simd+crypto -mtune=cortex-a75.cortex-a55")
+    set(CFLAGS -pipe -march=armv8.2-a+simd+crypto -mtune=cortex-a75.cortex-a55)
 elseif(SD865)
     add_definitions(-DSD865)
     #note that cortex-a77.cortex-a55 is not supported, so fall back to a76 instead
-    add_definitions(-pipe -march=armv8.2-a+simd+crypto -mtune=cortex-a76.cortex-a55)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.2-a+simd+crypto -mtune=cortex-a76.cortex-a55")
+    set(CFLAGS -pipe -march=armv8.2-a+simd+crypto -mtune=cortex-a76.cortex-a55)
 elseif(SD888)
     add_definitions(-DSD888)
-    add_definitions(-pipe -march=armv8.4-a+simd+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.4-a+simd+crypto")
+    set(CFLAGS -pipe -march=armv8.4-a+simd+crypto)
 elseif(SD8G2)
     add_definitions(-DSD8G2)
-    add_definitions(-pipe -march=armv9-a+i8mm+sm4+sha3+rcpc+crypto+nosve+nosve2)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv9-a+i8mm+sm4+sha3+rcpc+crypto+nosve+nosve2")
+    set(CFLAGS -pipe -march=armv9-a+i8mm+sm4+sha3+rcpc+crypto+nosve+nosve2)
 elseif(SDORYON1)
     add_definitions(-DSDORYON1)
     # NOTE
@@ -219,37 +204,38 @@ elseif(SDORYON1)
     #  * the 3rd positional argument is represented as the "scheduler"
     #  * the 6th positional argument is represented as the "cost"
     #  I've chosen the a57 because I don't know if I should choose the a72
-    add_definitions(-pipe -march=armv8.6-a+crypto+sm4+sha3+fp16 -mtune=cortex-a57)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.6-a+crypto+sm4+sha3+fp16 -mtune=cortex-a57")
+    set(CFLAGS -pipe -march=armv8.6-a+crypto+sm4+sha3+fp16 -mtune=cortex-a57)
 elseif(ADLINK)
     add_definitions(-DADLINK)
-    add_definitions(-pipe -mcpu=neoverse-n1 -fuse-ld=gold -fuse-linker-plugin)
-    set(CMAKE_ASM_FLAGS  "-pipe -mcpu=neoverse-n1")
+    set(CFLAGS -pipe -mcpu=neoverse-n1 -fuse-ld=gold -fuse-linker-plugin)
 elseif(M1)
     add_definitions(-DM1)
-    add_definitions(-pipe -march=armv8.5-a+simd+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8.5-a+simd+crypto")
+    set(CFLAGS -pipe -march=armv8.5-a+simd+crypto)
 elseif(LARCH64)
     add_definitions(-DLA64)
-    add_definitions(-pipe -march=loongarch64)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=loongarch64")
+    set(CFLAGS -pipe -march=loongarch64)
+    set(ASMFLAGS  -pipe -march=loongarch64)
 elseif(RV64)
     add_definitions(-DRV64)
-    add_definitions(-pipe -march=rv64gc)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=rv64gc")
+    set(CFLAGS -pipe -march=rv64gc)
+    set(ASMFLAGS  -pipe -march=rv64gc)
 elseif(PPC64LE)
     add_definitions(-DPPC64LE)
 elseif(LX2160A)
     add_definitions(-DLX2160A)
-    add_definitions(-pipe -march=armv8-a+crypto+crc -mcpu=cortex-a72+crypto)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crypto+crc -mcpu=cortex-a72+crypto")
+    set(CFLAGS -pipe -march=armv8-a+crypto+crc -mcpu=cortex-a72+crypto)
 elseif(SW64)
     add_definitions(-DSW64)
 elseif(ARM64)
     #add_definitions(-pipe -march=native)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+simd")
-elseif(ARM_DYNAREC)
-    set(CMAKE_ASM_FLAGS  "-pipe -march=armv8-a+crc+simd+crypto")
+endif()
+if(ARM_DYNAREC)
+    if (CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_LESS "9.0") 
+        set(ASMFLAGS  -pipe -march=armv8.2-a+crc+simd+crypto)
+    else()
+        #putting a random cpu that have 8.2 architecture so assembly can be build. the use of the feature are conditionnal anyway
+        set(ASMFLAGS  -pipe -mcpu=cortex-a76)
+    endif()
 endif()
 if(ANDROID)
     add_definitions(-DANDROID)
@@ -271,7 +257,7 @@ if(STATICBUILD)
     add_definitions(-DSTATICBUILD)
     add_definitions(-Wno-deprecated-declarations)   #by-design, deprecated function can be used
     set(BUILD_SHARED_LIBS OFF)
-    set(CMAKE_EXE_LINKER_FLAGS "-static")
+    set(CMAKE_EXE_LINKER_FLAGS -static)
     set(HAVE_TRACE OFF)
 endif()
 if(BOX32)
@@ -360,6 +346,10 @@ set_source_files_properties(
     PROPERTIES GENERATED TRUE
     HEADER_FILE_ONLY TRUE)
 
+set(OS_LINUX_SRC
+    "${BOX64_ROOT}/src/os/os_linux.c"
+)
+
 set(ELFLOADER_SRC
     "${BOX64_ROOT}/src/main.c"
     "${BOX64_ROOT}/src/core.c"
@@ -396,6 +386,7 @@ set(ELFLOADER_SRC
     "${BOX64_ROOT}/src/tools/bitutils.c"
     "${BOX64_ROOT}/src/tools/box64stack.c"
     "${BOX64_ROOT}/src/tools/bridge.c"
+    "${BOX64_ROOT}/src/tools/alternate.c"
     "${BOX64_ROOT}/src/tools/callback.c"
     "${BOX64_ROOT}/src/tools/gdbjit.c"
     "${BOX64_ROOT}/src/tools/my_cpuid.c"
@@ -576,6 +567,9 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedlcms2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedldlinux.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibasound.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibavcodec58.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibavformat58.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibavutil56.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibbsd.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibc.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibcmusl.c"
@@ -912,7 +906,9 @@ if(ARM_DYNAREC)
         "${BOX64_ROOT}/src/dynarec/arm64/arm64_immenc.c"
         "${BOX64_ROOT}/src/dynarec/arm64/arm64_printer.c"
         "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_jmpnext.c"
-
+    )
+    set(DYNAREC_ASM
+        ${DYNAREC_ASM}
         "${BOX64_ROOT}/src/dynarec/arm64/arm64_prolog.S"
         "${BOX64_ROOT}/src/dynarec/arm64/arm64_epilog.S"
         "${BOX64_ROOT}/src/dynarec/arm64/arm64_next.S"
@@ -973,7 +969,9 @@ if(RV64_DYNAREC)
         "${BOX64_ROOT}/src/dynarec/rv64/rv64_printer.c"
         "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_jmpnext.c"
         "${BOX64_ROOT}/src/rv64detect.c"
-
+        )
+    set(DYNAREC_ASM
+        ${DYNAREC_ASM}
         "${BOX64_ROOT}/src/dynarec/rv64/rv64_prolog.S"
         "${BOX64_ROOT}/src/dynarec/rv64/rv64_epilog.S"
         "${BOX64_ROOT}/src/dynarec/rv64/rv64_next.S"
@@ -1031,7 +1029,9 @@ if(LARCH64_DYNAREC)
         "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_functions.c"
         "${BOX64_ROOT}/src/dynarec/la64/la64_printer.c"
         "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_jmpnext.c"
-
+    )
+    set(DYNAREC_ASM
+        ${DYNAREC_ASM}
         "${BOX64_ROOT}/src/dynarec/la64/la64_prolog.S"
         "${BOX64_ROOT}/src/dynarec/la64/la64_epilog.S"
         "${BOX64_ROOT}/src/dynarec/la64/la64_next.S"
@@ -1076,18 +1076,22 @@ if(DYNAREC)
         )
     endif()
 
-    add_library(dynarec_native OBJECT ${DYNAREC_SRC})
+    set_source_files_properties(${DYNAREC_PASS} PROPERTIES COMPILE_OPTIONS "${CFLAGS}")
+    set_source_files_properties(${DYNAREC_ASM} PROPERTIES COMPILE_OPTIONS "${ASMFLAGS}")
+    set_source_files_properties(${INTERPRETER} PROPERTIES COMPILE_OPTIONS "${CFLAGS}")
+
+    add_library(dynarec_native OBJECT ${DYNAREC_SRC} ${DYNAREC_ASM})
 
     add_library(native_pass0 OBJECT ${DYNAREC_PASS})
-    set_target_properties(native_pass0 PROPERTIES COMPILE_FLAGS "-DSTEP=0")
+    set_target_properties(native_pass0 PROPERTIES COMPILE_DEFINITIONS "STEP=0")
     add_library(native_pass1 OBJECT ${DYNAREC_PASS})
-    set_target_properties(native_pass1 PROPERTIES COMPILE_FLAGS "-DSTEP=1")
+    set_target_properties(native_pass1 PROPERTIES COMPILE_DEFINITIONS "STEP=1")
     add_library(native_pass2 OBJECT ${DYNAREC_PASS})
-    set_target_properties(native_pass2 PROPERTIES COMPILE_FLAGS "-DSTEP=2")
+    set_target_properties(native_pass2 PROPERTIES COMPILE_DEFINITIONS "STEP=2")
     add_library(native_pass3 OBJECT ${DYNAREC_PASS})
-    set_target_properties(native_pass3 PROPERTIES COMPILE_FLAGS "-DSTEP=3")
+    set_target_properties(native_pass3 PROPERTIES COMPILE_DEFINITIONS "STEP=3")
     add_library(test_interpreter OBJECT ${INTERPRETER})
-    set_target_properties(test_interpreter PROPERTIES COMPILE_FLAGS "-DTEST_INTERPRETER")
+    set_target_properties(test_interpreter PROPERTIES COMPILE_DEFINITIONS "TEST_INTERPRETER")
     add_dependencies(native_pass0 WRAPPERS)
     add_dependencies(native_pass1 WRAPPERS)
     add_dependencies(native_pass2 WRAPPERS)
@@ -1113,6 +1117,8 @@ if(DYNAREC)
     endif()
 endif()
 
+set_source_files_properties(${OS_LINUX_SRC} ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32} PROPERTIES COMPILE_OPTIONS "${CFLAGS}")
+
 # creates git_head.h
 if(DYNAREC)
     add_custom_command(
@@ -1130,7 +1136,7 @@ endif()
 
 add_library(interpreter OBJECT ${INTERPRETER})
 
-add_executable(${BOX64} ${ELFLOADER_SRC} ${WRAPPEDS} ${WRAPPEDS32} "${BOX64_ROOT}/src/git_head.h")
+add_executable(${BOX64} ${OS_LINUX_SRC} ${ELFLOADER_SRC} ${WRAPPEDS} ${WRAPPEDS32} "${BOX64_ROOT}/src/git_head.h")
 set_target_properties(${BOX64} PROPERTIES ENABLE_EXPORTS ON)
 add_dependencies(${BOX64} WRAPPERS)
 if(BOX32)
@@ -1514,11 +1520,7 @@ add_test(fpu_rounding ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX
     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref31.txt
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
-if(ARM_DYNAREC)
-set_tests_properties(fpu_rounding PROPERTIES ENVIRONMENT "BOX64_DYNAREC_FASTROUND=0;BOX64_DYNAREC_TEST=1")
-else()
-set_tests_properties(fpu_rounding PROPERTIES ENVIRONMENT "BOX64_DYNAREC=0")
-endif()
+set_tests_properties(fpu_rounding PROPERTIES ENVIRONMENT "BOX64_DYNAREC_FASTROUND=0")
 
 else()
 
@@ -1734,14 +1736,11 @@ if(BOX32)
         -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests32/ref09.txt
         -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
-    if(NOT CI)
-    add_test(NAME cppThreads_32bits COMMAND ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+    add_test(NAME cppThreads_32bits_nocosim COMMAND ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
         -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests32/test10 -D TEST_OUTPUT=tmpfile32_10.txt
         -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests32/ref10.txt
         -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
-    
-    set_tests_properties(cppThreads_32bits PROPERTIES ENVIRONMENT "BOX64_LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/x86lib")
-    endif()
+    set_tests_properties(cppThreads_32bits_nocosim PROPERTIES ENVIRONMENT "BOX64_LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/x86lib")
 
     add_test(NAME tlsData_32bits COMMAND ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
         -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests32/test11 -D TEST_OUTPUT=tmpfile32_11.txt

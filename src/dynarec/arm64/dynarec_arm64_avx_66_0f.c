@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -418,10 +416,8 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             }
             if(vex.l) {
                 GETEY(v1);
-                if(BOX64ENV(dynarec_fastround)==2) {
-                    FCVTXN2(v0, v1);
-                } else {
-                    FCVTN2(v0, v1);
+                FCVTXN2(v0, v1);
+                if(BOX64ENV(dynarec_fastround)<2) {
                     x87_restoreround(dyn, ninst, u8);
                 }
             }
@@ -437,7 +433,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
                 MOVI_32_lsl(d1, 0x80, 3);
             }
             for(int l=0; l<1+vex.l; ++l) {
-                if(!l) { GETEX_Y(v1, 0, 0); GETGX_empty(v0); } else { GETGY_empty_EY(v0, v1); }
+                if(!l) { GETGX_empty_EX(v0, v1, 0); } else { GETGY_empty_EY(v0, v1); }
                 if(BOX64ENV(dynarec_fastround)) {
                     VFRINTISQ(v0, v1);
                     VFCVTZSQS(v0, v0);
@@ -450,8 +446,12 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
                         for(int i=0; i<4; ++i) {
                             BFCx(x5, FPSR_IOC, 1);  // reset IOC bits
                             MSR_fpsr(x5);
-                            VMOVeS(d0, 0, v1, i);
-                            FRINTIS(d0, d0);
+                            if(i) {
+                                VMOVeS(d0, 0, v1, i);
+                                FRINTIS(d0, d0);
+                            } else {
+                                FRINTIS(d0, v1);
+                            }
                             VFCVTZSs(d0, d0);
                             MRS_fpsr(x5);   // get back FPSR to check the IOC bit
                             TSTw_mask(x5, 0, 0);    // mask=(1<<IOC)
@@ -497,10 +497,12 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 0); } else { GETGY_empty_VYEY(v0, v2, v1); }
                 // FMIN/FMAX wll not copy a NaN if either is NaN
                 // but x86 will copy src2 if either value is NaN, so lets force a copy of Src2 (Ex) if result is NaN
-                VFMINQD(v0, v2, v1);
-                if(!BOX64ENV(dynarec_fastnan) && (v2!=v1)) {
-                    VFCMEQQD(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                    VBIFQ(v0, v1, q0);   // copy dest where source is NaN
+                if(BOX64ENV(dynarec_fastnan)) {
+                    VFMINQD(v0, v2, v1);
+                } else {
+                    VFCMGTQD(q0, v1, v2);   // 0 if NaN or v1 GT v2, so invert mask for copy
+                    if(v0!=v1) VBIFQ(v0, v1, q0);
+                    if(v0!=v2) VBITQ(v0, v2, q0);
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -532,17 +534,18 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
         case 0x5F:
             INST_NAME("VMAXPD Gx, Vx, Ex");
             nextop = F8;
-            if(!BOX64ENV(dynarec_fastnan)) {
+            if(!BOX64ENV(dynarec_fastnan))
                 q0 = fpu_get_scratch(dyn, ninst);
-            }
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 0); } else { GETGY_empty_VYEY(v0, v2, v1); }
                 // FMIN/FMAX wll not copy a NaN if either is NaN
                 // but x86 will copy src2 if either value is NaN, so lets force a copy of Src2 (Ex) if result is NaN
-                VFMAXQD(v0, v2, v1);
-                if(!BOX64ENV(dynarec_fastnan) && (v2!=v1)) {
-                    VFCMEQQD(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                    VBIFQ(v0, v1, q0);   // copy dest where source is NaN
+                if(BOX64ENV(dynarec_fastnan)) {
+                    VFMAXQD(v0, v2, v1);
+                } else {
+                    VFCMGTQD(q0, v2, v1);   // 0 if NaN or v2 GT v1, so invert mask for copy
+                    if(v0!=v1) VBIFQ(v0, v1, q0);
+                    if(v0!=v2) VBITQ(v0, v2, q0);
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -1202,7 +1205,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             q0 = fpu_get_scratch(dyn, ninst);
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 1); u8 = F8; } else { GETGY_empty_VYEY(v0, v2, v1); }
-                if(((u8&15)==3) || ((u8&15)==7) || ((u8&15)==8) || ((u8&15)==9) || ((u8&15)==10) || ((u8&15)==12) || ((u8&15)==13) || ((u8&15)==14)) {
+                if(((u8&15)==3) || ((u8&15)==7) || ((u8&15)==8) || ((u8&15)==9) || ((u8&15)==10) || ((u8&15)==12)) {
                     VFMAXQD(q0, v2, v1);    // propagate NAN
                     VFCMEQQD(((u8&15)==7)?v0:q0, q0, q0);   // 0 if NAN, 1 if not NAN
                 }
@@ -1383,6 +1386,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xfff<<3, 7, rex, NULL, 0, 0);
                 VSTR64_U12(v0, ed, fixedaddress);
+                SMWRITE2();
             }
             break;
         case 0xD7:
@@ -1627,28 +1631,35 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
                     else
                         SQXTN2_32(v0, d0);   // convert int64 -> int32 with saturation in higher part
                 } else {
-                    if(!l) {
-                        MRS_fpsr(x5);
-                        BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
-                        MSR_fpsr(x5);
-                        ORRw_mask(x4, xZR, 1, 0);    //0x80000000
-                        d0 = fpu_get_scratch(dyn, ninst);
-                    }
-                    for(int i=0; i<2; ++i) {
-                        BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
-                        MSR_fpsr(x5);
-                        if(i) {
-                            VMOVeD(d0, 0, v1, i);
-                            FCVTZSwD(x1, d0);
-                        } else {
-                            FCVTZSwD(x1, v1);
+                    if(arm64_frintts) {
+                        VFRINT32ZDQ(l?d0:v0, v1); // handle overflow
+                        VFCVTZSQD(l?d0:v0, l?d0:v0);  // convert double -> int64
+                        if(!l)
+                            SQXTN_32(v0, v0);   // convert int64 -> int32 with saturation in lower part, RaZ high part
+                        else
+                            SQXTN2_32(v0, d0);   // convert int64 -> int32 with saturation in higher part
+                    } else {
+                        if(!l) {
+                            MRS_fpsr(x5);
+                            ORRw_mask(x4, xZR, 1, 0);    //0x80000000
+                            d0 = fpu_get_scratch(dyn, ninst);
                         }
-                        MRS_fpsr(x5);   // get back FPSR to check the IOC bit
-                        TSTw_mask(x5, 0, 0);    // mask = 1 = FPSR_IOC
-                        CSELx(x1, x1, x4, cEQ);
-                        VMOVQSfrom(v0, i+l*2, x1);
+                        for(int i=0; i<2; ++i) {
+                            BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
+                            MSR_fpsr(x5);
+                            if(i) {
+                                VMOVeD(d0, 0, v1, i);
+                                FCVTZSwD(x1, d0);
+                            } else {
+                                FCVTZSwD(x1, v1);
+                            }
+                            MRS_fpsr(x5);   // get back FPSR to check the IOC bit
+                            TSTw_mask(x5, 0, 0);    // mask = 1 = FPSR_IOC
+                            CSELx(x1, x1, x4, cEQ);
+                            VMOVQSfrom(v0, i+l*2, x1);
+                        }
+                        if(!vex.l && !l) VMOVQDfrom(v0, 1, xZR);
                     }
-                    if(!vex.l && !l) VMOVQDfrom(v0, 1, xZR);
                 }
             }
             YMM0(gd);

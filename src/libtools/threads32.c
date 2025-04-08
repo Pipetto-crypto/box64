@@ -10,20 +10,21 @@
 #include <sys/mman.h>
 #include <dlfcn.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box32context.h"
 #include "threads.h"
 #include "emu/x64emu_private.h"
 #include "tools/bridge_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
+#include "box64cpu.h"
+#include "box64cpu_util.h"
 #include "callback.h"
 #include "custommem.h"
 #include "khash.h"
 #include "emu/x64run_private.h"
 #include "x64trace.h"
-#include "dynarec.h"
 #include "bridge.h"
 #ifdef DYNAREC
 #include "dynablock.h"
@@ -186,10 +187,15 @@ EXPORT int my32_pthread_create(x64emu_t *emu, void* t, void* attr, void* start_r
 
 	if(attr) {
 		size_t stsize;
+		static size_t minsize = 0;
+		if(!minsize) {
+			minsize = PTHREAD_STACK_MIN;
+			if(minsize<512*1024) minsize = 512*1024;
+		}
 		if(pthread_attr_getstacksize(get_attr(attr), &stsize)==0)
 			stacksize = stsize;
-		if(stacksize<512*1024)	// emu and all needs some stack space, don't go too low
-			pthread_attr_setstacksize(get_attr(attr), 512*1024);
+		if(stacksize<minsize)	// emu and all needs some stack space, don't go too low
+			pthread_attr_setstacksize(get_attr(attr), minsize);
 	}
 	if(GetStackSize((uintptr_t)attr, &attr_stack, &attr_stacksize))
 	{
@@ -587,7 +593,12 @@ EXPORT int my32_pthread_cond_timedwait_old(x64emu_t* emu, pthread_cond_2_0_t* co
 {
 	pthread_mutex_t* m = getAlignedMutex((pthread_mutex_t*)mutex);
 	pthread_cond_t * c = get_cond_old(cond);
-	return pthread_cond_timedwait(c, m, (const struct timespec*)abstime);
+	struct timespec* atime = abstime;
+	while(atime->tv_nsec>1000000000LL) {
+		atime->tv_nsec-=1000000000LL;
+		++atime->tv_sec;
+	}
+	return pthread_cond_timedwait(c, m, atime);
 }
 EXPORT int my32_pthread_cond_wait_old(x64emu_t* emu, pthread_cond_2_0_t* cond, void* mutex)
 {
@@ -600,7 +611,12 @@ EXPORT int my32_pthread_cond_timedwait(x64emu_t* emu, void* cond, void* mutex, v
 {
 	pthread_mutex_t* m = getAlignedMutex((pthread_mutex_t*)mutex);
 	pthread_cond_t * c = get_cond(cond);
-	return pthread_cond_timedwait(c, m, (const struct timespec*)abstime);
+	struct timespec* atime = abstime;
+	while(atime->tv_nsec>1000000000LL) {
+		atime->tv_nsec-=1000000000LL;
+		++atime->tv_sec;
+	}
+	return pthread_cond_timedwait(c, m, atime);
 }
 EXPORT int my32_pthread_cond_wait(x64emu_t* emu, void* cond, void* mutex)
 {

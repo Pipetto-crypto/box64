@@ -7,7 +7,8 @@
 #include <sys/mman.h>
 #include <errno.h>
 
-#include <wrappedlibs.h>
+#include "os.h"
+#include "wrappedlibs.h"
 #include "custommem.h"
 #include "bridge.h"
 #include "bridge_private.h"
@@ -16,6 +17,7 @@
 #include "x64emu.h"
 #include "box64context.h"
 #include "elfloader.h"
+#include "alternate.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #endif
@@ -40,8 +42,13 @@ typedef struct bridge_s {
 brick_t* NewBrick(void* old)
 {
     brick_t* ret = (brick_t*)box_calloc(1, sizeof(brick_t));
-    if(old)
-        old = old + NBRICK * sizeof(onebridge_t);
+    static void* load_addr_32bits = NULL;
+    if(box64_is32bits)
+        old = load_addr_32bits;
+    else {
+        if(old)
+            old = old + NBRICK * sizeof(onebridge_t);
+    }
     void* ptr = box_mmap(old, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!box64_is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0); // 0x40 is MAP_32BIT
     if(ptr == MAP_FAILED)
         ptr = box_mmap(NULL, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!box64_is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0);
@@ -50,6 +57,7 @@ brick_t* NewBrick(void* old)
     }
     setProtection((uintptr_t)ptr, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC | PROT_NOPROT);
     dynarec_log(LOG_INFO, "New Bridge brick at %p (size 0x%zx)\n", ptr, NBRICK*sizeof(onebridge_t));
+    if(box64_is32bits) load_addr_32bits = ptr + NBRICK*sizeof(onebridge_t);
     ret->b = ptr;
     return ret;
 }
@@ -232,58 +240,13 @@ const char* getBridgeName(void* addr)
     if(!(getProtection((uintptr_t)addr)&PROT_READ))
         return NULL;
     onebridge_t* one = (onebridge_t*)(((uintptr_t)addr&~(sizeof(onebridge_t)-1)));   // align to start of bridge
-    if(one->C3==0xC3 && one->S=='S' && one->C=='C') {
+    if (one->C3 == 0xC3 && IsBridgeSignature(one->S, one->C)) {
         if(one->w==NULL)
             return "ExitEmulation";
         else
             return one->name;
     }
     return NULL;
-}
-
-
-// Alternate address handling
-KHASH_MAP_INIT_INT64(alternate, void*)
-static kh_alternate_t *my_alternates = NULL;
-
-int hasAlternate(void* addr) {
-    if(!my_alternates)
-        return 0;
-    khint_t k = kh_get(alternate, my_alternates, (uintptr_t)addr);
-    if(k==kh_end(my_alternates))
-        return 0;
-    return 1;
-}
-
-void* getAlternate(void* addr) {
-    if(!my_alternates)
-        return addr;
-    khint_t k = kh_get(alternate, my_alternates, (uintptr_t)addr);
-    if(k!=kh_end(my_alternates))
-        return kh_value(my_alternates, k);
-    return addr;
-}
-void addAlternate(void* addr, void* alt) {
-    if(!my_alternates) {
-        my_alternates = kh_init(alternate);
-    }
-    int ret;
-    khint_t k = kh_put(alternate, my_alternates, (uintptr_t)addr, &ret);
-    if(!ret)    // already there
-        return;
-    kh_value(my_alternates, k) = alt;
-}
-
-void addCheckAlternate(void* addr, void* alt) {
-    if(!hasAlternate(addr))
-        addAlternate(addr, alt);
-}
-
-void cleanAlternate() {
-    if(my_alternates) {
-        kh_destroy(alternate, my_alternates);
-        my_alternates = NULL;
-    }
 }
 
 void init_bridge_helper()
@@ -293,4 +256,32 @@ void init_bridge_helper()
 void fini_bridge_helper()
 {
     cleanAlternate();
+}
+
+int isNativeCallInternal(uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t* retn)
+{
+    if (is32bits)
+        addr &= 0xFFFFFFFFLL;
+
+#define PK(a)   *(uint8_t*)(addr + a)
+#define PK32(a) *(int32_t*)(addr + a)
+
+    if (!addr || !getProtection(addr))
+        return 0;
+    if (PK(0) == 0xff && PK(1) == 0x25) {    // "absolute" jump, maybe the GOT (well, RIP relative in fact)
+        uintptr_t a1 = addr + 6 + (PK32(2)); // need to add a check to see if the address is from the GOT !
+        addr = (uintptr_t)getAlternate(*(void**)a1);
+    }
+    if (!addr || !getProtection(addr))
+        return 0;
+    onebridge_t* b = (onebridge_t*)(addr);
+    if (b->CC == 0xCC && IsBridgeSignature(b->S, b->C) && b->w != (wrapper_t)0 && b->f != (uintptr_t)PltResolver64) {
+        // found !
+        if (retn) *retn = (b->C3 == 0xC2) ? b->N : 0;
+        if (calladdress) *calladdress = addr + 1;
+        return 1;
+    }
+    return 0;
+#undef PK32
+#undef PK
 }

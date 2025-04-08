@@ -14,6 +14,7 @@
 #include <dlfcn.h>
 #endif
 
+#include "os.h"
 #include "custommem.h"
 #include "box64version.h"
 #include "elfloader.h"
@@ -21,12 +22,14 @@
 #include "elfload_dump.h"
 #include "elfloader_private.h"
 #include "librarian.h"
-#include "x64run.h"
 #include "bridge.h"
+#include "alternate.h"
 #include "wrapper.h"
 #include "box64context.h"
 #include "library.h"
 #include "x64emu.h"
+#include "box64cpu.h"
+#include "box64cpu_util.h"
 #include "box64stack.h"
 #include "callback.h"
 #include "box64stack.h"
@@ -44,6 +47,8 @@
 void* my__IO_2_1_stderr_ = (void*)1;
 void* my__IO_2_1_stdin_  = (void*)2;
 void* my__IO_2_1_stdout_ = (void*)3;
+
+uintptr_t pltResolver64 = ~0LL;
 
 // return the index of header (-1 if it doesn't exist)
 static int getElfIndex(box64context_t* ctx, elfheader_t* head) {
@@ -1331,7 +1336,7 @@ const char* FindNearestSymbolName(elfheader_t* h, void* p, uintptr_t* start, uin
     if(!h) {
         if(getProtection((uintptr_t)p)&(PROT_READ)) {
             uintptr_t adj_p = ((uintptr_t)p)&~(sizeof(onebridge_t)-1);
-            if(*(uint8_t*)(adj_p)==0xCC && *(uint8_t*)(adj_p+1)=='S' && *(uint8_t*)(adj_p+2)=='C') {
+            if (*(uint8_t*)(adj_p) == 0xCC && IsBridgeSignature(*(uint8_t*)(adj_p + 1), *(uint8_t*)(adj_p + 2))) {
                 ret = getBridgeName((void*)adj_p);
                 if(ret) {
                     if(start)
@@ -1840,7 +1845,6 @@ void* GetNativeSymbolUnversioned(void* lib, const char* name)
     return s.addr;
 }
 
-uintptr_t pltResolver64 = ~0LL;
 EXPORT void PltResolver64(x64emu_t* emu)
 {
     uintptr_t addr = Pop64(emu);

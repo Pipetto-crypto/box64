@@ -47,8 +47,10 @@
 
 #include "wrappedlibs.h"
 
+#include "os.h"
 #include "box64stack.h"
 #include "x64emu.h"
+#include "box64cpu.h"
 #include "debug.h"
 #include "wrapper.h"
 #include "bridge.h"
@@ -2199,7 +2201,7 @@ EXPORT int32_t my_epoll_pwait(x64emu_t* emu, int32_t epfd, void* events, int32_t
         UnalignEpollEvent(events, _events, ret);
     return ret;
 }
-EXPORT int my_epoll_pwait2(int epfd, void* events, int maxevents, struct timespec *timeout, sigset_t * sigmask)
+EXPORT int my_epoll_pwait2(x64emu_t* emu, int epfd, void* events, int maxevents, struct timespec *timeout, sigset_t * sigmask)
 {
     struct epoll_event _events[maxevents];
     //AlignEpollEvent(_events, events, maxevents);
@@ -3004,6 +3006,12 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int f
     if(BOX64ENV(dynarec_log)>=LOG_DEBUG) {printf_log(LOG_NONE, "mmap64(%p, 0x%zx, 0x%x, 0x%x, %d, %zd) ", addr, length, prot, flags, fd, offset);}
     void* ret = box_mmap(addr, length, prot, flags, fd, offset);
     int e = errno;
+    if(emu && box64_is32bits && ret!=MAP_FAILED && ((ret>(void*)0xc0000000) || (ret+length>(void*)0xc0000000))) {
+        // do not allow allocating memory that high for 32bits process
+        box_munmap(ret, length);
+        ret = MAP_FAILED;
+        e = EEXIST;
+    }
     if((ret==MAP_FAILED && (emu || box64_is32bits)) && (BOX64ENV(log)>=LOG_DEBUG || BOX64ENV(dynarec_log)>=LOG_DEBUG)) {printf_log(LOG_NONE, "%s (%d)\n", strerror(errno), errno);}
     if(((ret!=MAP_FAILED) && (emu || box64_is32bits)) && (BOX64ENV(log)>=LOG_DEBUG || BOX64ENV(dynarec_log)>=LOG_DEBUG)) {printf_log(LOG_NONE, "%p\n", ret);}
     #ifdef DYNAREC
@@ -3533,7 +3541,7 @@ EXPORT int my_backtrace_ip(x64emu_t* emu, void** buffer, int size)
             if (++idx < size) buffer[idx] = (void*)ret_addr;
         } else if (!success) {
             if(getProtection((uintptr_t)addr)&(PROT_READ)) {
-                if(getProtection((uintptr_t)addr-19) && *(uint8_t*)(addr-19)==0xCC && *(uint8_t*)(addr-19+1)=='S' && *(uint8_t*)(addr-19+2)=='C') {
+                if (getProtection((uintptr_t)addr - 19) && *(uint8_t*)(addr - 19) == 0xCC && IsBridgeSignature(*(uint8_t*)(addr - 19 + 1), *(uint8_t*)(addr - 19 + 2))) {
                     buffer[idx-1] = (void*)(addr-19);
                     success = 2;
                     if(idx==1)

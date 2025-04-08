@@ -10,19 +10,21 @@
 #include <sys/mman.h>
 #include <dlfcn.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64context.h"
 #include "threads.h"
 #include "emu/x64emu_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
+#include "box64cpu.h"
+#include "box64cpu.h"
+#include "box64cpu_util.h"
 #include "callback.h"
 #include "custommem.h"
 #include "khash.h"
 #include "emu/x64run_private.h"
 #include "x64trace.h"
-#include "dynarec.h"
 #include "bridge.h"
 #include "myalign.h"
 #ifdef DYNAREC

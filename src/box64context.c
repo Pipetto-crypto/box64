@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <pthread.h>
 
+#include "os.h"
 #include "box64context.h"
 #include "debug.h"
 #include "elfloader.h"
@@ -14,6 +15,7 @@
 #include "threads.h"
 #include "x64trace.h"
 #include "bridge.h"
+#include "alternate.h"
 #include "librarian.h"
 #include "library.h"
 #include "wrapper.h"
@@ -21,7 +23,7 @@
 #include "signals.h"
 #include "gltools.h"
 #include "rbtree.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #ifdef BOX32
 #include "box32.h"
 #endif

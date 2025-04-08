@@ -12,7 +12,6 @@
 #include "debug.h"
 #include "box64stack.h"
 #include "x64emu.h"
-#include "x64run.h"
 #include "x64emu_private.h"
 #include "x64run_private.h"
 #include "x64primop.h"
@@ -42,6 +41,7 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr)
     #ifdef TEST_INTERPRETER
     x64emu_t*emu = test->emu;
     #endif
+    int is_nan;
 
     #ifdef __clang__
     extern int isinff(float);
@@ -238,15 +238,19 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         GETEX(0);
         GETGX;
+        MARK_NAN_F_2(GX, EX);
         NAN_PROPAGATION(GX->f[0], EX->f[0], break);
         GX->f[0] += EX->f[0];
+        CHECK_NAN_F(GX);
         break;
     case 0x59:  /* MULSS Gx, Ex */
         nextop = F8;
         GETEX(0);
         GETGX;
+        MARK_NAN_F_2(GX, EX);
         NAN_PROPAGATION(GX->f[0], EX->f[0], break);
         GX->f[0] *= EX->f[0];
+        CHECK_NAN_F(GX);
         break;
     case 0x5A:  /* CVTSS2SD Gx, Ex */
         nextop = F8;
@@ -433,7 +437,7 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr)
 
     case 0xE6:  /* CVTDQ2PD Gx, Ex */
         nextop = F8;
-        GETEX(0);
+        GETEX8(0);
         GETGX;
         GX->d[1] = EX->sd[1];
         GX->d[0] = EX->sd[0];

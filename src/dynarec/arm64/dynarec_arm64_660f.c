@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -1024,11 +1022,11 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     GETGX(q0, 1);
                     GETEX(q1, 0, 1);
                     u8 = F8&0b1111;
-                    if(u8==0b0011) {
+                    if((u8&0b0011)==0b0011) {
                         VMOVeD(q0, 0, q1, 0);
                         u8&=~0b0011;
                     }
-                    if(u8==0b1100) {
+                    if((u8&0b1100)==0b1100) {
                         VMOVeD(q0, 1, q1, 1);
                         u8&=~0b1100;
                     }
@@ -1789,8 +1787,12 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     for(int i=0; i<4; ++i) {
                         BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
                         MSR_fpsr(x5);
-                        VMOVeS(d0, 0, v1, i);
-                        FRINTIS(d0, d0);
+                        if(i) {
+                            VMOVeS(d0, 0, v1, i);
+                            FRINTIS(d0, d0);
+                        } else {
+                            FRINTIS(d0, v1);
+                        }
                         VFCVTZSs(d0, d0);
                         MRS_fpsr(x5);   // get back FPSR to check the IOC bit
                         TBZ(x5, FPSR_IOC, 4+4);
@@ -1828,14 +1830,13 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETEX(v1, 0, 0);
             // FMIN/FMAX wll not copy the value if v0[x] is NaN
             // but x86 will copy if either v0[x] or v1[x] is NaN, so lets force a copy if source is NaN
-            if(!BOX64ENV(dynarec_fastnan) && v0!=v1) {
+            if(BOX64ENV(dynarec_fastnan)) {
+                VFMINQD(v0, v0, v1);
+            } else {
                 q0 = fpu_get_scratch(dyn, ninst);
-                VFCMEQQD(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                VANDQ(v0, v0, q0);
-                VBICQ(q0, v1, q0);
-                VORRQ(v0, v0, q0);
+                VFCMGTQD(q0, v1, v0);   // 0 is NaN or v1 GT v0, so invert mask for copy
+                VBIFQ(v0, v1, q0);
             }
-            VFMINQD(v0, v0, v1);
             break;
         case 0x5E:
             INST_NAME("DIVPD Gx, Ex");
@@ -1863,15 +1864,14 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETGX(v0, 1);
             GETEX(v1, 0, 0);
             // FMIN/FMAX wll not copy the value if v0[x] is NaN
-            // but x86 will copy if either v0[x] or v1[x] is NaN, so lets force a copy if source is NaN
-            if(!BOX64ENV(dynarec_fastnan) && v0!=v1) {
+            // but x86 will copy if either v0[x] or v1[x] is NaN, or if values are equals, so lets force a copy if source is NaN
+            if(BOX64ENV(dynarec_fastnan)) {
+                VFMAXQD(v0, v0, v1);
+            } else {
                 q0 = fpu_get_scratch(dyn, ninst);
-                VFCMEQQD(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                VANDQ(v0, v0, q0);
-                VBICQ(q0, v1, q0);
-                VORRQ(v0, v0, q0);
+                VFCMGTQD(q0, v0, v1);   // 0 is NaN or v0 GT v1, so invert mask for copy
+                VBIFQ(v0, v1, q0);
             }
-            VFMAXQD(v0, v0, v1);
             break;
         case 0x60:
             INST_NAME("PUNPCKLBW Gx,Ex");
@@ -2824,22 +2824,24 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 case 0: VFCMEQQD(v0, v0, v1); break;   // Equal
                 case 1: VFCMGTQD(v0, v1, v0); break;   // Less than
                 case 2: VFCMGEQD(v0, v1, v0); break;   // Less or equal
-                case 3: VFCMEQQD(v0, v0, v0);
-                        if(v0!=v1) {
+                case 3: if(v0!=v1) {
                             q0 = fpu_get_scratch(dyn, ninst);
-                            VFCMEQQD(q0, v1, v1);
-                            VANDQ(v0, v0, q0);
+                            VFMAXQD(q0, v0, v1);    // propagate NAN
+                            VFCMEQQD(v0, q0, q0);
+                        } else {
+                            VFCMEQQD(v0, v0, v0);
                         }
                         VMVNQ(v0, v0);
                         break;   // NaN (NaN is not equal to himself)
                 case 4: VFCMEQQD(v0, v0, v1); VMVNQ(v0, v0); break;   // Not Equal (or unordered on ARM, not on X86...)
                 case 5: VFCMGTQD(v0, v1, v0); VMVNQ(v0, v0); break;   // Greater or equal or unordered
                 case 6: VFCMGEQD(v0, v1, v0); VMVNQ(v0, v0); break;   // Greater or unordered
-                case 7: VFCMEQQD(v0, v0, v0);
-                        if(v0!=v1) {
+                case 7: if(v0!=v1) {
                             q0 = fpu_get_scratch(dyn, ninst);
-                            VFCMEQQD(q0, v1, v1);
-                            VANDQ(v0, v0, q0);
+                            VFMAXQD(q0, v0, v1);    // propagate NAN
+                            VFCMEQQD(v0, q0, q0);
+                        } else {
+                            VFCMEQQD(v0, v0, v0);
                         }
                         break;   // not NaN
             }
@@ -3150,8 +3152,6 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     SQXTN_32(v0, v0);   // convert int64 -> int32 with saturation in lower part, RaZ high part
                 } else {
                     MRS_fpsr(x5);
-                    BFCw(x5, FPSR_IOC, 1);   // reset IOC bit
-                    MSR_fpsr(x5);
                     ORRw_mask(x4, xZR, 1, 0);    //0x80000000
                     d0 = fpu_get_scratch(dyn, ninst);
                     for(int i=0; i<2; ++i) {

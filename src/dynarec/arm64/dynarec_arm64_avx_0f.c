@@ -5,10 +5,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "emu/x64run_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -206,6 +204,7 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
                 VST1_64(v0, 1, ed);
+                SMWRITE2();
             }
             break;
 
@@ -336,9 +335,23 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             INST_NAME("VSQRTPS Gx, Ex");
             nextop = F8;
             SKIPTEST(x1);
+            if(!BOX64ENV(dynarec_fastnan)) {
+                d0 = fpu_get_scratch(dyn, ninst);
+                d1 = fpu_get_scratch(dyn, ninst);
+            }
             for(int l=0; l<1+vex.l; ++l) {
-                if(!l) { GETGX_empty_EX(q0, q1, 0); } else { GETGY_empty_EY(q0, q1); }
-                VFSQRTQS(q0, q1);
+                if(!l) { GETGX_empty_EX(v0, v1, 0); } else { GETGY_empty_EY(v0, v1); }
+                if(!BOX64ENV(dynarec_fastnan)) {
+                    // check if any input value was NAN
+                    VFCMEQQS(d0, v1, v1);    // 0 if NAN, 1 if not NAN
+                    VFSQRTQS(v0, v1);
+                    VFCMEQQS(d1, v0, v0);    // 0 => out is NAN
+                    VBICQ(d1, d0, d1);      // forget it in any input was a NAN already
+                    VSHLQ_32(d1, d1, 31);   // only keep the sign bit
+                    VORRQ(v0, v0, d1);      // NAN -> -NAN
+                } else {
+                    VFSQRTQS(v0, v1);
+                }
             }
             if(!vex.l) YMM0(gd);
             break;
@@ -539,10 +552,12 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 0); } else { GETGY_empty_VYEY(v0, v2, v1); }
                 // FMIN/FMAX wll not copy a NaN if either is NaN
                 // but x86 will copy src2 if either value is NaN, so lets force a copy of Src2 (Ex) if result is NaN
-                VFMINQS(v0, v2, v1);
-                if(!BOX64ENV(dynarec_fastnan) && (v2!=v1)) {
-                    VFCMEQQS(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                    VBIFQ(v0, v1, q0);   // copy dest where source is NaN
+                if(BOX64ENV(dynarec_fastnan)) {
+                    VFMINQS(v0, v2, v1);
+                } else {
+                    VFCMGTQS(q0, v1, v2);   // 0 if NaN or v1 GT v2, so invert mask for copy
+                    if(v0!=v1) VBIFQ(v0, v1, q0);
+                    if(v0!=v2) VBITQ(v0, v2, q0);
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -581,10 +596,12 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 0); } else { GETGY_empty_VYEY(v0, v2, v1); }
                 // FMIN/FMAX wll not copy a NaN if either is NaN
                 // but x86 will copy src2 if either value is NaN, so lets force a copy of Src2 (Ex) if result is NaN
-                VFMAXQS(v0, v2, v1);
-                if(!BOX64ENV(dynarec_fastnan) && (v2!=v1)) {
-                    VFCMEQQS(q0, v0, v0);   // 0 is NaN, 1 is not NaN, so MASK for NaN
-                    VBIFQ(v0, v1, q0);   // copy dest where source is NaN
+                if(BOX64ENV(dynarec_fastnan)) {
+                    VFMAXQS(v0, v2, v1);
+                } else {
+                    VFCMGTQS(q0, v2, v1);   // 0 if NaN or v2 GT v1, so invert mask for copy
+                    if(v0!=v1) VBIFQ(v0, v1, q0);
+                    if(v0!=v2) VBITQ(v0, v2, q0);
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -683,7 +700,7 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             q0 = fpu_get_scratch(dyn, ninst);
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 1); u8 = F8; } else { GETGY_empty_VYEY(v0, v2, v1); }
-                if(((u8&15)==3) || ((u8&15)==7) || ((u8&15)==8) || ((u8&15)==9) || ((u8&15)==10) || ((u8&15)==12) || ((u8&15)==13) || ((u8&15)==14)) {
+                if(((u8&15)==3) || ((u8&15)==7) || ((u8&15)==8) || ((u8&15)==9) || ((u8&15)==10) || ((u8&15)==12)) {
                     VFMAXQS(q0, v2, v1);    // propagate NAN
                     VFCMEQQS(((u8&15)==7)?v0:q0, q0, q0);   // 0 if NAN, 1 if not NAN
                 }

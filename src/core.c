@@ -23,23 +23,25 @@
 #include <fcntl.h>
 #endif
 
+#include "os.h"
 #include "build_info.h"
 #include "debug.h"
 #include "fileutils.h"
 #include "box64context.h"
+#include "box64cpu.h"
+#include "box64cpu_util.h"
 #include "wine_tools.h"
 #include "elfloader.h"
 #include "custommem.h"
 #include "box64stack.h"
 #include "auxval.h"
-#include "x64emu.h"
 #include "threads.h"
 #include "x64trace.h"
 #include "librarian.h"
-#include "x64run.h"
 #include "symbols.h"
 #include "emu/x64run_private.h"
 #include "elfs/elfloader_private.h"
+#include "x64emu.h"
 #include "library.h"
 #include "core.h"
 #include "env.h"
@@ -1475,7 +1477,7 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         if(!ElfGetGlobalSymbolStartEnd(elf_header, &wineinfo, NULL, "wine_main_preload_info", &ver, &vername, 1, &veropt))
             if(!ElfGetWeakSymbolStartEnd(elf_header, &wineinfo, NULL, "wine_main_preload_info", &ver, &vername, 1, &veropt))
                 ElfGetLocalSymbolStartEnd(elf_header, &wineinfo, NULL, "wine_main_preload_info", &ver, &vername, 1, &veropt);
-        if(!wineinfo) {printf_log(LOG_NONE, "Warning, Symbol wine_main_preload_info not found\n");}
+        if(!wineinfo) {printf_log(LOG_DEBUG, "Warning, Symbol wine_main_preload_info not found\n");}
         else {
             *(void**)wineinfo = get_wine_prereserve();
             printf_log(LOG_DEBUG, "WINE wine_main_preload_info found and updated %p -> %p\n", get_wine_prereserve(), *(void**)wineinfo);

@@ -6,7 +6,6 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <sys/syscall.h>
 #include <sys/types.h>
 #include <pthread.h>
 #include <signal.h>
@@ -14,12 +13,14 @@
 #include <sys/wait.h>
 #include <elf.h>
 
+#include "os.h"
 #include "debug.h"
 #include "box64stack.h"
 #include "x64emu.h"
-#include "x64run.h"
+#include "box64cpu.h"
 #include "x64emu_private.h"
 #include "x64run_private.h"
+#include "x64int_private.h"
 #include "x87emu_private.h"
 #include "x64primop.h"
 #include "x64trace.h"
@@ -95,8 +96,7 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
         return;
     }
     onebridge_t* bridge = (onebridge_t*)(*addr-1);
-    if(bridge->S=='S' && bridge->C=='C') // Signature for "Out of x86 door"
-    {
+    if (IsBridgeSignature(bridge->S, bridge->C)) { // Signature for "Out of x86 door"
         *addr += 2;
         uintptr_t a = F64(addr);
         if(a==0) {
@@ -393,17 +393,12 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
     }
     if(!BOX64ENV(ignoreint3) && my_context->signals[SIGTRAP]) {
         R_RIP = *addr;  // update RIP
-        emit_signal(emu, SIGTRAP, NULL, 3);
+        EmitSignal(emu, SIGTRAP, NULL, 3);
     } else {
         printf_log(LOG_DEBUG, "%04d|Warning, ignoring unsupported Int 3 call @%p\n", GetTID(), (void*)R_RIP);
         R_RIP = *addr;
     }
     //emu->quit = 1;
-}
-
-int GetTID()
-{
-    return syscall(SYS_gettid);
 }
 
 void print_rolling_log(int loglevel) {

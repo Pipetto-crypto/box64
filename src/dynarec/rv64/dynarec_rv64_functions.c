@@ -10,9 +10,8 @@
 
 #include "debug.h"
 #include "box64context.h"
-#include "dynarec.h"
+#include "box64cpu.h"
 #include "emu/x64emu_private.h"
-#include "x64run.h"
 #include "x64emu.h"
 #include "box64stack.h"
 #include "callback.h"
@@ -591,14 +590,14 @@ int rv64_lock_cas_b(void* addr, uint8_t ref, uint8_t val)
 {
     uint32_t* aligned = (uint32_t*)(((uintptr_t)addr) & ~3);
     uint32_t tmp = *aligned;
-    return rv64_lock_cas_d(aligned, tmp, insert_byte(tmp, val, addr));
+    return rv64_lock_cas_d(aligned, insert_byte(tmp, ref, addr), insert_byte(tmp, val, addr));
 }
 
 int rv64_lock_cas_h(void* addr, uint16_t ref, uint16_t val)
 {
     uint32_t* aligned = (uint32_t*)(((uintptr_t)addr) & ~3);
     uint32_t tmp = *aligned;
-    return rv64_lock_cas_d(aligned, tmp, insert_half(tmp, val, addr));
+    return rv64_lock_cas_d(aligned, insert_half(tmp, ref, addr), insert_half(tmp, val, addr));
 }
 
 
