@@ -68,6 +68,7 @@
 #include "globalsymbols.h"
 #include "env.h"
 #include "wine_tools.h"
+#include "cleanup.h"
 #ifndef LOG_INFO
 #define LOG_INFO 1
 #endif
@@ -1782,9 +1783,9 @@ void CreateCPUInfoFile(int fd)
         sprintf(buff, "bogomips\t: %g\n", getBogoMips());
         P;
         sprintf(buff, "flags\t\t: fpu cx8 sep ht cmov clflush mmx sse sse2 syscall tsc lahf_lm ssse3 ht tm lm fxsr cpuid pclmulqdq cx16 aes movbe pni "\
-                      "sse4_1%s%s%s lzcnt popcnt%s%s%s%s%s%s%s%s%s\n", 
-                      BOX64ENV(sse42)?" sse4_2":"", BOX64ENV(avx)?" avx":"", BOX64ENV(shaext)?"sha_ni":"", 
-                      BOX64ENV(avx)?" bmi1":"", BOX64ENV(avx2)?" avx2":"", BOX64ENV(avx)?" bmi2":"", 
+                      "sse4_1%s%s%s lzcnt popcnt%s%s%s%s%s%s%s%s%s\n",
+                      BOX64ENV(sse42)?" sse4_2":"", BOX64ENV(avx)?" avx":"", BOX64ENV(shaext)?"sha_ni":"",
+                      BOX64ENV(avx)?" bmi1":"", BOX64ENV(avx2)?" avx2":"", BOX64ENV(avx)?" bmi2":"",
                       BOX64ENV(avx2)?" vaes":"", BOX64ENV(avx2)?" fma":"",
                       BOX64ENV(avx)?" xsave":"", BOX64ENV(avx)?" f16c":"", BOX64ENV(avx2)?" randr":"",
                       BOX64ENV(avx2)?" adx":""
@@ -3029,13 +3030,6 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int f
     }
     #endif
     if(ret!=MAP_FAILED) {
-        if((flags&MAP_SHARED) && (fd>0)) {
-            uint32_t flags = fcntl(fd, F_GETFL);
-            if((flags&O_ACCMODE)==O_RDWR) {
-                if((BOX64ENV(log)>=LOG_DEBUG || BOX64ENV(dynarec_log)>=LOG_DEBUG)) {printf_log(LOG_NONE, "Note: Marking the region (%p-%p prot=%x) as NEVERCLEAN because fd have O_RDWR attribute\n", ret, ret+length, prot);}
-                prot |= PROT_NEVERCLEAN;
-            }
-        }
         if(emu && !(flags&MAP_ANONYMOUS) && (fd>0)) {
             DetectUnityPlayer(fd);
             // the last_mmap will allow mmap created by wine, even those that have hole, to be fully tracked as one single mmap
@@ -3043,6 +3037,13 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int f
                 RecordEnvMappings((uintptr_t)last_mmap_addr, last_mmap_len, fd);
             else
                 RecordEnvMappings((uintptr_t)ret, length, fd);
+        }
+        if((flags&MAP_SHARED) && (fd>0)) {
+            uint32_t flags = fcntl(fd, F_GETFL);
+            if((flags&O_ACCMODE)==O_RDWR) {
+                if((BOX64ENV(log)>=LOG_DEBUG || BOX64ENV(dynarec_log)>=LOG_DEBUG)) {printf_log(LOG_NONE, "Note: Marking the region (%p-%p prot=%x) as NEVERCLEAN because fd have O_RDWR attribute\n", ret, ret+length, prot);}
+                prot |= PROT_NEVERCLEAN;
+            }
         }
         // hack to capture full size of the mmap done by wine
         if(emu && (fd==-1) && (flags==(MAP_PRIVATE|MAP_ANON))) {

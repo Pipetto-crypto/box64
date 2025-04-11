@@ -14,9 +14,9 @@
 #include "x64trace.h"
 #include "dynarec_native.h"
 #include "my_cpuid.h"
+#include "freq.h"
 #include "emu/x87emu_private.h"
 #include "emu/x64shaext.h"
-
 #include "arm64_printer.h"
 #include "dynarec_arm64_private.h"
 #include "dynarec_arm64_functions.h"
@@ -1938,7 +1938,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         }
                         if(BOX64ENV(sse_flushto0)) {
                             // try to sync mxcsr with fpsr on the flag side
-                            /* mapping is 
+                            /* mapping is
                                 ARM -> X86
                                 0 -> 0  // Invalid operation
                                 1 -> 2  // Divide by 0
@@ -2434,24 +2434,18 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 case 1: VFCMGTQS(v0, v1, v0); break;   // Less than
                 case 2: VFCMGEQS(v0, v1, v0); break;   // Less or equal
                 case 3: if(v0!=v1) {
-                            q0 = fpu_get_scratch(dyn, ninst);
-                            VFMAXQS(q0, v0, v1);    // propagate NAN
-                            VFCMEQQS(v0, q0, q0);
-                        } else {
-                            VFCMEQQS(v0, v0, v0);
+                            VFMAXQS(v0, v0, v1);    // propagate NAN
                         }
+                        VFCMEQQS(v0, v0, v0);
                         VMVNQ(v0, v0);
                         break;   // NaN (NaN is not equal to himself)
                 case 4: VFCMEQQS(v0, v0, v1); VMVNQ(v0, v0); break;   // Not Equal (or unordered on ARM, not on X86...)
                 case 5: VFCMGTQS(v0, v1, v0); VMVNQ(v0, v0); break;   // Greater or equal or unordered
                 case 6: VFCMGEQS(v0, v1, v0); VMVNQ(v0, v0); break;   // Greater or unordered
                 case 7: if(v0!=v1) {
-                            q0 = fpu_get_scratch(dyn, ninst);
-                            VFMAXQS(q0, v0, v1);    // propagate NAN
-                            VFCMEQQS(v0, q0, q0);
-                        } else {
-                            VFCMEQQS(v0, v0, v0);
+                            VFMAXQS(v0, v0, v1);    // propagate NAN
                         }
+                        VFCMEQQS(v0, v0, v0);
                         break;   // not NaN
             }
             break;

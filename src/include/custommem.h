@@ -118,8 +118,6 @@ void* find47bitBlockElf(size_t size, int mainbin, uintptr_t mask);
 void* find31bitBlockElf(size_t size, int mainbin, uintptr_t mask);
 int isBlockFree(void* hint, size_t size);
 
-// unlock mutex that are locked by current thread (for signal handling). Return a mask of unlock mutex
-int unlockCustommemMutex(void);
 // relock the muxtex that were unlocked
 void relockCustommemMutex(int locks);
 
@@ -138,13 +136,9 @@ int checkInHotPage(uintptr_t addr);
 #endif
 
 // this will simulate an x86_64 version of the function (no tracking will done, but tracking will be used)
-void* box_mmap(void *addr, unsigned long length, int prot, int flags, int fd, ssize_t offset);
+void* box_mmap(void* addr, size_t length, int prot, int flags, int fd, ssize_t offset);
 // this will simulate an x86_64 version of the function (no tracking will done)
-int box_munmap(void* addr, unsigned long length);
-// this will call the syscall directly
-void* internal_mmap(void *addr, unsigned long length, int prot, int flags, int fd, ssize_t offset);
-// this will call the syscall directly
-int internal_munmap(void* addr, unsigned long length);
+int box_munmap(void* addr, size_t length);
 
 void reserveHighMem();
 

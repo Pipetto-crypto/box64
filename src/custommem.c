@@ -2,16 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dlfcn.h>
-#include <signal.h>
-#include <pthread.h>
 #include <errno.h>
-#include <syscall.h>
-#include <sys/personality.h>
 
 #include "os.h"
+#include "backtrace.h"
 #include "box64context.h"
-#include "elfloader.h"
 #include "debug.h"
 #include "x64trace.h"
 #include "x64emu.h"
@@ -19,15 +14,13 @@
 #include "bridge.h"
 #include "library.h"
 #include "callback.h"
-#include "wrapper.h"
 #include "threads.h"
 #include "x64trace.h"
-#include "signals.h"
-#include <sys/mman.h>
 #include "custommem.h"
 #include "khash.h"
 #include "threads.h"
 #include "rbtree.h"
+#include "mysignal.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #include "dynarec/dynablock_private.h"
@@ -52,15 +45,15 @@ static uintptr_t           box64_jmptbldefault0[1<<JMPTABL_SHIFT0];
 KHASH_SET_INIT_INT64(lockaddress)
 static kh_lockaddress_t    *lockaddress = NULL;
 #ifdef USE_CUSTOM_MUTEX
-static uint32_t            mutex_prot;
-static uint32_t            mutex_blocks;
+uint32_t            mutex_prot;
+uint32_t            mutex_blocks;
 #else
-static pthread_mutex_t     mutex_prot;
-static pthread_mutex_t     mutex_blocks;
+pthread_mutex_t     mutex_prot;
+pthread_mutex_t     mutex_blocks;
 #endif
 #else
-static pthread_mutex_t     mutex_prot;
-static pthread_mutex_t     mutex_blocks;
+pthread_mutex_t     mutex_prot;
+pthread_mutex_t     mutex_blocks;
 #endif
 //#define TRACE_MEMSTAT
 rbtree_t* memprot = NULL;
@@ -538,8 +531,8 @@ void* map128_customMalloc(size_t size, int is32bits)
     if(is32bits)    // unlocking, because mmap might use it
     mutex_unlock(&mutex_blocks);
     void* p = is32bits
-    ?box_mmap(NULL, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE|MAP_32BIT, -1, 0)
-    :(box64_is32bits?box32_dynarec_mmap(allocsize):internal_mmap(NULL, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0));
+        ? box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)
+        : (box64_is32bits ? box32_dynarec_mmap(allocsize) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
     if(is32bits)
     mutex_lock(&mutex_blocks);
     #ifdef TRACE_MEMSTAT
@@ -563,7 +556,7 @@ void* map128_customMalloc(size_t size, int is32bits)
             // mask size from this block
             p_blocks[i].size = 0;
             mutex_unlock(&mutex_blocks);
-            showNativeBT(LOG_NONE);
+            ShowNativeBT(LOG_NONE);
             testAllBlocks();
             if(BOX64ENV(log)>=LOG_DEBUG) {
                 printf_log(LOG_NONE, "Used 32bits address space map:\n");
@@ -644,8 +637,8 @@ void* internal_customMalloc(size_t size, int is32bits)
     if(is32bits)    // unlocking, because mmap might use it
         mutex_unlock(&mutex_blocks);
     void* p = is32bits
-                ?box_mmap(NULL, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE|MAP_32BIT, -1, 0)
-                :(box64_is32bits?box32_dynarec_mmap(allocsize):internal_mmap(NULL, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0));
+        ? box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)
+        : (box64_is32bits ? box32_dynarec_mmap(allocsize) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
     if(is32bits)
         mutex_lock(&mutex_blocks);
 #ifdef TRACE_MEMSTAT
@@ -669,7 +662,7 @@ void* internal_customMalloc(size_t size, int is32bits)
             // mask size from this block
             p_blocks[i].size = 0;
             mutex_unlock(&mutex_blocks);
-            showNativeBT(LOG_NONE);
+            ShowNativeBT(LOG_NONE);
             testAllBlocks();
             if(BOX64ENV(log)>=LOG_DEBUG) {
                 printf_log(LOG_NONE, "Used 32bits address space map:\n");
@@ -902,8 +895,8 @@ void* internal_customMemAligned(size_t align, size_t size, int is32bits)
     if(is32bits)
         mutex_unlock(&mutex_blocks);
     void* p = is32bits
-                ?mmap(NULL, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE|MAP_32BIT, -1, 0)
-                :internal_mmap(NULL, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+        ? mmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)
+        : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if(is32bits)
         mutex_lock(&mutex_blocks);
 #ifdef TRACE_MEMSTAT
@@ -988,7 +981,7 @@ void* box32_dynarec_mmap(size_t size)
     while(bend<0x800000000000LL) {
         if(rb_get_end(mapallmem, cur, &flag, &bend)) {
             if(flag==2 && bend-cur>=size) {
-                void* ret = internal_mmap((void*)cur, size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_FIXED|MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+                void* ret = InternalMmap((void*)cur, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
                 if(ret!=MAP_FAILED)
                     rb_set(mapallmem, cur, cur+size, 1);    // mark as allocated
                 else
@@ -1001,7 +994,8 @@ void* box32_dynarec_mmap(size_t size)
     }
 #endif
     //printf_log(LOG_INFO, "BOX32: Error allocating Dynarec memory: %s\n", "fallback to internal mmap");
-    return internal_mmap((void*)0x100000000LL, size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_FIXED|MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);;
+    return InternalMmap((void*)0x100000000LL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    ;
 }
 
 #ifdef DYNAREC
@@ -1022,10 +1016,26 @@ dynablock_t* FindDynablockFromNativeAddress(void* p)
     
     uintptr_t addr = (uintptr_t)p;
 
-    mapchunk_t* bl = (mapchunk_t*)rb_get_64(rbt_dynmem, (uintptr_t)p);
+    mapchunk_t* bl = (mapchunk_t*)rb_get_64(rbt_dynmem, addr);
     if(bl) {
-        dynablock_t** ret = (dynablock_t**)rb_get_64(bl->tree, (uintptr_t)p);
+        // search in the rbtree first
+        dynablock_t** ret = (dynablock_t**)rb_get_64(bl->tree, addr);
         if(ret) return *ret;
+        // browse the map allocation as a fallback
+        blockmark_t* sub = (blockmark_t*)bl->chunk.block;
+        while((uintptr_t)sub<addr) {
+            blockmark_t* n = NEXT_BLOCK(sub);
+            if((uintptr_t)n>addr) {
+                // found it!
+                if(!sub->next.fill) return NULL; // empty space?
+                // self is the field of a block
+                ret = (dynablock_t**)((uintptr_t)sub+sizeof(blockmark_t));
+                // add it to the rbtree for later fast retreival
+                rb_set_64(bl->tree, (uintptr_t)*ret, (uintptr_t)ret+SIZE_BLOCK(sub->next), (uintptr_t)*ret);
+                return *ret;
+            }
+            sub = n;
+        }
     }
     return NULL;
 }
@@ -1055,7 +1065,7 @@ uintptr_t AllocDynarecMap(size_t size)
                 void* ret = allocBlock(list->chunks[i].chunk.block, sub, size, &list->chunks[i].chunk.first);
                 if(rsize==list->chunks[i].chunk.maxfree)
                     list->chunks[i].chunk.maxfree = getMaxFreeBlock(list->chunks[i].chunk.block, list->chunks[i].chunk.size, list->chunks[i].chunk.first);
-                rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
+                //rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
                 return (uintptr_t)ret;
             }
         }
@@ -1075,13 +1085,13 @@ uintptr_t AllocDynarecMap(size_t size)
             // At least with a 2M allocation, transparent huge page should kick-in
             #if 0//def MAP_HUGETLB
             if(p==MAP_FAILED && allocsize==DYNMMAPSZ) {
-                p = internal_mmap(NULL, allocsize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+                p = InternalMmap(NULL, allocsize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
                 if(p!=MAP_FAILED) printf_log(LOG_INFO, "Allocated a dynarec memory block with HugeTLB\n");
                 else printf_log(LOG_INFO, "Failled to allocated a dynarec memory block with HugeTLB (%s)\n", strerror(errno));
             }
             #endif
             if(p==MAP_FAILED)
-                p = internal_mmap(NULL, allocsize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+                p = InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
             if(p==MAP_FAILED) {
                 dynarec_log(LOG_INFO, "Cannot create dynamic map of %zu bytes (%s)\n", allocsize, strerror(errno));
                 return 0;
@@ -1112,7 +1122,7 @@ uintptr_t AllocDynarecMap(size_t size)
             list->chunks[i].chunk.maxfree = getMaxFreeBlock(list->chunks[i].chunk.block, list->chunks[i].chunk.size, list->chunks[i].chunk.first);
             if(list->chunks[i].chunk.maxfree)
                 list->chunks[i].chunk.first = getNextFreeBlock(m);
-            rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
+            //rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
             return (uintptr_t)ret;
         }
         // next chunk...
@@ -1700,7 +1710,7 @@ static int hotpage_cnt = 0;
 static int repeated_count = 0;
 static uintptr_t repeated_page = 0;
 #define HOTPAGE_MARK 64
-#define HOTPAGE_DIRTY 2
+#define HOTPAGE_DIRTY 4
 void SetHotPage(uintptr_t addr)
 {
     hotpage = addr&~(box64_pagesize-1);
@@ -1849,6 +1859,7 @@ uintptr_t old_brk = 0;
 uintptr_t* cur_brk = NULL;
 void loadProtectionFromMap()
 {
+#ifndef _WIN32 // TODO: Should this be implemented on Win32?
     if(box64_mapclean)
         return;
     char buf[500];
@@ -1883,6 +1894,7 @@ void loadProtectionFromMap()
     }
     fclose(f);
     box64_mapclean = 1;
+#endif
 }
 
 void freeProtection(uintptr_t addr, size_t size)
@@ -2048,30 +2060,6 @@ int isBlockFree(void* hint, size_t size)
     return 0;
 }
 
-int unlockCustommemMutex()
-{
-    int ret = 0;
-    int i = 0;
-    #ifdef USE_CUSTOM_MUTEX
-    uint32_t tid = (uint32_t)GetTID();
-    #define GO(A, B)                    \
-        i = (native_lock_storeifref2_d(&A, 0, tid)==tid); \
-        if(i) {                         \
-            ret|=(1<<B);                \
-        }
-    #else
-    #define GO(A, B)                    \
-        i = checkUnlockMutex(&A);       \
-        if(i) {                         \
-            ret|=(1<<B);                \
-        }
-    #endif
-    GO(mutex_blocks, 0)
-    GO(mutex_prot, 1) // See also signals.c
-    #undef GO
-    return ret;
-}
-
 void relockCustommemMutex(int locks)
 {
     #define GO(A, B)                    \
@@ -2085,10 +2073,10 @@ void relockCustommemMutex(int locks)
 
 static void init_mutexes(void)
 {
-    #ifdef USE_CUSTOM_MUTEX
+#ifdef USE_CUSTOM_MUTEX
     native_lock_store(&mutex_blocks, 0);
     native_lock_store(&mutex_prot, 0);
-    #else
+#else
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK);
@@ -2096,7 +2084,7 @@ static void init_mutexes(void)
     pthread_mutex_init(&mutex_prot, &attr);
 
     pthread_mutexattr_destroy(&attr);
-    #endif
+#endif
 }
 
 static void atfork_child_custommem(void)
@@ -2111,11 +2099,11 @@ void reverveHigMem32(void)
     uintptr_t cur_size = 1024LL*1024*1024*1024; // start with 1TB check
     void* cur;
     while(cur_size>=65536) {
-        cur = internal_mmap(NULL, cur_size, 0, MAP_ANONYMOUS|MAP_PRIVATE|MAP_NORESERVE, -1, 0);
+        cur = InternalMmap(NULL, cur_size, 0, MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
         if((cur==MAP_FAILED) || (cur<(void*)0x100000000LL)) {
             if(cur!=MAP_FAILED) {
                 //printf_log(LOG_INFO, " Failed to reserve high %p (%zx)\n", cur, cur_size);
-                internal_munmap(cur, cur_size);
+                InternalMunmap(cur, cur_size);
             } //else 
                 //printf_log(LOG_INFO, " Failed to reserve %zx sized block\n", cur_size);
             cur_size>>=1;
@@ -2136,7 +2124,7 @@ void reverveHigMem32(void)
             start = bend;
         }
     }
-    personality(ADDR_LIMIT_32BIT);
+    PersonalityAddrLimit32Bit();
 }
 #endif
 void my_reserveHighMem()
@@ -2165,7 +2153,7 @@ void my_reserveHighMem()
             // create a border at 48bits
             if(cur<(1ULL<<48) && bend>(1ULL<<48))
                 bend = 1ULL<<48;
-            void* ret = internal_mmap((void*)cur, bend-cur, 0, MAP_ANONYMOUS|MAP_PRIVATE|MAP_NORESERVE, -1, 0);
+            void* ret = InternalMmap((void*)cur, bend - cur, 0, MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
             printf_log(LOG_DEBUG, "Reserve %p-%p => %p (%s)\n", (void*)cur, bend, ret, (ret==MAP_FAILED)?strerror(errno):"ok");
             if(ret!=(void*)-1) {
                 rb_set(mapallmem, cur, bend, 1);
@@ -2189,6 +2177,7 @@ void init_custommem_helper(box64context_t* ctx)
     if(inited) // already initialized
         return;
     inited = 1;
+
     cur_brk = dlsym(RTLD_NEXT, "__curbrk");
     blockstree = rbtree_init("blockstree");
     // if there is some blocks already
@@ -2275,7 +2264,7 @@ void fini_custommem_helper(box64context_t *ctx)
         while(head) {
             for (int i=0; i<NCHUNK; ++i) {
                 if(head->chunks[i].chunk.block)
-                    internal_munmap(head->chunks[i].chunk.block, head->chunks[i].chunk.size);
+                    InternalMunmap(head->chunks[i].chunk.block, head->chunks[i].chunk.size);
                 if(head->chunks[i].tree)
                     rbtree_delete(head->chunks[i].tree);
             }
@@ -2323,12 +2312,12 @@ void fini_custommem_helper(box64context_t *ctx)
     blockstree = NULL;
 
     for(int i=0; i<n_blocks; ++i)
-        internal_munmap(p_blocks[i].block, p_blocks[i].size);
+        InternalMunmap(p_blocks[i].block, p_blocks[i].size);
     box_free(p_blocks);
-    #ifndef USE_CUSTOM_MUTEX
+#if !defined(USE_CUSTOM_MUTEX)
     pthread_mutex_destroy(&mutex_prot);
     pthread_mutex_destroy(&mutex_blocks);
-    #endif
+#endif
 }
 
 #ifdef DYNAREC
@@ -2347,37 +2336,6 @@ int isLockAddress(uintptr_t addr)
 }
 
 #endif
-
-void* internal_mmap(void *addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
-{
-    #if 1//def STATICBUILD
-    void* ret = (void*)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
-    #else
-    static int grab = 1;
-    typedef void*(*pFpLiiiL_t)(void*, unsigned long, int, int, int, size_t);
-    static pFpLiiiL_t libc_mmap64 = NULL;
-    if(grab) {
-        libc_mmap64 = dlsym(RTLD_NEXT, "mmap64");
-    }
-    void* ret = libc_mmap64(addr, length, prot, flags, fd, offset);
-    #endif
-    return ret;
-}
-int internal_munmap(void* addr, unsigned long length)
-{
-    #if 1//def STATICBUILD
-    int ret = syscall(__NR_munmap, addr, length);
-    #else
-    static int grab = 1;
-    typedef int(*iFpL_t)(void*, unsigned long);
-    static iFpL_t libc_munmap = NULL;
-    if(grab) {
-        libc_munmap = dlsym(RTLD_NEXT, "munmap");
-    }
-    int ret = libc_munmap(addr, length);
-    #endif
-    return ret;
-}
 
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x200000
@@ -2401,28 +2359,28 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
             addr = find47bitBlock(length);
     }
     #endif
-    void* ret = internal_mmap(addr, length, prot, new_flags, fd, offset);
-    #if !defined(NOALIGN)
+    void* ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
+#if !defined(NOALIGN)
     if((ret!=MAP_FAILED) && (flags&MAP_32BIT) &&
       (((uintptr_t)ret>0xffffffffLL) || ((box64_wine) && ((uintptr_t)ret&0xffff) && (ret!=addr)))) {
         int olderr = errno;
-        internal_munmap(ret, length);
+        InternalMunmap(ret, length);
         loadProtectionFromMap();    // reload map, because something went wrong previously
         addr = find31bitBlockNearHint(old_addr, length, 0); // is this the best way?
         new_flags = (addr && isBlockFree(addr, length) )? (new_flags|MAP_FIXED) : new_flags;
         if((new_flags&(MAP_FIXED|MAP_FIXED_NOREPLACE))==(MAP_FIXED|MAP_FIXED_NOREPLACE)) new_flags&=~MAP_FIXED_NOREPLACE;
-        ret = internal_mmap(addr, length, prot, new_flags, fd, offset);
+        ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
         if(old_addr && ret!=old_addr && ret!=MAP_FAILED)
             errno = olderr;
     } else if((ret!=MAP_FAILED) && !(flags&MAP_FIXED) && ((box64_wine)) && (addr && (addr!=ret)) &&
              (((uintptr_t)ret>0x7fffffffffffLL) || ((uintptr_t)ret&~0xffff))) {
         int olderr = errno;
-        internal_munmap(ret, length);
+        InternalMunmap(ret, length);
         loadProtectionFromMap();    // reload map, because something went wrong previously
         addr = find47bitBlockNearHint(old_addr, length, 0); // is this the best way?
         new_flags = (addr && isBlockFree(addr, length)) ? (new_flags|MAP_FIXED) : new_flags;
         if((new_flags&(MAP_FIXED|MAP_FIXED_NOREPLACE))==(MAP_FIXED|MAP_FIXED_NOREPLACE)) new_flags&=~MAP_FIXED_NOREPLACE;
-        ret = internal_mmap(addr, length, prot, new_flags, fd, offset);
+        ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
         if(old_addr && ret!=old_addr && ret!=MAP_FAILED) {
             errno = olderr;
             if(old_addr>(void*)0x7fffffffff && !have48bits)
@@ -2435,6 +2393,6 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
 
 EXPORT int box_munmap(void* addr, size_t length)
 {
-    int ret = internal_munmap(addr, length);
+    int ret = InternalMunmap(addr, length);
     return ret;
 }
