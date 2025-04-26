@@ -9,7 +9,6 @@
 #include <sys/mman.h>
 #else
 typedef __int64 ssize_t;
-
 #define dlsym(a, b) NULL
 
 #define PROT_READ  0x1
@@ -42,6 +41,9 @@ int SchedYield(void);
 void EmuX64Syscall(void* emu);
 void EmuX86Syscall(void* emu);
 
+void* GetSeg43Base();
+void* GetSegmentBase(uint32_t desc);
+
 // These functions only applies to Linux --------------------------
 int IsBridgeSignature(char s, char c);
 int IsNativeCall(uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t* retn);
@@ -49,6 +51,9 @@ void EmuInt3(void* emu, void* addr);
 void* EmuFork(void* emu, int forktype);
 
 void PersonalityAddrLimit32Bit(void);
+
+int IsAddrElfOrFileMapped(uintptr_t addr);
+const char* GetNativeName(void* p);
 // ----------------------------------------------------------------
 
 #ifndef _WIN32
@@ -80,5 +85,13 @@ void PersonalityAddrLimit32Bit(void);
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
 #define PROT_EXEC  0x4
+
+#if defined(__clang__) && !defined(_WIN32)
+extern int isinff(float);
+extern int isnanf(float);
+#elif defined(_WIN32)
+#define isnanf isnan
+#define isinff isinf
+#endif
 
 #endif //__OS_H_

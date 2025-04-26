@@ -55,6 +55,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 FADDD(v1, v1, v2);
             }
+            X87_CHECK_PRECISION(v1);
             if(!BOX64ENV(dynarec_fastround))
                 x87_restoreround(dyn, ninst, u8);
             X87_POP_OR_FAIL(dyn, ninst, x3);
@@ -77,6 +78,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 FMULD(v1, v1, v2);
             }
+            X87_CHECK_PRECISION(v1);
             if(!BOX64ENV(dynarec_fastround))
                 x87_restoreround(dyn, ninst, u8);
             X87_POP_OR_FAIL(dyn, ninst, x3);
@@ -131,6 +133,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 FSUBD(v1, v2, v1);
             }
+            X87_CHECK_PRECISION(v1);
             if(!BOX64ENV(dynarec_fastround))
                 x87_restoreround(dyn, ninst, u8);
             X87_POP_OR_FAIL(dyn, ninst, x3);
@@ -153,6 +156,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 FSUBD(v1, v1, v2);
             }
+            X87_CHECK_PRECISION(v1);
             if(!BOX64ENV(dynarec_fastround))
                 x87_restoreround(dyn, ninst, u8);
             X87_POP_OR_FAIL(dyn, ninst, x3);
@@ -175,6 +179,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 FDIVD(v1, v2, v1);
             }
+            X87_CHECK_PRECISION(v1);
             if(!BOX64ENV(dynarec_fastround))
                 x87_restoreround(dyn, ninst, u8);
             X87_POP_OR_FAIL(dyn, ninst, x3);
@@ -197,6 +202,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 FDIVD(v1, v1, v2);
             }
+            X87_CHECK_PRECISION(v1);
             if(!BOX64ENV(dynarec_fastround))
                 x87_restoreround(dyn, ninst, u8);
             X87_POP_OR_FAIL(dyn, ninst, x3);
@@ -216,6 +222,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 SXTL_32(v2, v2);
                 SCVTFDD(v2, v2);
                 FADDD(v1, v1, v2);
+                X87_CHECK_PRECISION(v1);
                 break;
             case 1:
                 INST_NAME("FIMUL ST0, word[ED]");
@@ -227,6 +234,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 SXTL_32(v2, v2);
                 SCVTFDD(v2, v2);
                 FMULD(v1, v1, v2);
+                X87_CHECK_PRECISION(v1);
                 break;
             case 2:
                 INST_NAME("FICOM ST0, word[ED]");
@@ -263,6 +271,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 SXTL_32(v2, v2);
                 SCVTFDD(v2, v2);
                 FSUBD(v1, v1, v2);
+                X87_CHECK_PRECISION(v1);
                 break;
             case 5:
                 INST_NAME("FISUBR ST0, word[ED]");
@@ -274,6 +283,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 SXTL_32(v2, v2);
                 SCVTFDD(v2, v2);
                 FSUBD(v1, v2, v1);
+                X87_CHECK_PRECISION(v1);
                 break;
             case 6:
                 INST_NAME("FIDIV ST0, word[ED]");
@@ -285,6 +295,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 SXTL_32(v2, v2);
                 SCVTFDD(v2, v2);
                 FDIVD(v1, v1, v2);
+                X87_CHECK_PRECISION(v1);
                 break;
             case 7:
                 INST_NAME("FIDIVR ST0, word[ED]");
@@ -296,6 +307,7 @@ uintptr_t dynarec64_DE(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 SXTL_32(v2, v2);
                 SCVTFDD(v2, v2);
                 FDIVD(v1, v2, v1);
+                X87_CHECK_PRECISION(v1);
                 break;
         }
     return addr;

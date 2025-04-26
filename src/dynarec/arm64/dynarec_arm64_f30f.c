@@ -77,30 +77,14 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
         case 0x12:
             INST_NAME("MOVSLDUP Gx, Ex");
             nextop = F8;
-            if(MODREG) {
-                q1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
-            } else {
-                SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
-                q1 = fpu_get_scratch(dyn, ninst);
-                VLD128(q1, ed, fixedaddress);
-            }
-            GETGX_empty(q0);
+            GETGX_empty_EX(q0, q1, 0);
             VTRNQ1_32(q0, q1, q1);
             break;
 
         case 0x16:
             INST_NAME("MOVSHDUP Gx, Ex");
             nextop = F8;
-            if(MODREG) {
-                q1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
-            } else {
-                SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
-                q1 = fpu_get_scratch(dyn, ninst);
-                VLD128(q1, ed, fixedaddress);
-            }
-            GETGX_empty(q0);
+            GETGX_empty_EX(q0, q1, 0);
             VTRNQ2_32(q0, q1, q1);
             break;
 
@@ -374,15 +358,9 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETGX(v0, 1);
             GETEXSS(v1, 0, 0);
             // MINSS: if any input is NaN, or Ex[0]<Gx[0], copy Ex[0] -> Gx[0]
-            #if 0
-            d0 = fpu_get_scratch(dyn, ninst);
-            FMINNMS(d0, v0, v1);    // NaN handling may be slightly different, is that a problem?
-            VMOVeS(v0, 0, d0, 0);   // to not erase uper part
-            #else
             FCMPS(v0, v1);
-            B_NEXT(cCC);    //Less than
+            B_NEXT(cCC);    //CC invert of CS: NAN or == or Gx > Ex
             VMOVeS(v0, 0, v1, 0);   // to not erase uper part
-            #endif
             break;
         case 0x5E:
             INST_NAME("DIVSS Gx, Ex");
@@ -412,23 +390,16 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETGX(v0, 1);
             GETEXSS(v1, 0, 0);
             // MAXSS: if any input is NaN, or Ex[0]>Gx[0], copy Ex[0] -> Gx[0]
-            #if 0
-            d0 = fpu_get_scratch(dyn, ninst);
-            FMAXNMS(d0, v0, v1);    // NaN handling may be slightly different, is that a problem?
-            VMOVeS(v0, 0, d0, 0);   // to not erase uper part
-            #else
-            FCMPS(v0, v1);
-            B_NEXT(cGT);    //Greater than
+            FCMPS(v1, v0);
+            B_NEXT(cCC);    //CC: invert of CS: NAN or == or Ex > Gx
             VMOVeS(v0, 0, v1, 0);   // to not erase uper part
-            #endif
             break;
 
         case 0x6F:
             INST_NAME("MOVDQU Gx,Ex");// no alignment constraint on NEON here, so same as MOVDQA
             nextop = F8;
             if(MODREG) {
-                v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
-                GETGX_empty(v0);
+                GETGX_empty_EX(v0, v1, 0);
                 VMOVQ(v0, v1);
             } else {
                 GETGX_empty(v0);
@@ -488,13 +459,9 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 IF_UNALIGNED(ip) {
                     MESSAGE(LOG_DEBUG, "\tUnaligned path");
                     addr = geted(dyn, addr, ninst, nextop, &wback, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
-                    if(wback!=x1) {
-                        MOVx_REG(x1, wback);
-                        wback = x1;
-                    }
                     for(int i=0; i<16; ++i) {
-                        VST1_8(v0, i, wback);
-                        ADDx_U12(wback, wback, 1);
+                        VST1_8(v0, i, i?x1:wback);
+                        ADDx_U12(x1, i?x1:wback, 1);
                     }
                 } else {
                     addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);

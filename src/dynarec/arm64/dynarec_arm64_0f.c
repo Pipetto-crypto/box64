@@ -279,12 +279,12 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0x12:
             nextop = F8;
             if(MODREG) {
-                INST_NAME("MOVHLPS Gx,Ex");
+                INST_NAME("MOVHLPS Gx, Ex");
                 GETGX(v0, 1);
                 v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
                 VMOVeD(v0, 0, v1, 1);
             } else {
-                INST_NAME("MOVLPS Gx,Ex");
+                INST_NAME("MOVLPS Gx, Ex");
                 GETGX(v0, 1);
                 SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
@@ -293,11 +293,11 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
         case 0x13:
             nextop = F8;
-            INST_NAME("MOVLPS Ex,Gx");
+            INST_NAME("MOVLPS Ex, Gx");
             GETGX(v0, 0);
             if(MODREG) {
-                v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 1);
-                VMOVeD(v1, 0, v0, 0);
+                DEFAULT;
+                return addr;
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
                 VST1_64(v0, 0, ed);  // better to use VST1 than VSTR_64, to avoid NEON->VFPU transfert I assume
@@ -321,12 +321,12 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0x16:
             nextop = F8;
             if(MODREG) {
-                INST_NAME("MOVLHPS Gx,Ex");
+                INST_NAME("MOVLHPS Gx, Ex");
                 GETGX(v0, 1);
                 v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
                 VMOVeD(v0, 1, v1, 0);
             } else {
-                INST_NAME("MOVHPS Gx,Ex");
+                INST_NAME("MOVHPS Gx, Ex");
                 SMREAD();
                 GETGX(v0, 1);
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
@@ -335,7 +335,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
         case 0x17:
             nextop = F8;
-            INST_NAME("MOVHPS Ex,Gx");
+            INST_NAME("MOVHPS Ex, Gx");
             GETGX(v0, 0);
             if(MODREG) {
                 v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 1);
@@ -433,9 +433,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             GETG;
             v0 = sse_get_reg(dyn, ninst, x1, gd, 0);
             if(MODREG) {
-                ed = (nextop&7)+(rex.b<<3);
-                v1 = sse_get_reg_empty(dyn, ninst, x1, ed);
-                VMOVQ(v1, v0);
+                DEFAULT;
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
                 VST128(v0, ed, fixedaddress);
@@ -679,7 +677,10 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     nextop = F8;
                     GETGM(q0);
                     GETEM(q1, 0);
-                    SQRDMULH_16(q0, q0, q1);
+                    v0 = fpu_get_scratch(dyn, ninst);
+                    VSMULL_16(v0, q0, q1);
+                    SRSHRQ_32(v0, v0, 15);
+                    XTN_16(q0, v0);
                     break;
                 case 0x1C:
                     INST_NAME("PABSB Gm,Em");
@@ -1025,7 +1026,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         GOCOND(0x40, "CMOV", "Gd, Ed");
         #undef GO
         case 0x50:
-            INST_NAME("MOVMSPKPS Gd, Ex");
+            INST_NAME("MOVMSKPS Gd, Ex");
             nextop = F8;
             GETGD;
             MOV32w(gd, 0);
@@ -1046,14 +1047,13 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 // EX is memory
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, NULL, (0xfff<<3)-8, 7, rex, NULL, 0, 0);
-                LDRx_U12(x1, ed, fixedaddress+0);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, NULL, 0x3f<<3, 7, rex, NULL, 1, 0);
+                LDPx_S7_offset(x1, x2, ed, fixedaddress);
                 LSRx(x1, x1, 31);
                 BFIx(gd, x1, 0, 1);
                 LSRx(x1, x1, 32);
                 BFIx(gd, x1, 1, 1);
-                LDRx_U12(x1, ed, fixedaddress+8);
-                LSRx(x1, x1, 31);
+                LSRx(x1, x2, 31);
                 BFIx(gd, x1, 2, 1);
                 LSRx(x1, x1, 32);
                 BFIx(gd, x1, 3, 1);
@@ -2813,11 +2813,8 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             GETGM(v0);
             GETEM(v1, 0);
             q0 = fpu_get_scratch(dyn, ninst);
-            q1 = fpu_get_scratch(dyn, ninst);
             VUMULL_16(q0, v0, v1);
-            VUMULL2_16(q1, v0, v1);
-            UQSHRN_16(v0, q0, 16);
-            UQSHRN2_16(v0, q1, 16);
+            UQSHRN_16(v0, q0, 16);  // saturation will never happens as only 16bits remain and fits in 16bits
             break;
         case 0xE5:
             INST_NAME("PMULHW Gm,Em");

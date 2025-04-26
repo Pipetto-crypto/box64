@@ -721,13 +721,13 @@
 
 // CALL will use x7 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2
-#define CALL(F, ret) call_c(dyn, ninst, F, x7, ret, 1, 0)
+#define CALL(F, ret) call_c(dyn, ninst, F, x87pc, ret, 1, 0)
 // CALL_ will use x7 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2
-#define CALL_(F, ret, reg) call_c(dyn, ninst, F, x7, ret, 1, reg)
+#define CALL_(F, ret, reg) call_c(dyn, ninst, F, x87pc, ret, 1, reg)
 // CALL_S will use x7 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2. Flags are not save/restored
-#define CALL_S(F, ret) call_c(dyn, ninst, F, x7, ret, 0, 0)
+#define CALL_S(F, ret) call_c(dyn, ninst, F, x87pc, ret, 0, 0)
 // CALL_ will use x7 for the call address.
 // All regs are saved, including scratch. This is use to call internal function that should not change state
 #define CALL_I(F) call_i(dyn, ninst, F)
@@ -759,6 +759,10 @@
 #define CBZw_MARK(reg)                  \
     j64 = GETMARK-(dyn->native_size);   \
     CBZw(reg, j64)
+// Branch to MARK if reg is 0 (use j64)
+#define CBZx_MARK(reg)                  \
+    j64 = GETMARK-(dyn->native_size);   \
+    CBZx(reg, j64)
 // Branch to MARK if reg is 0 (use j64)
 #define CBZxw_MARK(reg)                 \
     j64 = GETMARK-(dyn->native_size);   \
@@ -998,6 +1002,22 @@
 #define CALLRET_LOOP()  NOP
 #endif
 
+#ifndef NATIVE_RESTORE_X87PC
+#define NATIVE_RESTORE_X87PC()                          \
+    if(dyn->need_x87check) {                            \
+        LDRH_U12(x87pc, xEmu, offsetof(x64emu_t, cw));  \
+        UBFXw(x87pc, x87pc, 8, 2);                      \
+    }
+#endif
+#ifndef X87_CHECK_PRECISION
+#define X87_CHECK_PRECISION(A)               \
+    if (!ST_IS_F(0) && dyn->need_x87check) { \
+        CBNZw(x87pc, 4 + 8);                 \
+        FCVT_S_D(A, A);                      \
+        FCVT_D_S(A, A);                      \
+    }
+#endif
+
 #define STORE_REG(A)    STRx_U12(x##A, xEmu, offsetof(x64emu_t, regs[_##A]))
 #define STP_REGS(A, B)  STPx_S7_offset(x##A, x##B, xEmu, offsetof(x64emu_t, regs[_##A]))
 #define LDP_REGS(A, B)  LDPx_S7_offset(x##A, x##B, xEmu, offsetof(x64emu_t, regs[_##A]))
@@ -1075,7 +1095,7 @@
 #else
 #define X87_PUSH_OR_FAIL(var, dyn, ninst, scratch, t)   \
     if ((dyn->n.x87stack==8) || (dyn->n.pushed==8)) {   \
-        if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
+        if(dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
         dyn->abort = 1;                                 \
         return addr;                                    \
     }                                                   \
@@ -1083,7 +1103,7 @@
 
 #define X87_PUSH_EMPTY_OR_FAIL(dyn, ninst, scratch)     \
     if ((dyn->n.x87stack==8) || (dyn->n.pushed==8)) {   \
-        if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
+        if(dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
         dyn->abort = 1;                                 \
         return addr;                                    \
     }                                                   \
@@ -1091,7 +1111,7 @@
 
 #define X87_POP_OR_FAIL(dyn, ninst, scratch)            \
     if ((dyn->n.x87stack==-8) || (dyn->n.poped==8)) {   \
-        if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.poped, ninst); \
+        if(dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.poped, ninst); \
         dyn->abort = 1;                                 \
         return addr;                                    \
     }                                                   \

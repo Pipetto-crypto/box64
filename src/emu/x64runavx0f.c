@@ -30,11 +30,6 @@
 
 #include "modrm.h"
 
-#ifdef __clang__
-extern int isinff(float);
-extern int isnanf(float);
-#endif
-
 #ifdef TEST_INTERPRETER
 uintptr_t TestAVX_0F(x64test_t *test, vex_t vex, uintptr_t addr, int *step)
 #else
@@ -90,6 +85,9 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 GETGY;
                 EY->q[0] = GY->q[0];
                 EY->q[1] = GY->q[1];
+            } else if(MODREG) {
+                GETEY;
+                EY->u128 = 0;
             }
             break;
         case 0x12:
@@ -107,9 +105,11 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             break;
         case 0x13:                      /* VMOVLPS Ex, Gx */
             nextop = F8;
-            GETEX(0);
-            GETGX;
-            EX->q[0] = GX->q[0];
+            if(!MODREG) {
+                GETEX(0);
+                GETGX;
+                EX->q[0] = GX->q[0];
+            }
             break;
         case 0x14:  /* VUNPCKLPS Gx, Vx, Ex */
             nextop = F8;
@@ -149,7 +149,7 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 GY->u128 = 0;
             break;
         case 0x16:
-            nextop = F8;               
+            nextop = F8;
             GETEX(0);
             GETGX;
             GETVX;
@@ -157,7 +157,7 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             if(MODREG) {                /* VMOVLHPS Gx, Vx, Ex */
                 GX->q[1] = EX->q[0];
             } else {
-                GX->q[1] = EX->q[0];    /* MOVHPS Gx,Ex */
+                GX->q[1] = EX->q[0];    /* VMOVHPS Gx, Vx, Ex */
             }
             GX->q[0] = VX->q[0];
             GY->u128 = 0;
@@ -167,6 +167,10 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GETEX(0);
             GETGX;
             EX->q[0] = GX->q[1];
+            if(MODREG) {
+                GETEY;
+                EY->u128 = 0;
+            }
             break;
 
         case 0x28:  /* VMOVAPS Gx, Ex */
@@ -195,20 +199,25 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 GETGY;
                 EY->q[0] = GY->q[0];
                 EY->q[1] = GY->q[1];
+            } else if(MODREG) {
+                GETEY;
+                EY->u128 = 0;
             }
             break;
 
         case 0x2B:                      /* VMOVNTPS Ex,Gx */
             nextop = F8;
-            GETEX(0);
-            GETGX;
-            EX->q[0] = GX->q[0];
-            EX->q[1] = GX->q[1];
-            if(vex.l) {
-                GETEY;
-                GETGY;
-                EY->q[0] = GY->q[0];
-                EY->q[1] = GY->q[1];
+            if(!MODREG) {
+                GETEX(0);
+                GETGX;
+                EX->q[0] = GX->q[0];
+                EX->q[1] = GX->q[1];
+                if(vex.l) {
+                    GETEY;
+                    GETGY;
+                    EY->q[0] = GY->q[0];
+                    EY->q[1] = GY->q[1];
+                }
             }
             break;
 
@@ -519,7 +528,7 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GETVX;
             GETGY;
             for(int i=0; i<4; ++i)
-                if (isnanf(VX->f[i]) || isnanf(EX->f[i]) || isgreater(VX->f[i], EX->f[i]))
+                if (isnanf(VX->f[i]) || isnanf(EX->f[i]) || islessequal(EX->f[i], VX->f[i]))
                     GX->f[i] = EX->f[i];
                 else
                     GX->f[i] = VX->f[i];
@@ -527,7 +536,7 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 GETEY;
                 GETVY;
                 for(int i=0; i<4; ++i)
-                    if (isnanf(VY->f[i]) || isnanf(EY->f[i]) || isgreater(VY->f[i], EY->f[i]))
+                    if (isnanf(VY->f[i]) || isnanf(EY->f[i]) || islessequal(EY->f[i], VY->f[i]))
                         GY->f[i] = EY->f[i];
                     else
                         GY->f[i] = VY->f[i];
@@ -575,7 +584,7 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             GETVX;
             GETGY;
             for(int i=0; i<4; ++i)
-                if (isnanf(VX->f[i]) || isnanf(EX->f[i]) || isgreater(EX->f[i], VX->f[i]))
+                if (isnanf(VX->f[i]) || isnanf(EX->f[i]) || isgreaterequal(EX->f[i], VX->f[i]))
                     GX->f[i] = EX->f[i];
                 else
                     GX->f[i] = VX->f[i];
@@ -583,7 +592,7 @@ uintptr_t RunAVX_0F(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                 GETEY;
                 GETVY;
                 for(int i=0; i<4; ++i)
-                    if (isnanf(VY->f[i]) || isnanf(EY->f[i]) || isgreater(EY->f[i], VY->f[i]))
+                    if (isnanf(VY->f[i]) || isnanf(EY->f[i]) || isgreaterequal(EY->f[i], VY->f[i]))
                         GY->f[i] = EY->f[i];
                     else
                         GY->f[i] = VY->f[i];

@@ -79,11 +79,13 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             } else {
                 v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                VLDR128_U12(v0, ed, fixedaddress);   // no alignment issue with ARMv8 NEON :)
                 if(vex.l) {
-                    v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, -1, -1, -1);
-                    VLDR128_U12(v0, ed, fixedaddress+16);
+                    v1 = ymm_get_reg_empty(dyn, ninst, x1, gd, -1, -1, -1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                    VLDP128_I7(v0, v1, ed, fixedaddress);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                    VLD128(v0, ed, fixedaddress);   // no alignment issue with ARMv8 NEON :)
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -101,13 +103,15 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
                     v0 = ymm_get_reg(dyn, ninst, x1, gd, 0, ed, -1, -1);
                     v1 = ymm_get_reg_empty(dyn, ninst, x1, ed, gd, -1, -1);
                     VMOVQ(v1, v0);
-                }
+                } else YMM0(ed);
             } else {
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                VSTR128_U12(v0, ed, fixedaddress);
                 if(vex.l) {
-                    v0 = ymm_get_reg(dyn, ninst, x1, gd, 0, ed, -1, -1);
-                    VSTR128_U12(v0, ed, fixedaddress+16);
+                    v1 = ymm_get_reg(dyn, ninst, x1, gd, 0, ed, -1, -1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                    VSTP128_I7(v0, v1, ed, fixedaddress);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                    VST128(v0, ed, fixedaddress);
                 }
                 SMWRITE2();
             }
@@ -137,17 +141,14 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             break;
         case 0x13:
             nextop = F8;
-            INST_NAME("VMOVLPS Ex, Vx, Gx");
+            INST_NAME("VMOVLPS Ex, Gx");
             GETGX(v0, 0);
-            GETVX(v2, 0);
-            if(v1!=v2)
-                VMOVQ(v0, v2);
             if(MODREG) {
-                v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 1);
-                if(v0!=v1) VMOVeD(v1, 0, v0, 0);
+                DEFAULT;
+                return addr;
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
-                VST1_64(v0, 0, ed);  // better to use VST1 than VSTR_64, to avoid NEON->VFPU transfert I assume
+                VST1_64(v0, 0, ed);
                 SMWRITE2();
             }
             break;
@@ -195,12 +196,14 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             YMM0(gd);
             break;
         case 0x17:
-            INST_NAME("VMOVHPS Ex,Gx");
+            INST_NAME("VMOVHPS Ex, Gx");
             nextop = F8;
             GETGX(v0, 0);
             if(MODREG) {
-                v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 1);
+                ed = (nextop&7)+(rex.b<<3);
+                v1 = sse_get_reg(dyn, ninst, x1, ed, 1);
                 VMOVeD(v1, 0, v0, 1);
+                YMM0(ed);
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
                 VST1_64(v0, 1, ed);
@@ -224,11 +227,13 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             } else {
                 v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x3, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                VLDR128_U12(v0, ed, fixedaddress);
                 if(vex.l) {
-                    GETGY_empty(v0, -1, -1, -1);
-                    VLDR128_U12(v0, ed, fixedaddress+16);
+                    GETGY_empty(v1, -1, -1, -1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                    VLDP128_I7(v0, v1, ed, fixedaddress);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x3, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                    VLD128(v0, ed, fixedaddress);
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -245,13 +250,15 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
                 if(vex.l) {
                     GETGYEY_empty(v0, v1);
                     VMOVQ(v1, v0);
-                }
+                } else YMM0(ed);
             } else {
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                VSTR128_U12(v0, ed, fixedaddress);
                 if(vex.l) {
-                    GETGY(v0, 0, -1, -1, -1);
-                    VSTR128_U12(v0, ed, fixedaddress+16);
+                    GETGY(v1, 0, -1, -1, -1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                    VSTP128_I7(v0, v1, ed, fixedaddress);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                    VST128(v0, ed, fixedaddress);
                 }
                 SMWRITE2();
             }
@@ -269,13 +276,15 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
                 if(vex.l) {
                     GETGYEY_empty(v0, v1);
                     VMOVQ(v1, v0);
-                }
+                } else YMM0(ed);
             } else {
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                VSTR128_U12(v0, ed, fixedaddress);
                 if(vex.l) {
-                    GETGY(v0, 0, -1, -1, -1);
-                    VSTR128_U12(v0, ed, fixedaddress+16);
+                    GETGY(v1, 0, -1, -1, -1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                    VSTP128_I7(v0, v1, ed, fixedaddress);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                    VST128(v0, ed, fixedaddress);
                 }
             }
             break;
@@ -293,7 +302,7 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             break;
 
         case 0x50:
-            INST_NAME("VMOVMSPKPS Gd, Ex");
+            INST_NAME("VMOVMSKPS Gd, Ex");
             nextop = F8;
             GETGD;
             MOV32w(gd, 0);
@@ -316,15 +325,14 @@ uintptr_t dynarec64_AVX_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
             } else {
                 // EX is memory
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, NULL, (0xfff<<3)-24, 7, rex, NULL, 0, 0);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, NULL, (0x3f<<3)-16, 7, rex, NULL, 1, 0);
                 for(int l=0; l<1+vex.l; ++l) {
-                    LDRx_U12(x1, ed, fixedaddress+16*l);
+                    LDPx_S7_offset(x1, x2, ed, fixedaddress+16*l);
                     LSRx(x1, x1, 31);
                     BFIx(gd, x1, 0+(l*4), 1);
                     LSRx(x1, x1, 32);
                     BFIx(gd, x1, 1+(l*4), 1);
-                    LDRx_U12(x1, ed, fixedaddress+8+16*l);
-                    LSRx(x1, x1, 31);
+                    LSRx(x1, x2, 31);
                     BFIx(gd, x1, 2+(l*4), 1);
                     LSRx(x1, x1, 32);
                     BFIx(gd, x1, 3+(l*4), 1);

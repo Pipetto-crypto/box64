@@ -126,6 +126,7 @@ typedef struct instruction_arm64_s {
     unsigned            invert_carry:1; // this opcode force an inverted carry
     unsigned            df_notneeded:1;
     unsigned            unaligned:1;    // this opcode can be re-generated for unaligned special case
+    unsigned            x87precision:1; // this opcode can handle x87pc
     flagcache_t         f_exit;     // flags status at end of instruction
     neoncache_t         n;          // neoncache at end of instruction (but before poping)
     flagcache_t         f_entry;    // flags status before the instruction begin
@@ -171,6 +172,8 @@ typedef struct dynarec_arm_s {
     uint8_t             always_test;
     uint8_t             abort;      // abort the creation of the block
     void*               gdbjit_block;
+    uint32_t            need_x87check;  // needs x87 precision control check if non-null, or 0 if not
+    uint32_t            need_dump;     // need to dump the block
 } dynarec_arm_t;
 
 void add_next(dynarec_arm_t *dyn, uintptr_t addr);

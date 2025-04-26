@@ -29,9 +29,8 @@
 #include "elfloader.h"
 
 #define XMM0 0
-#define XMM8 16
-#define X870 8
-#define EMM0 8
+#define X870 16
+#define EMM0 16
 
 // Get a FPU scratch reg
 int fpu_get_scratch(dynarec_la64_t* dyn)
@@ -66,11 +65,8 @@ int fpu_get_reg_emm(dynarec_la64_t* dyn, int emm)
 int fpu_get_reg_xmm(dynarec_la64_t* dyn, int t, int xmm)
 {
     int i;
-    if (xmm > 7) {
-        i = XMM8 + xmm - 8;
-    } else {
-        i = XMM0 + xmm;
-    }
+    i = XMM0 + xmm;
+
     dyn->lsx.fpuused[i] = 1;
     dyn->lsx.lsxcache[i].t = t;
     dyn->lsx.lsxcache[i].n = xmm;
@@ -354,7 +350,7 @@ static register_mapping_t register_mappings[] = {
 void printf_x64_instruction(dynarec_native_t* dyn, zydis_dec_t* dec, instruction_x64_t* inst, const char* name);
 void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t rex)
 {
-    if (!BOX64DRENV(dynarec_dump) && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
+    if (!dyn->need_dump && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
 
     static char buf[256];
     int length = sprintf(buf, "barrier=%d state=%d/%d(%d), %s=%X/%X, use=%X, need=%X/%X, fuse=%d, sm=%d(%d/%d)",
@@ -399,11 +395,11 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
     if (dyn->insts[ninst].lsx.combined1 || dyn->insts[ninst].lsx.combined2)
         length += sprintf(buf + length, " %s:%d/%d", dyn->insts[ninst].lsx.swapped ? "SWP" : "CMB", dyn->insts[ninst].lsx.combined1, dyn->insts[ninst].lsx.combined2);
 
-    if (BOX64DRENV(dynarec_dump)) {
+    if (dyn->need_dump) {
         printf_x64_instruction(dyn, rex.is32bits ? my_context->dec32 : my_context->dec, &dyn->insts[ninst].x64, name);
         dynarec_log(LOG_NONE, "%s%p: %d emitted opcodes, inst=%d, %s%s\n",
-            (BOX64DRENV(dynarec_dump) > 1) ? "\e[32m" : "",
-            (void*)(dyn->native_start + dyn->insts[ninst].address), dyn->insts[ninst].size / 4, ninst, buf, (BOX64DRENV(dynarec_dump) > 1) ? "\e[m" : "");
+            (dyn->need_dump > 1) ? "\e[32m" : "",
+            (void*)(dyn->native_start + dyn->insts[ninst].address), dyn->insts[ninst].size / 4, ninst, buf, (dyn->need_dump > 1) ? "\e[m" : "");
     }
     if (BOX64ENV(dynarec_gdbjit)) {
         static char buf2[512];

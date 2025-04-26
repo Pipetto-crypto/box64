@@ -343,12 +343,8 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                     MOVI_64(q0, u8);
                     SXTL_8(q0, q0);    // expand 8bits to 16bits...
                 }
-                if(v0==v1) {
-                    VBIFQ(v0, v2, q0);
-                } else {
-                    if(v0!=v2) VMOVQ(v0, v2);
-                    VBITQ(v0, v1, q0);
-                }
+                if(v0!=v2) VBIFQ(v0, v2, q0);
+                if(v0!=v1) VBITQ(v0, v1, q0);
             }
             if(!vex.l) YMM0(gd);
             break;
@@ -660,11 +656,11 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 if(!(u8&(1<<i))) {
                     VMOVQDfrom(v0, i, xZR);
                 }
-            if(!vex.l) YMM0(gd);
+            YMM0(gd);
             break;
 
         case 0x44:
-            INST_NAME("PCLMULQDQ Gx, Vx, Ex, Ib");
+            INST_NAME("VPCLMULQDQ Gx, Vx, Ex, Ib");
             nextop = F8;
             if(arm64_pmull) {
                 d0 = fpu_get_scratch(dyn, ninst);
@@ -693,34 +689,24 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                     }
                 }
             } else {
-                for(int l=0; l<1+vex.l; ++l) {
-                    if(!l) {
-                        GETG;
-                        sse_forget_reg(dyn, ninst, gd);
-                        sse_reflect_reg(dyn, ninst, vex.v);
+                GETG;
+                sse_forget_reg(dyn, ninst, gd);
+                sse_reflect_reg(dyn, ninst, vex.v);
+                MOV32w(x1, gd); // gx
+                MOV32w(x2, vex.v); // vx
+                if(MODREG) {
+                    ed = (nextop&7)+(rex.b<<3);
+                    sse_forget_reg(dyn, ninst, ed);
+                    MOV32w(x3, ed);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x3, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 1);
+                    if(ed!=x3) {
+                        MOVx_REG(x3, ed);
                     }
-                    MOV32w(x1, gd); // gx
-                    MOV32w(x2, vex.v); // vx
-                    if(MODREG) {
-                        if(!l) {
-                            ed = (nextop&7)+(rex.b<<3);
-                            sse_forget_reg(dyn, ninst, ed);
-                        }
-                        MOV32w(x3, ed);
-                    } else {
-                        if(!l) {
-                            addr = geted(dyn, addr, ninst, nextop, &ed, x3, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 1);
-                            if(ed!=x3) {
-                                MOVx_REG(x3, ed);
-                            }
-                        } else {
-                            ADDx_U12(x3, ed, 16);
-                        }
-                    }
-                    if(!l) u8 = F8;
-                    MOV32w(x4, u8);
-                    CALL_(l?native_pclmul_y:native_pclmul_x, -1, x3);
                 }
+                u8 = F8;
+                MOV32w(x4, u8);
+                CALL_(vex.l?native_pclmul_y:native_pclmul_x, -1, x3);
             }
             if(!vex.l) YMM0(gd);
             break;
@@ -747,12 +733,8 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                     v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, u8, (MODREG)?((nextop&7)+(rex.b<<3)):-1);
                 }
                 VSSHRQ_32(q0, q1, 31);   // create mask
-                if(v0==v1)
-                    VBIFQ(v0, v2, q0);
-                else {
-                    if(v0!=v2) VMOVQ(v0, v2);
-                    VBITQ(v0, v1, q0);
-                }
+                if(v0!=v2) VBIFQ(v0, v2, q0);
+                if(v0!=v1) VBITQ(v0, v1, q0);
             }
             if(!vex.l) YMM0(gd);
             break;
@@ -776,41 +758,34 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                     v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, u8, (MODREG)?((nextop&7)+(rex.b<<3)):-1);
                 }
                 VSSHRQ_64(q0, q1, 63);   // create mask
-                if(v0==v1)
-                    VBIFQ(v0, v2, q0);
-                else {
-                    if(v0!=v2) VMOVQ(v0, v2);
-                    VBITQ(v0, v1, q0);
-                }
+                if(v0!=v2) VBIFQ(v0, v2, q0);
+                if(v0!=v1) VBITQ(v0, v1, q0);
             }
             if(!vex.l) YMM0(gd);
             break;
         case 0x4C:
-            INST_NAME("VBLENDPVB Gx, Vx, Ex, XMMImm8");
+            INST_NAME("VPBLENDVB Gx, Vx, Ex, XMMImm8");
             nextop = F8;
             q0 = fpu_get_scratch(dyn, ninst);
             u8 = geted_ib(dyn, addr, ninst, nextop)>>4;
+            ed = (nextop&7)+(rex.b<<3);
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { 
                     q1 = sse_get_reg(dyn, ninst, x1, u8, 0);
                     GETGX_empty_VXEX(v0, v2, v1, 1); 
                     F8;
                 } else { 
-                    v2 = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, u8, (MODREG)?((nextop&7)+(rex.b<<3)):-1);
+                    v2 = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, u8, (MODREG)?ed:-1);
                     if(MODREG)
-                        v1 = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0, gd, vex.v, u8);
+                        v1 = ymm_get_reg(dyn, ninst, x1, ed, 0, gd, vex.v, u8);
                     else
                         VLDR128_U12(v1, ed, fixedaddress+16);
-                    q1 = ymm_get_reg(dyn, ninst, x1, u8, 0, vex.v, gd, (MODREG)?((nextop&7)+(rex.b<<3)):-1);
-                    v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, u8, (MODREG)?((nextop&7)+(rex.b<<3)):-1);
+                    q1 = ymm_get_reg(dyn, ninst, x1, u8, 0, vex.v, gd, (MODREG)?ed:-1);
+                    v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, u8, (MODREG)?ed:-1);
                 }
                 VSSHRQ_8(q0, q1, 7);   // create mask
-                if(v0==v1)
-                    VBIFQ(v0, v2, q0);
-                else {
-                    if(v0!=v2) VMOVQ(v0, v2);
-                    VBITQ(v0, v1, q0);
-                }
+                if(v0!=v2) VBIFQ(v0, v2, q0);
+                if(v0!=v1) VBITQ(v0, v1, q0);
             }
             if(!vex.l) YMM0(gd);
             break;

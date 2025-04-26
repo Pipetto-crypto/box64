@@ -116,12 +116,13 @@ uintptr_t dynarec64_67_AVX(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
                 GETG;
                 v0 = sse_get_reg(dyn, ninst, x1, gd, 0);
                 if(MODREG) {
-                    v1 = sse_get_reg_empty(dyn, ninst, x1, (nextop&7)+(rex.b<<3));
+                    ed = (nextop&7)+(rex.b<<3);
+                    v1 = sse_get_reg_empty(dyn, ninst, x1, ed);
                     VMOV(v1, v0);
-                    YMM0((nextop&7)+(rex.b<<3));
+                    YMM0(ed);
                 } else {
-                    addr = geted32(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xfff<<3, 7, rex, NULL, 0, 0);
-                    VSTR64_U12(v0, ed, fixedaddress);
+                    addr = geted32(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<3, 7, rex, NULL, 0, 0);
+                    VST64(v0, ed, fixedaddress);
                 }
                 break;
 
@@ -145,8 +146,8 @@ uintptr_t dynarec64_67_AVX(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int
     }
     else {DEFAULT;}
 
-    if((*ok==-1) && (BOX64ENV(dynarec_log)>=LOG_INFO || BOX64DRENV(dynarec_dump) || BOX64ENV(dynarec_missing)==1))
-        if(!dyn->size || BOX64ENV(dynarec_log)>LOG_INFO || BOX64DRENV(dynarec_dump)) {
+    if((*ok==-1) && (BOX64ENV(dynarec_log)>=LOG_INFO || dyn->need_dump || BOX64ENV(dynarec_missing)==1))
+        if(!dyn->size || BOX64ENV(dynarec_log)>LOG_INFO || dyn->need_dump) {
             dynarec_log(LOG_NONE, "Dynarec unimplemented AVX opcode size %d prefix %s map %s opcode %02X ", 128<<vex.l, avx_prefix_string(vex.p), avx_map_string(vex.m), opcode);
     }
     return addr;

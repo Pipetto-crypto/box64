@@ -840,6 +840,23 @@
 #define IF_ALIGNED(A) if (!is_addr_unaligned(A))
 #endif
 
+#ifndef NATIVE_RESTORE_X87PC
+#define NATIVE_RESTORE_X87PC()                   \
+    if (dyn->need_x87check) {                    \
+        LD(x87pc, xEmu, offsetof(x64emu_t, cw)); \
+        SRLI(x87pc, x87pc, 8);                   \
+        ANDI(x87pc, x87pc, 0b11);                \
+    }
+#endif
+#ifndef X87_CHECK_PRECISION
+#define X87_CHECK_PRECISION(A)               \
+    if (!ST_IS_F(0) && dyn->need_x87check) { \
+        BNEZ(x87pc, 4 + 8);                  \
+        FCVTSD(A, A);                        \
+        FCVTDS(A, A);                        \
+    }
+#endif
+
 #define STORE_REG(A) SD(x##A, xEmu, offsetof(x64emu_t, regs[_##A]))
 #define LOAD_REG(A)  LD(x##A, xEmu, offsetof(x64emu_t, regs[_##A]))
 
@@ -991,7 +1008,7 @@
 #else
 #define X87_PUSH_OR_FAIL(var, dyn, ninst, scratch, t)                                                                                                          \
     if ((dyn->e.x87stack == 8) || (dyn->e.pushed == 8)) {                                                                                                      \
-        if (BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->e.x87stack, dyn->e.pushed, ninst); \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->e.x87stack, dyn->e.pushed, ninst); \
         dyn->abort = 1;                                                                                                                                        \
         return addr;                                                                                                                                           \
     }                                                                                                                                                          \
@@ -999,7 +1016,7 @@
 
 #define X87_PUSH_EMPTY_OR_FAIL(dyn, ninst, scratch)                                                                                                            \
     if ((dyn->e.x87stack == 8) || (dyn->e.pushed == 8)) {                                                                                                      \
-        if (BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->e.x87stack, dyn->e.pushed, ninst); \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->e.x87stack, dyn->e.pushed, ninst); \
         dyn->abort = 1;                                                                                                                                        \
         return addr;                                                                                                                                           \
     }                                                                                                                                                          \
@@ -1007,7 +1024,7 @@
 
 #define X87_POP_OR_FAIL(dyn, ninst, scratch)                                                                                                                 \
     if ((dyn->e.x87stack == -8) || (dyn->e.poped == 8)) {                                                                                                    \
-        if (BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->e.x87stack, dyn->e.poped, ninst); \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->e.x87stack, dyn->e.poped, ninst); \
         dyn->abort = 1;                                                                                                                                      \
         return addr;                                                                                                                                         \
     }                                                                                                                                                        \

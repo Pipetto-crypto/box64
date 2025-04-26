@@ -985,20 +985,25 @@ EXPORT int my32_vasprintf(x64emu_t* emu, ptr_t* strp, void* fmt, void* b)
     *strp = to_ptrv(res);
     return r;
 }
-EXPORT int my32___vasprintf_chk(x64emu_t* emu, void* strp, int flags, void* fmt, void* b)
+EXPORT int my32___vasprintf_chk(x64emu_t* emu, ptr_t* strp, int flags, void* fmt, void* b)
 {
     // need to align on arm
     myStackAlign32((const char*)fmt, (uint32_t*)b, emu->scratch);
     PREPARE_VALIST_32;
-    int r = vasprintf(strp, fmt, VARARGS_32);
+    char* p = NULL;
+    int r = vasprintf(&p, fmt, VARARGS_32);
+    *strp = to_ptrv(p);
     return r;
 }
 
-EXPORT int my32___asprintf_chk(x64emu_t* emu, void* result_ptr, int flags, void* fmt, void* b)
+EXPORT int my32___asprintf_chk(x64emu_t* emu, ptr_t* result_ptr, int flags, void* fmt, void* b)
 {
     myStackAlign32((const char*)fmt, b, emu->scratch);
+    char* p = NULL;
     PREPARE_VALIST_32;
-    return vasprintf(result_ptr, fmt, VARARGS_32);
+    int ret = vasprintf(&p, fmt, VARARGS_32);
+    *result_ptr = to_ptrv(p);
+    return ret;
 }
 
 EXPORT int my32_vswprintf(x64emu_t* emu, void* buff, size_t s, void * fmt, uint32_t * b) {
@@ -3322,11 +3327,17 @@ EXPORT ptr_t my32_stderr = 0;
 
 EXPORT int __libc_enable_secure = 1;
 
+EXPORT ptr_t my32_tzname[2];
+
 EXPORT long_t my32_timezone = 0;
+EXPORT long_t my32___timezone = 0;
 EXPORT void my32_tzset()
 {
     tzset();
     my32_timezone = to_long(timezone);  // this might not be usefull, and we can probably just redirect to the original symbol
+    my32___timezone = to_long(timezone);
+    my32_tzname[0] = to_cstring(tzname[0]);
+    my32_tzname[1] = to_cstring(tzname[1]);
 }
 
 EXPORT int my32___libc_single_threaded = 0;
@@ -3382,6 +3393,8 @@ void libc32_net_init();
     my32___progname_full = my32_program_invocation_name = box64->argv[0];   \
     my32___progname = my32_program_invocation_short_name =                  \
         strrchr(box64->argv[0], '/');                                       \
+    my32_tzname[0] = to_cstring(tzname[0]);                                 \
+    my32_tzname[1] = to_cstring(tzname[1]);                                 \
     my32_stdin = to_ptrv(my__IO_2_1_stdin_);                                \
     my32_stdout = to_ptrv(my__IO_2_1_stdout_);                              \
     my32_stderr = to_ptrv(my__IO_2_1_stderr_);

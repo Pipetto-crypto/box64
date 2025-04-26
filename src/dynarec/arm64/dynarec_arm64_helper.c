@@ -766,7 +766,7 @@ void call_c(dynarec_arm_t* dyn, int ninst, void* fnc, int reg, int ret, int save
     dyn->insts[ninst].nat_flags_op = NAT_FLAG_OP_UNUSABLE;
     #endif
     if(savereg==0)
-        savereg = 7;
+        savereg = x87pc;
     if(saveflags) {
         STRx_U12(xFlags, xEmu, offsetof(x64emu_t, eflags));
     }
@@ -804,6 +804,9 @@ void call_c(dynarec_arm_t* dyn, int ninst, void* fnc, int reg, int ret, int save
     if(saveflags) {
         LDRx_U12(xFlags, xEmu, offsetof(x64emu_t, eflags));
     }
+    if(savereg!=x87pc && dyn->need_x87check) {
+        NATIVE_RESTORE_X87PC();
+    }
     //SET_NODF();
 }
 
@@ -813,7 +816,7 @@ void call_i(dynarec_arm_t* dyn, int ninst, void* fnc)
     #if STEP == 0
     dyn->insts[ninst].nat_flags_op = NAT_FLAG_OP_UNUSABLE;
     #endif
-    STPx_S7_preindex(x6, x7, xSP, -16);
+    STPx_S7_preindex(x6, x87pc, xSP, -16);
     STPx_S7_preindex(x4, x5, xSP, -16);
     STPx_S7_preindex(x2, x3, xSP, -16);
     STPx_S7_preindex(xEmu, x1, xSP, -16);   // ARM64 stack needs to be 16byte aligned
@@ -823,10 +826,10 @@ void call_i(dynarec_arm_t* dyn, int ninst, void* fnc)
     STPx_S7_offset(xRSI, xRDI, xEmu, offsetof(x64emu_t, regs[_SI]));
     STPx_S7_offset(xR8,  xR9,  xEmu, offsetof(x64emu_t, regs[_R8]));
     STRx_U12(xFlags, xEmu, offsetof(x64emu_t, eflags));
-    fpu_pushcache(dyn, ninst, x7, 0);
+    fpu_pushcache(dyn, ninst, x87pc, 0);
 
-    TABLE64(x7, (uintptr_t)fnc);
-    BLR(x7);
+    TABLE64(x87pc, (uintptr_t)fnc);
+    BLR(x87pc);
     LDPx_S7_postindex(xEmu, x1, xSP, 16);
     LDPx_S7_postindex(x2, x3, xSP, 16);
     LDPx_S7_postindex(x4, x5, xSP, 16);
@@ -838,8 +841,8 @@ void call_i(dynarec_arm_t* dyn, int ninst, void* fnc)
     GO(R8, R9);
     #undef GO
     LDRx_U12(xFlags, xEmu, offsetof(x64emu_t, eflags));
-    fpu_popcache(dyn, ninst, x7, 0);   // savereg will not be used
-    LDPx_S7_postindex(x6, x7, xSP, 16);
+    fpu_popcache(dyn, ninst, x87pc, 0);   // savereg will not be used
+    LDPx_S7_postindex(x6, x87pc, xSP, 16);
     //SET_NODF();
 }
 
@@ -859,12 +862,12 @@ void call_n(dynarec_arm_t* dyn, int ninst, void* fnc, int w)
     if(abs(w)>1) {
         MESSAGE(LOG_DUMP, "Getting %d XMM args\n", abs(w)-1);
         for(int i=0; i<abs(w)-1; ++i) {
-            sse_get_reg(dyn, ninst, x7, i, w);
+            sse_get_reg(dyn, ninst, x3, i, w);
         }
     }
     if(w<0) {
         MESSAGE(LOG_DUMP, "Return in XMM0\n");
-        sse_get_reg_empty(dyn, ninst, x7, 0);
+        sse_get_reg_empty(dyn, ninst, x3, 0);
     }
     // prepare regs for native call
     MOVx_REG(0, xRDI);
@@ -889,6 +892,7 @@ void call_n(dynarec_arm_t* dyn, int ninst, void* fnc, int w)
 
     fpu_popcache(dyn, ninst, x3, 1);
     LDRx_U12(xFlags, xEmu, offsetof(x64emu_t, eflags));
+    NATIVE_RESTORE_X87PC();
     //SET_NODF();
 }
 
@@ -1307,7 +1311,7 @@ static void x87_reflectcache(dynarec_arm_t* dyn, int ninst, int s1, int s2, int 
         if(dyn->n.x87cache[i]!=-1) {
             ADDw_U12(s3, s2, dyn->n.x87cache[i]);
             ANDw_mask(s3, s3, 0, 2); // mask=7   // (emu->top + i)&7
-            if(neoncache_get_st_f(dyn, ninst, dyn->n.x87cache[i])>=0) {
+            if(neoncache_get_current_st_f(dyn, dyn->n.x87cache[i])>=0) {
                 int scratch = fpu_get_scratch(dyn, ninst);
                 FCVT_D_S(scratch, dyn->n.x87reg[i]);
                 VSTR64_REG_LSL3(scratch, s1, s3);
@@ -2678,10 +2682,10 @@ void fpu_reset_cache(dynarec_arm_t* dyn, int ninst, int reset_n)
     dyn->ymm_zero = dyn->insts[reset_n].ymm0_out;
     #endif
     #if STEP == 0
-    if(BOX64DRENV(dynarec_dump) && dyn->n.x87stack) dynarec_log(LOG_NONE, "New x87stack=%d at ResetCache in inst %d with %d\n", dyn->n.x87stack, ninst, reset_n);
+    if(dyn->need_dump && dyn->n.x87stack) dynarec_log(LOG_NONE, "New x87stack=%d at ResetCache in inst %d with %d\n", dyn->n.x87stack, ninst, reset_n);
         #endif
     #if defined(HAVE_TRACE) && (STEP>2)
-    if(BOX64DRENV(dynarec_dump) && 0) //disable for now, need more work
+    if(dyn->need_dump && 0) //disable for now, need more work
         if(memcmp(&dyn->n, &dyn->insts[reset_n].n, sizeof(neoncache_t))) {
             MESSAGE(LOG_DEBUG, "Warning, difference in neoncache: reset=");
             for(int i=0; i<32; ++i)

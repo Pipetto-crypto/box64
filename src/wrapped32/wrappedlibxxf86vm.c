@@ -43,13 +43,17 @@ EXPORT int my32_XF86VidModeGetAllModeLines(x64emu_t* emu, void* dpy, int screen,
 {
     my_XF86VidModeModeInfo_t** infos_l;
     int ret = my->XF86VidModeGetAllModeLines(dpy, screen, num, &infos_l);
-    *infos = to_ptrv(infos_l);
-    ptr_t* small = from_ptrv(*infos);
-    // shrink the array, the structure is fine
-    for(int i=0; i<*num; ++i)
-        small[i] = to_ptrv(infos_l[i]);
-    // mark the end
-    small[*num] = 0;
+    if(*num>0) {
+        *infos = to_ptrv(infos_l);
+        ptr_t* small = from_ptrv(*infos);
+        // shrink the array, the structure is fine
+        for(int i=0; i<*num; ++i)
+            small[i] = to_ptrv(infos_l[i]);
+        // no need to mark the end
+        //small[*num] = 0;
+        if(*num==1)
+            small[1] = small[0];    // duplicate the mode if only 1 exit (for Hercules6)
+    }
     return ret;
 }
 

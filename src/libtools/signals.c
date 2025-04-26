@@ -34,6 +34,7 @@
 #include "custommem.h"
 #include "bridge.h"
 #include "khash.h"
+#include "x64trace.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #include "../dynarec/dynablock_private.h"
@@ -226,7 +227,11 @@ typedef struct x64_mcontext_s
 } x64_mcontext_t;
 
 // /!\ signal sig_set is different than glibc __sig_set
-#define _NSIG_WORDS (128 / sizeof(unsigned long int))
+#ifdef ANDROID
+#define _NSIG_WORDS (64 / (sizeof(unsigned long int)*8))
+#else
+#define _NSIG_WORDS (1024 / (sizeof(unsigned long int)*8))
+#endif
 
 typedef struct {
     unsigned long int sig[_NSIG_WORDS];
@@ -240,7 +245,9 @@ typedef struct x64_ucontext_s
     x64_mcontext_t          uc_mcontext;
     x64_sigset_t            uc_sigmask;
     struct x64_libc_fpstate xstate;
+    #ifndef ANDROID
     uint64_t                ssp[4];
+    #endif
 } x64_ucontext_t;
 
 typedef struct x64_sigframe_s {
@@ -478,54 +485,6 @@ EXPORT int my_sigaltstack(x64emu_t* emu, const x64_stack_t* ss, x64_stack_t* oss
 }
 
 #ifdef DYNAREC
-uintptr_t getX64Address(dynablock_t* db, uintptr_t native_addr)
-{
-    uintptr_t x64addr = (uintptr_t)db->x64_addr;
-    uintptr_t armaddr = (uintptr_t)db->block;
-    if(native_addr<(uintptr_t)db->block || native_addr>(uintptr_t)db->block+db->size)
-        return 0;
-    int i = 0;
-    do {
-        int x64sz = 0;
-        int armsz = 0;
-        do {
-            x64sz+=db->instsize[i].x64;
-            armsz+=db->instsize[i].nat*4;
-            ++i;
-        } while((db->instsize[i-1].x64==15) || (db->instsize[i-1].nat==15));
-        // if the opcode is a NOP on ARM side (so armsz==0), it cannot be an address to find
-        if((native_addr>=armaddr) && (native_addr<(armaddr+armsz)))
-            return x64addr;
-        armaddr+=armsz;
-        x64addr+=x64sz;
-    } while(db->instsize[i].x64 || db->instsize[i].nat);
-    return x64addr;
-}
-int getX64AddressInst(dynablock_t* db, uintptr_t x64pc)
-{
-    uintptr_t x64addr = (uintptr_t)db->x64_addr;
-    uintptr_t armaddr = (uintptr_t)db->block;
-    int ret = 0;
-    if(x64pc<(uintptr_t)db->x64_addr || x64pc>(uintptr_t)db->x64_addr+db->x64_size)
-        return -1;
-    int i = 0;
-    do {
-        int x64sz = 0;
-        int armsz = 0;
-        do {
-            x64sz+=db->instsize[i].x64;
-            armsz+=db->instsize[i].nat*4;
-            ++i;
-        } while((db->instsize[i-1].x64==15) || (db->instsize[i-1].nat==15));
-        // if the opcode is a NOP on ARM side (so armsz==0), it cannot be an address to find
-        if((x64pc>=x64addr) && (x64pc<(x64addr+x64sz)))
-            return ret;
-        armaddr+=armsz;
-        x64addr+=x64sz;
-        ret++;
-    } while(db->instsize[i].x64 || db->instsize[i].nat);
-    return ret;
-}
 x64emu_t* getEmuSignal(x64emu_t* emu, ucontext_t* p, dynablock_t* db)
 {
 #if defined(ARM64)
@@ -1518,6 +1477,11 @@ void my_sigactionhandler_oldcode(x64emu_t* emu, int32_t sig, int simple, siginfo
     GO(R15);
     GO(RIP);
     #undef GO
+    x64flags_t old_eflags;
+    deferred_flags_t old_df;
+    multiuint_t old_op1;
+    multiuint_t old_op2;
+    multiuint_t old_res;
     sse_regs_t old_xmm[16];
     sse_regs_t old_ymm[16];
     mmx87_regs_t old_mmx[8];
@@ -1527,6 +1491,13 @@ void my_sigactionhandler_oldcode(x64emu_t* emu, int32_t sig, int simple, siginfo
     memcpy(old_ymm, emu->ymm, sizeof(old_ymm));
     memcpy(old_mmx, emu->mmx, sizeof(old_mmx));
     memcpy(old_x87, emu->x87, sizeof(old_x87));
+    #define GO(A) old_##A = emu->A
+    GO(eflags);
+    GO(df);
+    GO(op1);
+    GO(op2);
+    GO(res);
+    #undef GO
     #ifdef DYNAREC
     dynablock_t* db = cur_db;
     if(db) {
@@ -1560,6 +1531,13 @@ void my_sigactionhandler_oldcode(x64emu_t* emu, int32_t sig, int simple, siginfo
     GO(R14);
     GO(R15);
     GO(RIP);
+    #undef GO
+    #define GO(A) emu->A = old_##A
+    GO(eflags);
+    GO(df);
+    GO(op1);
+    GO(op2);
+    GO(res);
     #undef GO
     memcpy(emu->xmm, old_xmm, sizeof(old_xmm));
     memcpy(emu->ymm, old_ymm, sizeof(old_ymm));
@@ -1663,10 +1641,12 @@ void my_box64signalhandler(int32_t sig, siginfo_t* info, void * ucntx)
     }
     #ifdef ARCH_NOP
     if(sig==SIGILL) {
-        db = FindDynablockFromNativeAddress(pc);
-        if(db)
-            x64pc = getX64Address(db, (uintptr_t)pc);   // this will be incorect in the case of the callret!
-        db_searched = 1;
+        if(!db_searched) {
+            db = FindDynablockFromNativeAddress(pc);
+            if(db)
+                x64pc = getX64Address(db, (uintptr_t)pc);   // this will be incorect in the case of the callret!
+            db_searched = 1;
+        }
         if(db && db->callret_size) {
             int is_callrets = 0;
             int type_callret = 0;
@@ -1721,12 +1701,13 @@ void my_box64signalhandler(int32_t sig, siginfo_t* info, void * ucntx)
                             if(db && db->arch_size)
                                 ARCH_ADJUST(db, emu, p, x64pc);
                         }
-                        dynarec_log(LOG_INFO, "Dynablock (%p, x64addr=%p) %s, getting out at %s %p (%p)!\n", db, db->x64_addr, is_hotpage?"in HotPage":"dirty",(void*)R_RIP, type_callret?"self-loop":"ret from callret", (void*)addr);
+                        dynarec_log(LOG_INFO, "Dynablock (%p, x64addr=%p) %s, getting out at %s %p (%p)!\n", db, db->x64_addr, is_hotpage?"in HotPage":"dirty", getAddrFunctionName(R_RIP), (void*)R_RIP, type_callret?"self-loop":"ret from callret", (void*)addr);
                         emu->test.clean = 0;
+                        // use "3" to regen a dynablock at current pc (else it will first do an interp run)
                         #ifdef ANDROID
-                        siglongjmp(*(JUMPBUFF*)emu->jmpbuf, 2);
+                        siglongjmp(*(JUMPBUFF*)emu->jmpbuf, 3);
                         #else
-                        siglongjmp(emu->jmpbuf, 2);
+                        siglongjmp(emu->jmpbuf, 3);
                         #endif
                     }
                     dynarec_log(LOG_INFO, "Warning, Dirty %s (%p for db %p/%p) detected, but jmpbuffer not ready!\n", type_callret?"self-loop":"ret from callret", (void*)addr, db, (void*)db->x64_addr);
@@ -1818,7 +1799,7 @@ void my_box64signalhandler(int32_t sig, siginfo_t* info, void * ucntx)
         // done
         if((prot&PROT_WRITE)/*|| (prot&PROT_DYNAREC)*/) {
             unlock_signal();
-            dynarec_log(LOG_INFO, "Writting from %p(%s) to %p!\n", (void*)R_RIP, getAddrFunctionName(R_RIP), (void*)addr);
+            dynarec_log(LOG_INFO, "Writting from %04d|%p(%s, native=%s) to %p!\n", GetTID(), (void*)x64pc, getAddrFunctionName(x64pc), db?"Dynablock":GetNativeName(pc),(void*)addr);
             // if there is no write permission, don't return and continue to program signal handling
             relockMutex(Locks);
             return;
@@ -2155,10 +2136,18 @@ dynarec_log(/*LOG_DEBUG*/LOG_INFO, "%04d|Repeated SIGSEGV with Access error on %
                 for (int i=0; i<6; ++i)
                     printf_log_prefix(0, log_minimum, "%s:0x%04x ", seg_name[i], emu->segs[i]);
             }
+            zydis_dec_t* dec = emu->segs[_CS] == 0x23 ? my_context->dec32 : my_context->dec;
             if(sig==SIGILL) {
-                printf_log_prefix(0, log_minimum, " opcode=%02X %02X %02X %02X %02X %02X %02X %02X (%02X %02X %02X %02X %02X)\n", ((uint8_t*)pc)[0], ((uint8_t*)pc)[1], ((uint8_t*)pc)[2], ((uint8_t*)pc)[3], ((uint8_t*)pc)[4], ((uint8_t*)pc)[5], ((uint8_t*)pc)[6], ((uint8_t*)pc)[7], ((uint8_t*)x64pc)[0], ((uint8_t*)x64pc)[1], ((uint8_t*)x64pc)[2], ((uint8_t*)x64pc)[3], ((uint8_t*)x64pc)[4]);
+                printf_log_prefix(0, log_minimum, " opcode=%02X %02X %02X %02X %02X %02X %02X %02X ", ((uint8_t*)pc)[0], ((uint8_t*)pc)[1], ((uint8_t*)pc)[2], ((uint8_t*)pc)[3], ((uint8_t*)pc)[4], ((uint8_t*)pc)[5], ((uint8_t*)pc)[6], ((uint8_t*)pc)[7]);
+                if (dec)
+                    printf_log_prefix(0, log_minimum, "(%s)\n", DecodeX64Trace(dec, x64pc, 1));
+                else
+                    printf_log_prefix(0, log_minimum, "(%02X %02X %02X %02X %02X)\n", ((uint8_t*)x64pc)[0], ((uint8_t*)x64pc)[1], ((uint8_t*)x64pc)[2], ((uint8_t*)x64pc)[3], ((uint8_t*)x64pc)[4]);
             } else if(sig==SIGBUS || (sig==SIGSEGV && (x64pc!=(uintptr_t)addr) && (pc!=addr)) && (getProtection_fast(x64pc)&PROT_READ) && (getProtection_fast((uintptr_t)pc)&PROT_READ)) {
-                printf_log_prefix(0, log_minimum, " %sopcode=%02X %02X %02X %02X %02X %02X %02X %02X (opcode=%08x)\n", (emu->segs[_CS]==0x23)?"x86":"x64", ((uint8_t*)x64pc)[0], ((uint8_t*)x64pc)[1], ((uint8_t*)x64pc)[2], ((uint8_t*)x64pc)[3], ((uint8_t*)x64pc)[4], ((uint8_t*)x64pc)[5], ((uint8_t*)x64pc)[6], ((uint8_t*)x64pc)[7], *(uint32_t*)pc);
+                if (dec)
+                    printf_log_prefix(0, log_minimum, " %sopcode=%s; native opcode=%08x\n", (emu->segs[_CS] == 0x23) ? "x86" : "x64", DecodeX64Trace(dec, x64pc, 1), *(uint32_t*)pc);
+                else
+                    printf_log_prefix(0, log_minimum, " %sopcode=%02X %02X %02X %02X %02X %02X %02X %02X (opcode=%08x)\n", (emu->segs[_CS] == 0x23) ? "x86" : "x64", ((uint8_t*)x64pc)[0], ((uint8_t*)x64pc)[1], ((uint8_t*)x64pc)[2], ((uint8_t*)x64pc)[3], ((uint8_t*)x64pc)[4], ((uint8_t*)x64pc)[5], ((uint8_t*)x64pc)[6], ((uint8_t*)x64pc)[7], *(uint32_t*)pc);
             } else {
                 printf_log_prefix(0, log_minimum, "\n");
             }
@@ -2196,7 +2185,20 @@ void my_sigactionhandler(int32_t sig, siginfo_t* info, void * ucntx)
     uintptr_t x64pc = R_RIP;
     if(db)
         x64pc = getX64Address(db, (uintptr_t)pc);
-    if(BOX64ENV(showsegv)) printf_log(LOG_INFO, "sigaction handler for sig %d, pc=%p, x64pc=%p, db=%p\n", sig, pc, x64pc, db);
+    #ifdef DYNAREC
+    if(db && !x64pc) {
+        printf_log(LOG_INFO, "Warning, ingnoring incoherent dynablock found for address %p (opcode=%x). db=%p(x64_addr=%p-%p, block:%p-%p)\n", pc, *(uint32_t*)pc, db, (void*)db->x64_addr, (void*)db->x64_addr+db->x64_size, db->actual_block, db->actual_block+db->size);
+        db = NULL;
+        x64pc = R_RIP;
+    }
+    #endif
+    if(BOX64ENV(showsegv)) {
+        printf_log(LOG_INFO, "%04d|sigaction handler for sig %d, pc=%p, x64pc=%p, db=%p%s", GetTID(), sig, pc, x64pc, db, db?"":"\n");
+        #ifdef DYNAREC
+        if(db)
+            printf_log_prefix(0, LOG_INFO, "(x64_addr=%p-%p, block:%p-%p)\n", (void*)db->x64_addr, (void*)db->x64_addr+db->x64_size, db->actual_block, db->actual_block+db->size);
+        #endif
+    }
     my_sigactionhandler_oldcode(emu, sig, 0, info, ucntx, NULL, db, x64pc);
 }
 

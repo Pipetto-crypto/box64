@@ -137,15 +137,19 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         break;
     case 0x12:                      /* MOVLPD Gx, Eq */
         nextop = F8;
-        GETE8(0);
-        GETGX;
-        GX->q[0] = ED->q[0];
+        if(!MODREG) {
+            GETE8(0);
+            GETGX;
+            GX->q[0] = ED->q[0];
+        }
         break;
     case 0x13:                      /* MOVLPD Eq, Gx */
         nextop = F8;
-        GETE8(0);
-        GETGX;
-        ED->q[0] = GX->q[0];
+        if(!MODREG) {
+            GETE8(0);
+            GETGX;
+            ED->q[0] = GX->q[0];
+        }
         break;
     case 0x14:                      /* UNPCKLPD Gx, Ex */
         nextop = F8;
@@ -162,15 +166,19 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         break;
     case 0x16:                      /* MOVHPD Gx, Ed */
         nextop = F8;
-        GETE8(0);
-        GETGX;
-        GX->q[1] = ED->q[0];
+        if(!MODREG) {
+            GETE8(0);
+            GETGX;
+            GX->q[1] = ED->q[0];
+        }
         break;
     case 0x17:                      /* MOVHPD Ed, Gx */
         nextop = F8;
-        GETE8(0);
-        GETGX;
-        ED->q[0] = GX->q[1];
+        if(!MODREG) {
+            GETE8(0);
+            GETGX;
+            ED->q[0] = GX->q[1];
+        }
         break;
 
     case 0x18:
@@ -203,10 +211,12 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         break;
     case 0x2B:                      /* MOVNTPD Ex, Gx */
         nextop = F8;
-        GETEX(0);
-        GETGX;
-        EX->q[0] = GX->q[0];
-        EX->q[1] = GX->q[1];
+        if(!MODREG) {
+            GETEX(0);
+            GETGX;
+            EX->q[0] = GX->q[0];
+            EX->q[1] = GX->q[1];
+        }
         break;
     case 0x2C:                      /* CVTTPD2PI Gm, Ex */
         nextop = F8;
@@ -546,10 +556,12 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 break;
             case 0x2A:  /* MOVNTDQA Gx, Ex */
                 nextop = F8;
-                GETEX(0);
-                GETGX;
-                GX->q[0] = EX->q[0];
-                GX->q[1] = EX->q[1];
+                if(!MODREG) {
+                    GETEX(0);
+                    GETGX;
+                    GX->q[0] = EX->q[0];
+                    GX->q[1] = EX->q[1];
+                }
                 break;
             case 0x2B:  /* PACKUSDW Gx, Ex */
                 nextop = F8;
@@ -1385,9 +1397,9 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         GETEX(0);
         GETGX;
-        if (isnan(GX->d[0]) || isnan(EX->d[0]) || isless(EX->d[0], GX->d[0]))
+        if (isnan(GX->d[0]) || isnan(EX->d[0]) || islessequal(EX->d[0], GX->d[0]))
             GX->d[0] = EX->d[0];
-        if (isnan(GX->d[1]) || isnan(EX->d[1]) || isless(EX->d[1], GX->d[1]))
+        if (isnan(GX->d[1]) || isnan(EX->d[1]) || islessequal(EX->d[1], GX->d[1]))
             GX->d[1] = EX->d[1];
         break;
     case 0x5E:                      /* DIVPD Gx, Ex */
@@ -1405,9 +1417,9 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         GETEX(0);
         GETGX;
-        if (isnan(GX->d[0]) || isnan(EX->d[0]) || isgreater(EX->d[0], GX->d[0]))
+        if (isnan(GX->d[0]) || isnan(EX->d[0]) || isgreaterequal(EX->d[0], GX->d[0]))
             GX->d[0] = EX->d[0];
-        if (isnan(GX->d[1]) || isnan(EX->d[1]) || isgreater(EX->d[1], GX->d[1]))
+        if (isnan(GX->d[1]) || isnan(EX->d[1]) || isgreaterequal(EX->d[1], GX->d[1]))
             GX->d[1] = EX->d[1];
         break;
     case 0x60:  /* PUNPCKLBW Gx,Ex */
@@ -1705,9 +1717,10 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
             #endif
         } else {
+            //TODO: test /0
             GETEX(2);
-            tmp8u = F8&0x3f;
             tmp8s = F8&0x3f;
+            tmp8u = F8&0x3f;
             EX->q[0]>>=tmp8u;
             EX->q[0]&=((1<<(tmp8s+1))-1);
         }
@@ -1720,12 +1733,13 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
             #endif
         } else {
+            //TODO: test/r
             GETGX;
             GETEX(2);
-            tmp8u = GX->ub[0]&0x3f;
-            tmp8s = GX->ub[1]&0x3f;
-            EX->q[0]>>=tmp8u;
-            EX->q[0]&=((1<<(tmp8s+1))-1);
+            tmp8s = EX->ub[0]&0x3f;
+            tmp8u = EX->ub[1]&0x3f;
+            GX->q[0]>>=tmp8u;
+            GX->q[0]&=((1<<(tmp8s+1))-1);
         }
         break;
 
@@ -2444,10 +2458,12 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         break;
     case 0xE7:   /* MOVNTDQ Ex, Gx */
         nextop = F8;
-        GETEX(0);
-        GETGX;
-        EX->q[0] = GX->q[0];
-        EX->q[1] = GX->q[1];
+        if(!MODREG) {
+            GETEX(0);
+            GETGX;
+            EX->q[0] = GX->q[0];
+            EX->q[1] = GX->q[1];
+        }
         break;
     case 0xE8:  /* PSUBSB Gx,Ex */
         nextop = F8;

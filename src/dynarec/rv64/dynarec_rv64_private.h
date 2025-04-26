@@ -134,7 +134,8 @@ typedef struct instruction_rv64_s {
     uint8_t             nat_flags_carry:1;
     uint8_t             nat_flags_sign:1;
     uint8_t             nat_flags_needsign:1;
-    uint8_t             unaligned:1; // this opcode can be re-generated for unaligned special case
+    uint8_t             unaligned:1;    // this opcode can be re-generated for unaligned special case
+    uint8_t             x87precision:1; // this opcode can handle x87pc
     uint8_t             nat_flags_op1;
     uint8_t             nat_flags_op2;
     flagcache_t         f_exit;     // flags status at end of instruction
@@ -187,6 +188,8 @@ typedef struct dynarec_rv64_s {
     uint8_t             inst_vl;        // vl inside current instruction, for vsetvli elimination
     uint8_t             inst_vlmul;     // vlmul inside current instruction
     void*               gdbjit_block;
+    uint32_t            need_x87check; // x87 low precision check
+    uint32_t            need_dump;     // need to dump the block
 } dynarec_rv64_t;
 
 // v0 is hardware wired to vector mask register, which should be always reserved

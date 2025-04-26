@@ -336,15 +336,9 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETGX(v0, 1);
             GETEXSD(v1, 0, 0);
             // MINSD: if any input is NaN, or Ex[0]<Gx[0], copy Ex[0] -> Gx[0]
-            #if 0
-            d0 = fpu_get_scratch(dyn, ninst);
-            FMINNMD(d0, v0, v1);    // NaN handling may be slightly different, is that a problem?
-            VMOVeD(v0, 0, d0, 0);   // to not erase uper part
-            #else
             FCMPD(v0, v1);
-            B_NEXT(cCC);    //Less than
+            B_NEXT(cCC);    //CC invert of CS: NAN or == or Gx > Ex
             VMOVeD(v0, 0, v1, 0);   // to not erase uper part
-            #endif
             break;
         case 0x5E:
             INST_NAME("DIVSD Gx, Ex");
@@ -374,15 +368,9 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETGX(v0, 1);
             GETEXSD(v1, 0, 0);
             // MAXSD: if any input is NaN, or Ex[0]>Gx[0], copy Ex[0] -> Gx[0]
-            #if 0
-            d0 = fpu_get_scratch(dyn, ninst);
-            FMAXNMD(d0, v0, v1);    // NaN handling may be slightly different, is that a problem?
-            VMOVeD(v0, 0, d0, 0);   // to not erase uper part
-            #else
-            FCMPD(v0, v1);
-            B_NEXT(cGT);    //Greater than
+            FCMPD(v1, v0);
+            B_NEXT(cCC);    //CC invert of CS: NAN or == or Ex > Gx
             VMOVeD(v0, 0, v1, 0);   // to not erase uper part
-            #endif
             break;
 
         case 0x70:
@@ -427,10 +415,7 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 v0 = fpu_get_scratch(dyn, ninst);
                 v1 = fpu_get_scratch(dyn, ninst);
                 // check if any input value was NAN
-                // but need to mix low/high part
-                VUZP1Q_32(v0, q0, q1);
-                VUZP2Q_32(v1, q0, q1);
-                VFMAXQS(v0, v0, v1);    // propagate NAN
+                VFMAXPQS(v0, q1, q0);    // propagate NAN
                 VFCMEQQS(v0, v0, v0);    // 0 if NAN, 1 if not NAN
             }
             VFADDPQS(q1, q1, q0);
@@ -452,8 +437,7 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             if(!BOX64ENV(dynarec_fastnan)) {
                 d1 = fpu_get_scratch(dyn, ninst);
                 // check if any input value was NAN
-                // but need to mix low/high part
-                VFMAXQS(d1, v0, d0);    // propagate NAN
+                VFMAXQS(d1, d0, v0);    // propagate NAN
                 VFCMEQQS(d1, d1, d1);    // 0 if NAN, 1 if not NAN
             }
             VFSUBQS(v0, d0, v0);
@@ -607,7 +591,7 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             } else {
                 v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 7, rex, NULL, 0, 0);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
                 VLD128(v0, ed, fixedaddress);
             }
             break;

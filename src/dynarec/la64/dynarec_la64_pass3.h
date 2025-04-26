@@ -5,7 +5,7 @@
     addInst(dyn->instsize, &dyn->insts_size, 0, 0);
 #define EMIT(A)                                                                \
     do {                                                                       \
-        if (BOX64DRENV(dynarec_dump)) print_opcode(dyn, ninst, (uint32_t)(A)); \
+        if (dyn->need_dump) print_opcode(dyn, ninst, (uint32_t)(A)); \
         if ((uintptr_t)dyn->block < dyn->tablestart)                           \
             *(uint32_t*)(dyn->block) = (uint32_t)(A);                          \
         dyn->block += 4;                                                       \
@@ -13,8 +13,10 @@
         dyn->insts[ninst].size2 += 4;                                          \
     } while (0)
 
-#define MESSAGE(A, ...) \
-    if (BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, __VA_ARGS__)
+#define MESSAGE(A, ...)                                                   \
+    do {                                                                  \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, __VA_ARGS__); \
+    } while (0)
 #define NEW_INST \
     if (ninst) {  \
         addInst(dyn->instsize, &dyn->insts_size, dyn->insts[ninst - 1].x64.size, dyn->insts[ninst - 1].size / 4); \

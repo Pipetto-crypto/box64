@@ -104,7 +104,7 @@ GOWM(backtrace_symbols, pEEpi)
 //GO(__backtrace_symbols_fd, vEpii)
 //GOW(backtrace_symbols_fd, vEpii)
 GO(basename, pEp)
-//GOW(bcmp, iEppL)
+GOW(bcmp, iEppL)
 //GO(bcopy, vEppL)
 // bdflush
 GOW(bind, iEipu)
@@ -428,7 +428,7 @@ GOW(fsync, iEi)
 GOWM(ftell, lEES)
 GO(ftello, lES)
 GO(ftello64, IES)
-//GO(ftime, iEp)
+GO(ftime, iErLWww_)
 GO(ftok, iEpi)
 GOW(ftruncate, iEil)
 GOW(ftruncate64, iEiI)
@@ -1312,7 +1312,7 @@ DATAM(__progname, 4)
 DATAM(__progname_full, 4)
 DATAM(program_invocation_name, 4)
 DATAM(program_invocation_short_name, 4)
-//GOW(pselect, iEippppp)
+GOW(pselect, iEippprLL_p)
 // psignal
 //GO(ptrace, iEiupp)  // will that work???
 //GO(ptsname, pEi)
@@ -1844,7 +1844,7 @@ GO(timerfd_create, iEii)
 GO(timerfd_settime, iEiirLL_BLL_)
 GOW(times, iEBllll_)
 DATAM(timezone, 4)
-//DATAB(__timezone, 4)   // type B
+DATAM(__timezone, 4)   // type B
 GO(tmpfile, pEv)
 GO(tmpfile64, pEv)
 GO(tmpnam, pEp)
@@ -1878,7 +1878,7 @@ GO(truncate64, iESU)
 // __ttyname_r_chk
 // ttyslot
 // twalk    // Weak
-//DATAV(tzname, 4)
+DATAM(tzname, 4)
 //DATA(__tzname, 4)
 GOWM(tzset, vEv)    //%%,noE
 // ualarm

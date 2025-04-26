@@ -44,6 +44,7 @@ option(BOX32 "Set to ON to add Linux 32bits support (experimental, do not use)" 
 option(BOX32_BINFMT "Also setup binfmt integration for box32" ${BOX32_BINFMT})
 option(LARCH64_ABI_1 "Set to ON if building for Loongarch64 ABI 1.0 system" ${LARCH64_ABI_1})
 option(GDBJIT "Set to ON to enable GDB JIT support" ${GDBJIT})
+option(WOW64 "Set to ON if you want a WOW64 PE build in addition")
 
 if(TERMUX)
     set(TERMUX_PATH "/data/data/com.termux/files")
@@ -351,7 +352,9 @@ set(OS_LINUX_SRC
     "${BOX64_ROOT}/src/os/emit_signals_linux.c"
     "${BOX64_ROOT}/src/os/freq_linux.c"
     "${BOX64_ROOT}/src/os/os_linux.c"
+    "${BOX64_ROOT}/src/os/perfmap.c"
     "${BOX64_ROOT}/src/os/symbolfuncs_linux.c"
+    "${BOX64_ROOT}/src/os/my_cpuid_linux.c"
 )
 
 set(ELFLOADER_SRC
@@ -367,6 +370,7 @@ set(ELFLOADER_SRC
     "${BOX64_ROOT}/src/elfs/elfhash.c"
     "${BOX64_ROOT}/src/elfs/elfload_dump.c"
     "${BOX64_ROOT}/src/elfs/elfdwarf_private.c"
+    "${BOX64_ROOT}/src/emu/entrypoint.c"
     "${BOX64_ROOT}/src/emu/x64compstrings.c"
     "${BOX64_ROOT}/src/emu/x64emu.c"
     "${BOX64_ROOT}/src/emu/x64printer.c"
@@ -394,8 +398,6 @@ set(ELFLOADER_SRC
     "${BOX64_ROOT}/src/tools/callback.c"
     "${BOX64_ROOT}/src/tools/cleanup.c"
     "${BOX64_ROOT}/src/tools/gdbjit.c"
-    "${BOX64_ROOT}/src/tools/perfmap.c"
-    "${BOX64_ROOT}/src/tools/my_cpuid.c"
     "${BOX64_ROOT}/src/tools/fileutils.c"
     "${BOX64_ROOT}/src/tools/pathcoll.c"
     "${BOX64_ROOT}/src/tools/rbtree.c"
@@ -862,6 +864,12 @@ if(BOX32)
         "${BOX64_ROOT}/src/wrapped32/wrappedlibvdpau.c"
         "${BOX64_ROOT}/src/wrapped32/wrappednsl.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedlibcups.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedgbm.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedlibegl.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedlibglx.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedselinux.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedblkid.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedmount.c"
     )
     endif()
     string(REPLACE ".c" "_private.h" MODROOT ${BOX64_ROOT})
@@ -1058,6 +1066,7 @@ if(LARCH64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_660f.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66f0.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66f20f.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66f30f.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_67.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f0.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f20f.c"
@@ -1310,6 +1319,26 @@ if(NOT TARGET uninstall)
         COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
 endif()
 
+string(REPLACE ";" "," DYNAREC_ASM_STR "${DYNAREC_ASM}")
+string(REPLACE ";" "," DYNAREC_PASS_STR "${DYNAREC_PASS}")
+string(REPLACE ";" "," INTERPRETER_STR "${INTERPRETER}")
+
+if(WOW64 AND ARM_DYNAREC)
+    include(ExternalProject)
+    ExternalProject_Add(
+        wowbox64
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wow64"
+        CMAKE_ARGS 
+            -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/wow64/toolchain_mingw.cmake
+            -DDYNAREC_PASS_STR=${DYNAREC_PASS_STR}
+            -DDYNAREC_ASM_STR=${DYNAREC_ASM_STR}
+            -DINTERPRETER_STR=${INTERPRETER_STR}
+        INSTALL_COMMAND ""
+        TEST_COMMAND ""
+        BUILD_ALWAYS ON
+    )
+endif()
+
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ptitSeb")
 set(CPACK_PACKAGE_CONTACT "ptitSeb@box86.org")
@@ -1527,6 +1556,13 @@ add_test(fpu_rounding ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
 set_tests_properties(fpu_rounding PROPERTIES ENVIRONMENT "BOX64_DYNAREC_FASTROUND=0")
+
+add_test(x87pc ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+    -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test32 -D TEST_OUTPUT=tmpfile32.txt
+    -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref32.txt
+    -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
+
+set_tests_properties(x87pc PROPERTIES ENVIRONMENT "BOX64_DYNAREC_X87DOUBLE=2")
 
 else()
 

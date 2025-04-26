@@ -336,7 +336,7 @@ uintptr_t dynarec64_AVX_F2_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             GETGX_empty_VX(v0, v2);
             // VMINSD: if any input is NaN, or Ex[0]<Gx[0], copy Ex[0] -> Gx[0]
             FCMPD(v2, v1);
-            FCSELD(d1, v1, v2, cCS);
+            FCSELD(d1, v1, v2, cCS);    //CS: NAN or == or Vx > Ex
             if(v0!=v2) {
                 VMOVQ(v0, v2);
             }
@@ -376,7 +376,7 @@ uintptr_t dynarec64_AVX_F2_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             GETEXSD(v1, 0, 0);
             GETGX_empty_VX(v0, v2);
             FCMPD(v1, v2);
-            FCSELD(d1, v1, v2, cCS);
+            FCSELD(d1, v1, v2, cCS);    //CS: NAN or == or Ex > Vx
             if(v0!=v2) {
                 VMOVQ(v0, v2);
             }
@@ -429,10 +429,7 @@ uintptr_t dynarec64_AVX_F2_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
                 if(!l) { GETGX_empty_VXEX(v0, v2, v1, 0); } else { GETGY_empty_VYEY(v0, v2, v1); }
                 if(!BOX64ENV(dynarec_fastnan)) {
                     // check if any input value was NAN
-                    // but need to mix low/high part
-                    VUZP1Q_32(q0, v2, v1);
-                    VUZP2Q_32(q1, v2, v1);
-                    VFMAXQS(q0, q0, q1);    // propagate NAN
+                    VFMAXPQS(q0, v2, v1);    // propagate NAN
                     VFCMEQQS(q0, q0, q0);    // 0 if NAN, 1 if not NAN
                 }
                 VFADDPQS(v0, v2, v1);
@@ -589,7 +586,7 @@ uintptr_t dynarec64_AVX_F2_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             break;
 
         case 0xF0:
-            INST_NAME("LDDQU Gx,Ex");
+            INST_NAME("VLDDQU Gx,Ex");
             nextop = F8;
             GETG;
             if(MODREG) {
@@ -602,11 +599,10 @@ uintptr_t dynarec64_AVX_F2_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
                 }
             } else {
                 v0 = sse_get_reg_empty(dyn, ninst, x1, gd);
+                v1 = ymm_get_reg_empty(dyn, ninst, x1, gd, -1, -1, -1);
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 7, rex, NULL, 0, 0);
-                VLDR128_U12(v0, ed, fixedaddress);
-                v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, -1, -1, -1);
-                VLDR128_U12(v0, ed, fixedaddress+16);
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                VLDP128_I7(v0, v1, ed, fixedaddress);
             }
             if(!vex.l) YMM0(gd);
             break;

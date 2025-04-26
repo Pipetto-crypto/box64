@@ -90,9 +90,11 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         break;
     case 0x2B:  /* MOVNTSD Ex, Gx */
         nextop = F8;
-        GETEX8(0);
-        GETGX;
-        EX->q[0] = GX->q[0];
+        if(!MODREG) {
+            GETEX8(0);
+            GETGX;
+            EX->q[0] = GX->q[0];
+        }
         break;
     case 0x2C:  /* CVTTSD2SI Gd, Ex */
         nextop = F8;
@@ -256,9 +258,7 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         nextop = F8;
         _GETEX(0);
         GETGX;
-        if (GX->d[0] == 0.0 && EX->d[0]  == 0.0)
-            GX->d[0] = EX->d[0];
-        if (isnan(GX->d[0]) || isnan(EX->d[0]) || isless(EX->d[0], GX->d[0]))
+        if (isnan(GX->d[0]) || isnan(EX->d[0]) || islessequal(EX->d[0], GX->d[0]))
             GX->d[0] = EX->d[0];
         break;
     case 0x5E:  /* DIVSD Gx, Ex */
@@ -266,6 +266,7 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         _GETEX(0);
         GETGX;
         MARK_NAN_D_2(GX, EX);
+        NAN_PROPAGATION(GX->d[0], EX->d[0], break);
         GX->d[0] /= EX->d[0];
         CHECK_NAN_D(GX);
         break;
@@ -273,9 +274,7 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         nextop = F8;
         _GETEX(0);
         GETGX;
-        if (GX->d[0] == 0.0 && EX->d[0]  == 0.0)
-            GX->d[0] = EX->d[0];
-        if (isnan(GX->d[0]) || isnan(EX->d[0]) || isgreater(EX->d[0], GX->d[0]))
+        if (isnan(GX->d[0]) || isnan(EX->d[0]) || isgreaterequal(EX->d[0], GX->d[0]))
             GX->d[0] = EX->d[0];
         break;
 
@@ -295,7 +294,7 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         }
         break;
 
-    case 0x78:  /* INSERTQ Ex, Gx, ib, ib */
+    case 0x78:  /* INSERTQ Gx, Ex, ib, ib */
         // AMD only
         nextop = F8;
         if(!BOX64ENV(cputype) || !(MODREG)) {
@@ -303,16 +302,17 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
             #endif
         } else {
+            //TODO: test /r
             GETGX;
             GETEX(2);
-            tmp8u = F8&0x3f;
             tmp8s = F8&0x3f;
+            tmp8u = F8&0x3f;
             tmp64u = (1<<(tmp8s+1))-1;
-            EX->q[0] &=~(tmp64u<<tmp8u);
-            EX->q[0] |= (GX->q[0]&tmp64u)<<tmp8u;
+            GX->q[0] &=~(tmp64u<<tmp8u);
+            GX->q[0] |= (EX->q[0]&tmp64u)<<tmp8u;
         }
         break;
-    case 0x79:  /* INSERTQ Ex, Gx */
+    case 0x79:  /* INSERTQ Gx, Ex */
         // AMD only
         nextop = F8;
         if(!BOX64ENV(cputype) || !(MODREG)) {
@@ -320,13 +320,14 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
             #endif
         } else {
+            //TODO: test /r
             GETGX;
             GETEX(2);
-            tmp8u = GX->ub[8]&0x3f;
-            tmp8s = GX->ub[9]&0x3f;
+            tmp8u = EX->ub[8]&0x3f;
+            tmp8s = EX->ub[9]&0x3f;
             tmp64u = (1<<(tmp8s+1))-1;
-            EX->q[0] &=~(tmp64u<<tmp8u);
-            EX->q[0] |= (GX->q[0]&tmp64u)<<tmp8u;
+            GX->q[0] &=~(tmp64u<<tmp8u);
+            GX->q[0] |= (EX->q[0]&tmp64u)<<tmp8u;
         }
         break;
 
@@ -378,13 +379,13 @@ uintptr_t RunF20F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
     )                               /* 0x80 -> 0x8F Jxx */
 
     case 0xA5:  // ignore F2 prefix
+    case 0xBA:
         #ifdef TEST_INTERPRETER 
         return Test0F(test, rex, addr-1, step);
         #else
         return Run0F(emu, rex, addr-1, step);
         #endif
 
-        
     case 0xC2:  /* CMPSD Gx, Ex, Ib */
         nextop = F8;
         _GETEX(1);

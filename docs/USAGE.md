@@ -218,6 +218,7 @@ Force the use of float/double for x87 emulation.
 
  * 0: Try to use float when possible for x87 emulation. [Default]
  * 1: Only use Double for x87 emulation. 
+ * 2: Check Precision Control low precision on x87 emulation. 
 
 ### BOX64_EXIT
 
@@ -388,6 +389,12 @@ Enable DynaRec dump.
  * 0: Do not dump DynaRec blocks. [Default]
  * 1: Dump DynaRec blocks. 
  * 2: Dump DynaRec blocks with some colors. 
+
+### BOX64_DYNAREC_DUMP_RANGE
+
+Dump DynaRec blocks in the specified range.
+
+ * 0xXXXXXXXX-0xYYYYYYYY: Define the range where dynablock gets dumped (inclusive-exclusive). 
 
 ### BOX64_DYNAREC_GDBJIT
 

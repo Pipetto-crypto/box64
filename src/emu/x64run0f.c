@@ -228,16 +228,18 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             nextop = F8;
             GETEX(0);
             GETGX;
-            if(MODREG)    /* MOVHLPS Gx,Ex */
+            if(MODREG)    /* MOVHLPS Gx, Ex */
                 GX->q[0] = EX->q[1];
             else
-                GX->q[0] = EX->q[0];    /* MOVLPS Gx,Ex */
+                GX->q[0] = EX->q[0];    /* MOVLPS Gx, Ex */
             break;
-        case 0x13:                      /* MOVLPS Ex,Gx */
+        case 0x13:                      /* MOVLPS Ex, Gx */
             nextop = F8;
-            GETEX(0);
-            GETGX;
-            EX->q[0] = GX->q[0];
+            if(!MODREG) {
+                GETEX(0);
+                GETGX;
+                EX->q[0] = GX->q[0];
+            }
             break;
         case 0x14:                      /* UNPCKLPS Gx, Ex */
             nextop = F8;
@@ -574,7 +576,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     GETEM(0);
                     GETGM;
                     for (int i=0; i<8; ++i) {
-                        GM->sb[i] = abs(EM->sb[i]);
+                        GM->ub[i] = abs(EM->sb[i]);
                     }
                     break;
                 case 0x1D:  /* PABSW Gm, Em */
@@ -582,7 +584,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     GETEM(0);
                     GETGM;
                     for (int i=0; i<4; ++i) {
-                        GM->sw[i] = abs(EM->sw[i]);
+                        GM->uw[i] = abs(EM->sw[i]);
                     }
                     break;
                 case 0x1E:  /* PABSD Gm, Em */
@@ -590,7 +592,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     GETEM(0);
                     GETGM;
                     for (int i=0; i<2; ++i) {
-                        GM->sd[i] = abs(EM->sd[i]);
+                        GM->ud[i] = abs(EM->sd[i]);
                     }
                     break;
 
@@ -826,7 +828,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             GETEX(0);
             GETGX;
             for(int i=0; i<4; ++i) {
-                if (isnan(GX->f[i]) || isnan(EX->f[i]) || isless(EX->f[i], GX->f[i]))
+                if (isnan(GX->f[i]) || isnan(EX->f[i]) || islessequal(EX->f[i], GX->f[i]))
                     GX->f[i] = EX->f[i];
             }
             break;
@@ -845,7 +847,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             GETEX(0);
             GETGX;
             for(int i=0; i<4; ++i) {
-                if (isnan(GX->f[i]) || isnan(EX->f[i]) || isgreater(EX->f[i], GX->f[i]))
+                if (isnan(GX->f[i]) || isnan(EX->f[i]) || isgreaterequal(EX->f[i], GX->f[i]))
                     GX->f[i] = EX->f[i];
             }
             break;

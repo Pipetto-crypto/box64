@@ -18,7 +18,6 @@
 #include "emu/x64run_private.h"
 #include "emu/x87emu_private.h"
 #include "x64trace.h"
-#include "signals.h"
 #include "dynarec_native.h"
 #include "dynarec_arm64_private.h"
 #include "dynarec_arm64_functions.h"
@@ -296,9 +295,10 @@ static void neoncache_promote_double_combined(dynarec_arm_t* dyn, int ninst, int
         } else
             a = dyn->insts[ninst].n.combined1;
         int i = neoncache_get_st_f_i64_noback(dyn, ninst, a);
-        //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_combined, ninst=%d combined%c %d i=%d (stack:%d/%d)\n", ninst, (a == dyn->insts[ninst].n.combined2)?'2':'1', a ,i, dyn->insts[ninst].n.stack_push, -dyn->insts[ninst].n.stack_pop);
+        //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_combined, ninst=%d combined%c %d i=%d (stack:%d/%d)\n", ninst, (a == dyn->insts[ninst].n.combined2)?'2':'1', a ,i, dyn->insts[ninst].n.stack_push, -dyn->insts[ninst].n.stack_pop);
         if(i>=0) {
             dyn->insts[ninst].n.neoncache[i].t = NEON_CACHE_ST_D;
+            if(dyn->insts[ninst].x87precision) dyn->need_x87check = 2;
             if(!dyn->insts[ninst].n.barrier)
                 neoncache_promote_double_internal(dyn, ninst-1, maxinst, a-dyn->insts[ninst].n.stack_push);
             // go forward is combined is not pop'd
@@ -313,19 +313,20 @@ static void neoncache_promote_double_internal(dynarec_arm_t* dyn, int ninst, int
     while(ninst>=0) {
         a+=dyn->insts[ninst].n.stack_pop;    // adjust Stack depth: add pop'd ST (going backward)
         int i = neoncache_get_st_f_i64(dyn, ninst, a);
-        //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_internal, ninst=%d, a=%d st=%d:%d, i=%d\n", ninst, a, dyn->insts[ninst].n.stack, dyn->insts[ninst].n.stack_next, i);
+        //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_internal, ninst=%d, a=%d st=%d:%d, i=%d\n", ninst, a, dyn->insts[ninst].n.stack, dyn->insts[ninst].n.stack_next, i);
         if(i<0) return;
         dyn->insts[ninst].n.neoncache[i].t = NEON_CACHE_ST_D;
+        if(dyn->insts[ninst].x87precision) dyn->need_x87check = 2;
         // check combined propagation too
         if(dyn->insts[ninst].n.combined1 || dyn->insts[ninst].n.combined2) {
             if(dyn->insts[ninst].n.swapped) {
-                //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_internal, ninst=%d swapped %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
+                //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_internal, ninst=%d swapped %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
                 if (a==dyn->insts[ninst].n.combined1)
                     a = dyn->insts[ninst].n.combined2;
                 else if (a==dyn->insts[ninst].n.combined2)
                     a = dyn->insts[ninst].n.combined1;
             } else {
-                //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_internal, ninst=%d combined %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
+                //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_internal, ninst=%d combined %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
                 neoncache_promote_double_combined(dyn, ninst, maxinst, a);
             }
         }
@@ -341,19 +342,20 @@ static void neoncache_promote_double_forward(dynarec_arm_t* dyn, int ninst, int 
     while((ninst!=-1) && (ninst<maxinst) && (a>=0)) {
         a+=dyn->insts[ninst].n.stack_push;  // // adjust Stack depth: add push'd ST (going forward)
         if((dyn->insts[ninst].n.combined1 || dyn->insts[ninst].n.combined2) && dyn->insts[ninst].n.swapped) {
-            //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_forward, ninst=%d swapped %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
+            //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_forward, ninst=%d swapped %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
             if (a==dyn->insts[ninst].n.combined1)
                 a = dyn->insts[ninst].n.combined2;
             else if (a==dyn->insts[ninst].n.combined2)
                 a = dyn->insts[ninst].n.combined1;
         }
         int i = neoncache_get_st_f_i64_noback(dyn, ninst, a);
-        //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_forward, ninst=%d, a=%d st=%d:%d(%d/%d), i=%d\n", ninst, a, dyn->insts[ninst].n.stack, dyn->insts[ninst].n.stack_next, dyn->insts[ninst].n.stack_push, -dyn->insts[ninst].n.stack_pop, i);
+        //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_forward, ninst=%d, a=%d st=%d:%d(%d/%d), i=%d\n", ninst, a, dyn->insts[ninst].n.stack, dyn->insts[ninst].n.stack_next, dyn->insts[ninst].n.stack_push, -dyn->insts[ninst].n.stack_pop, i);
         if(i<0) return;
         dyn->insts[ninst].n.neoncache[i].t = NEON_CACHE_ST_D;
+        if(dyn->insts[ninst].x87precision) dyn->need_x87check = 2;
         // check combined propagation too
         if((dyn->insts[ninst].n.combined1 || dyn->insts[ninst].n.combined2) && !dyn->insts[ninst].n.swapped) {
-            //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double_forward, ninst=%d combined %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
+            //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double_forward, ninst=%d combined %d/%d vs %d with st %d\n", ninst, dyn->insts[ninst].n.combined1 ,dyn->insts[ninst].n.combined2, a, dyn->insts[ninst].n.stack);
             neoncache_promote_double_combined(dyn, ninst, maxinst, a);
         }
         a-=dyn->insts[ninst].n.stack_pop;    // adjust Stack depth: remove pop'd ST (going forward)
@@ -369,20 +371,21 @@ static void neoncache_promote_double_forward(dynarec_arm_t* dyn, int ninst, int 
 void neoncache_promote_double(dynarec_arm_t* dyn, int ninst, int a)
 {
     int i = neoncache_get_current_st_f_i64(dyn, a);
-    //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double, ninst=%d a=%d st=%d i=%d\n", ninst, a, dyn->n.stack, i);
+    //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double, ninst=%d a=%d st=%d i=%d\n", ninst, a, dyn->n.stack, i);
     if(i<0) return;
     dyn->n.neoncache[i].t = NEON_CACHE_ST_D;
     dyn->insts[ninst].n.neoncache[i].t = NEON_CACHE_ST_D;
+    if(dyn->insts[ninst].x87precision) dyn->need_x87check = 2;
     // check combined propagation too
     if(dyn->n.combined1 || dyn->n.combined2) {
         if(dyn->n.swapped) {
-            //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double, ninst=%d swapped! %d/%d vs %d\n", ninst, dyn->n.combined1 ,dyn->n.combined2, a);
+            //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double, ninst=%d swapped! %d/%d vs %d\n", ninst, dyn->n.combined1 ,dyn->n.combined2, a);
             if(dyn->n.combined1 == a)
                 a = dyn->n.combined2;
             else if(dyn->n.combined2 == a)
                 a = dyn->n.combined1;
         } else {
-            //if(BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "neoncache_promote_double, ninst=%d combined! %d/%d vs %d\n", ninst, dyn->n.combined1 ,dyn->n.combined2, a);
+            //if(dyn->need_dump) dynarec_log(LOG_NONE, "neoncache_promote_double, ninst=%d combined! %d/%d vs %d\n", ninst, dyn->n.combined1 ,dyn->n.combined2, a);
             if(dyn->n.combined1 == a)
                 neoncache_promote_double(dyn, ninst, dyn->n.combined2);
             else if(dyn->n.combined2 == a)
@@ -753,7 +756,7 @@ static register_mapping_t register_mappings[] = {
 void printf_x64_instruction(dynarec_native_t* dyn, zydis_dec_t* dec, instruction_x64_t* inst, const char* name);
 void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t rex)
 {
-    if (!BOX64DRENV(dynarec_dump) && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
+    if (!dyn->need_dump && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
 
     static char buf[256];
     int length = sprintf(buf, "barrier=%d state=%d/%d/%d(%d:%d->%d:%d), %s=%X/%X, use=%X, need=%X/%X, sm=%d(%d/%d)",
@@ -824,13 +827,13 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
         }
     }
     if (memcmp(dyn->insts[ninst].n.neoncache, dyn->n.neoncache, sizeof(dyn->n.neoncache))) {
-        length += sprintf(buf + length, " %s(Change:", (BOX64DRENV(dynarec_dump) > 1) ? "\e[1;91m" : "");
+        length += sprintf(buf + length, " %s(Change:", (dyn->need_dump > 1) ? "\e[1;91m" : "");
         for (int ii = 0; ii < 32; ++ii)
             if (dyn->insts[ninst].n.neoncache[ii].v != dyn->n.neoncache[ii].v) {
                 length += sprintf(buf + length, " V%d:%s", ii, getCacheName(dyn->n.neoncache[ii].t, dyn->n.neoncache[ii].n));
                 length += sprintf(buf + length, "->%s", getCacheName(dyn->insts[ninst].n.neoncache[ii].t, dyn->insts[ninst].n.neoncache[ii].n));
             }
-        length += sprintf(buf + length, ")%s", (BOX64DRENV(dynarec_dump) > 1) ? "\e[0;32m" : "");
+        length += sprintf(buf + length, ")%s", (dyn->need_dump > 1) ? "\e[0;32m" : "");
     }
     if (dyn->insts[ninst].n.ymm_used) {
         length += sprintf(buf + length, " ymmUsed=%04x", dyn->insts[ninst].n.ymm_used);
@@ -847,11 +850,11 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
     if (dyn->insts[ninst].n.combined1 || dyn->insts[ninst].n.combined2) {
         length += sprintf(buf + length, " %s:%d/%d", dyn->insts[ninst].n.swapped ? "SWP" : "CMB", dyn->insts[ninst].n.combined1, dyn->insts[ninst].n.combined2);
     }
-    if (BOX64DRENV(dynarec_dump)) {
+    if (dyn->need_dump) {
         printf_x64_instruction(dyn, rex.is32bits ? my_context->dec32 : my_context->dec, &dyn->insts[ninst].x64, name);
         dynarec_log(LOG_NONE, "%s%p: %d emitted opcodes, inst=%d, %s%s\n",
-            (BOX64DRENV(dynarec_dump) > 1) ? "\e[32m" : "",
-            (void*)(dyn->native_start + dyn->insts[ninst].address), dyn->insts[ninst].size / 4, ninst, buf, (BOX64DRENV(dynarec_dump) > 1) ? "\e[m" : "");
+            (dyn->need_dump > 1) ? "\e[32m" : "",
+            (void*)(dyn->native_start + dyn->insts[ninst].address), dyn->insts[ninst].size / 4, ninst, buf, (dyn->need_dump > 1) ? "\e[m" : "");
     }
     if (BOX64ENV(dynarec_gdbjit)) {
         static char buf2[512];
@@ -1046,7 +1049,7 @@ static uint8_t getNativeFlagsUsed(dynarec_arm_t* dyn, int start, uint8_t flags)
             return 0;
         // update used flags
         //used_flags |= (flag2native(dyn->insts[ninst].x64.need_after)&flags);
-        
+
         // go next
         if(!dyn->insts[ninst].x64.has_next) {
             // check if it's a jump to an opcode with only 1 preds, then just follow the jump
@@ -1152,7 +1155,7 @@ int nativeFlagsNeedsTransform(dynarec_arm_t* dyn, int ninst)
     flags_x86 &= ~flags_after;
     if((flags_before&NF_CF) && (flags_after&NF_CF) && (nc_before!=nc_after))
         return 1;
-    // all flags_after should be present and none remaining flags_x86 
+    // all flags_after should be present and none remaining flags_x86
     if(((flags_before&flags_after)!=flags_after) || (flags_before&flags_x86))
         return 1;
     return 0;

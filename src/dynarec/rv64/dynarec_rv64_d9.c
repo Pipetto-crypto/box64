@@ -350,6 +350,7 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             } else {
                 FSQRTD(v1, v1);
             }
+            X87_CHECK_PRECISION(v1);
             if (!BOX64ENV(dynarec_fastround)) x87_restoreround(dyn, ninst, u8);
             break;
         case 0xFB:
@@ -442,7 +443,7 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         switch ((nextop >> 3) & 7) {
             case 0:
                 INST_NAME("FLD ST0, float[ED]");
-                X87_PUSH_OR_FAIL(v1, dyn, ninst, x1, BOX64ENV(dynarec_x87double) ? EXT_CACHE_ST_D : EXT_CACHE_ST_F);
+                X87_PUSH_OR_FAIL(v1, dyn, ninst, x1, (BOX64ENV(dynarec_x87double)==1) ? EXT_CACHE_ST_D : EXT_CACHE_ST_F);
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, 0);
                 FLW(v1, ed, fixedaddress);
                 if (!ST_IS_F(0)) {
@@ -482,11 +483,16 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
                 MOV32w(x2, 0);
                 CALL(fpu_loadenv, -1, ed, x2);
+                NATIVE_RESTORE_X87PC();
                 break;
             case 5:
                 INST_NAME("FLDCW Ew");
                 GETEW(x1, 0);
                 SH(x1, xEmu, offsetof(x64emu_t, cw)); // hopefully cw is not too far for an imm8
+                if (dyn->need_x87check) {
+                    SRLI(x87pc, x1, 8);
+                    ANDI(x87pc, x87pc, 0b11);
+                }
                 break;
             case 6:
                 INST_NAME("FNSTENV Ed");

@@ -7,9 +7,15 @@
 #include "custommem.h"
 #include "env.h"
 #include "box64context.h"
+#include "wine/debug.h"
 
 uintptr_t box64_pagesize = 4096;
 
+uint32_t default_gs = 0x2b;
+uint32_t default_fs = 0;
+
+int box64_rdtsc = 0;
+uint8_t box64_rdtsc_shift = 0;
 int box64_is32bits = 0;
 int box64_wine = 0; // this is for the emulated x86 Wine.
 
@@ -17,6 +23,23 @@ box64env_t box64env = { 0 }; // FIXME: add real env support.
 
 box64env_t* GetCurEnvByAddr(uintptr_t addr) {
     return &box64env;
+}
+
+int is_addr_unaligned(uintptr_t addr)
+{
+    // FIXME
+    return 0;
+}
+
+typedef void (*wrapper_t)(x64emu_t* emu, uintptr_t fnc);
+int isSimpleWrapper(wrapper_t fun)
+{
+    return 0;
+}
+
+int isRetX87Wrapper(wrapper_t fun)
+{
+    return 0;
 }
 
 int arm64_asimd = 0;
@@ -36,14 +59,21 @@ int arm64_rndr = 0;
 static box64context_t box64_context;
 box64context_t *my_context = &box64_context;
 
+
 void WINAPI BTCpuFlushInstructionCache2(LPCVOID addr, SIZE_T size)
 {
     // NYI
     // invalidate all paged interleaved with this range.
-    // unprotectDB((uintptr_t)addr, (size_t)size, 1);
+    unprotectDB((uintptr_t)addr, (size_t)size, 1);
 }
 
 void* WINAPI BTCpuGetBopCode(void)
+{
+    // NYI
+    return (UINT32*)NULL;
+}
+
+void* WINAPI __wine_get_unix_opcode(void)
 {
     // NYI
     return (UINT32*)NULL;
@@ -73,6 +103,7 @@ void WINAPI BTCpuNotifyUnmapViewOfSection(PVOID addr, ULONG flags)
 NTSTATUS WINAPI BTCpuProcessInit(void)
 {
     // NYI
+    __wine_dbg_output("[BOX64] BTCpuProcessInit\n");
     return STATUS_SUCCESS;
 }
 
@@ -103,4 +134,12 @@ NTSTATUS WINAPI BTCpuTurboThunkControl(ULONG enable)
 {
     // NYI
     return STATUS_SUCCESS;
+}
+
+NTSTATUS WINAPI LdrDisableThreadCalloutsForDll(HMODULE);
+
+BOOL WINAPI DllMainCRTStartup(HINSTANCE inst, DWORD reason, void* reserved)
+{
+    if (reason == DLL_PROCESS_ATTACH) LdrDisableThreadCalloutsForDll(inst);
+    return TRUE;
 }

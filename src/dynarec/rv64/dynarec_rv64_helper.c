@@ -779,7 +779,7 @@ void call_c(dynarec_rv64_t* dyn, int ninst, void* fnc, int reg, int ret, int sav
 {
     MAYUSE(fnc);
     if (savereg == 0)
-        savereg = x6;
+        savereg = x87pc;
     if (saveflags) {
         FLAGS_ADJUST_TO11(xFlags, xFlags, reg);
         SD(xFlags, xEmu, offsetof(x64emu_t, eflags));
@@ -834,6 +834,8 @@ void call_c(dynarec_rv64_t* dyn, int ninst, void* fnc, int reg, int ret, int sav
         LD(xFlags, xEmu, offsetof(x64emu_t, eflags));
         FLAGS_ADJUST_FROM11(xFlags, xFlags, reg);
     }
+    if (savereg != x87pc && dyn->need_x87check)
+        NATIVE_RESTORE_X87PC();
     // SET_NODF();
     CLEARIP();
 }
@@ -867,6 +869,7 @@ void call_n(dynarec_rv64_t* dyn, int ninst, void* fnc, int w)
         vector_vsetvli(dyn, ninst, x3, dyn->vector_sew, VECTOR_LMUL1, 1);
 
     fpu_popcache(dyn, ninst, x3, 1);
+    NATIVE_RESTORE_X87PC();
     // SET_NODF();
 }
 
@@ -1240,7 +1243,7 @@ static void x87_reflectcache(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int
                 SLLI(s1, s3, 3);
                 ADD(s1, xEmu, s1);
             }
-            if (extcache_get_st_f(dyn, ninst, dyn->e.x87cache[i]) >= 0) {
+            if (extcache_get_current_st_f(dyn, dyn->e.x87cache[i]) >= 0) {
                 FCVTDS(SCRATCH0, dyn->e.x87reg[i]);
                 FSD(SCRATCH0, s1, offsetof(x64emu_t, x87));
             } else
@@ -2411,15 +2414,9 @@ static void swapCache(dynarec_rv64_t* dyn, int ninst, int i, int j, extcache_t* 
 // There is no swap instruction in RV64 to swap 2 float registers!
 // so use a scratch...
 #define SCRATCH 0 // f0 is not used anywhere else
-    if (i_single) {
-        FMVS(SCRATCH, reg_i);
-        FMVS(reg_i, reg_j);
-        FMVS(reg_j, SCRATCH);
-    } else {
-        FMVD(SCRATCH, reg_i);
-        FMVD(reg_i, reg_j);
-        FMVD(reg_j, SCRATCH);
-    }
+    FMV(SCRATCH, reg_i, i_single);
+    FMV(reg_i, reg_j, j_single);
+    FMV(reg_j, SCRATCH, i_single);
 #undef SCRATCH
     tmp.v = cache->extcache[i].v;
     cache->extcache[i].v = cache->extcache[j].v;
@@ -2910,10 +2907,10 @@ void fpu_reset_cache(dynarec_rv64_t* dyn, int ninst, int reset_n)
 #endif
     extcacheUnwind(&dyn->e);
 #if STEP == 0
-    if (BOX64DRENV(dynarec_dump)) dynarec_log(LOG_NONE, "New x87stack=%d\n", dyn->e.x87stack);
+    if (dyn->need_dump) dynarec_log(LOG_NONE, "New x87stack=%d\n", dyn->e.x87stack);
 #endif
 #if defined(HAVE_TRACE) && (STEP > 2)
-    if (BOX64DRENV(dynarec_dump))
+    if (dyn->need_dump)
         if (memcmp(&dyn->e, &dyn->insts[reset_n].e, sizeof(ext_cache_t))) {
             MESSAGE(LOG_DEBUG, "Warning, difference in extcache: reset=");
             for (int i = 0; i < 24; ++i)

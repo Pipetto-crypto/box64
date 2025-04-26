@@ -14,13 +14,13 @@
 #include "bridge.h"
 #include "library.h"
 #include "callback.h"
-#include "threads.h"
 #include "x64trace.h"
 #include "custommem.h"
 #include "khash.h"
 #include "threads.h"
 #include "rbtree.h"
 #include "mysignal.h"
+#include "mypthread.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #include "dynarec/dynablock_private.h"
@@ -59,9 +59,13 @@ pthread_mutex_t     mutex_blocks;
 rbtree_t* memprot = NULL;
 int have48bits = 0;
 static int inited = 0;
-
+typedef enum {
+    MEM_UNUSED = 0,
+    MEM_ALLOCATED = 1,
+    MEM_RESERVED = 2,
+    MEM_MMAP = 3
+} mem_flag_t;
 rbtree_t*  mapallmem = NULL;
-static rbtree_t*  mmapmem = NULL;
 static rbtree_t*  blockstree = NULL;
 
 #define BTYPE_MAP   1
@@ -426,6 +430,10 @@ static size_t roundSize(size_t size)
     return size;
 }
 
+uintptr_t blockstree_start = 0;
+uintptr_t blockstree_end = 0;
+int blockstree_index = 0;
+
 blocklist_t* findBlock(uintptr_t addr)
 {
     if(blockstree) {
@@ -440,6 +448,30 @@ blocklist_t* findBlock(uintptr_t addr)
     }
     return NULL;
 }
+void add_blockstree(uintptr_t start, uintptr_t end, int idx)
+{
+    if(!blockstree)
+        return;
+    static int reent = 0;
+    if(reent) {
+        blockstree_start = start;
+        blockstree_end = end;
+        blockstree_index = idx;
+        return;
+    }
+    reent = 1;
+    blockstree_start = blockstree_end = 0;
+    rb_set(blockstree, start, end, idx);
+    while(blockstree_start || blockstree_end) {
+        start = blockstree_start;
+        end = blockstree_end;
+        idx = blockstree_index;
+        blockstree_start = blockstree_end = 0;
+        rb_set(blockstree, start, end, idx);
+    }
+    reent = 0;
+}
+
 void* box32_dynarec_mmap(size_t size);
 #ifdef BOX32
 int isCustomAddr(void* p)
@@ -528,13 +560,11 @@ void* map128_customMalloc(size_t size, int is32bits)
     p_blocks[i].block = NULL;   // incase there is a re-entrance
     p_blocks[i].first = NULL;
     p_blocks[i].size = 0;
-    if(is32bits)    // unlocking, because mmap might use it
-    mutex_unlock(&mutex_blocks);
+    if(is32bits) mutex_unlock(&mutex_blocks);   // unlocking, because mmap might use it
     void* p = is32bits
         ? box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)
         : (box64_is32bits ? box32_dynarec_mmap(allocsize) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
-    if(is32bits)
-    mutex_lock(&mutex_blocks);
+    if(is32bits) mutex_lock(&mutex_blocks);
     #ifdef TRACE_MEMSTAT
     customMalloc_allocated += allocsize;
     #endif
@@ -571,17 +601,22 @@ void* map128_customMalloc(size_t size, int is32bits)
             }
             p_blocks[i].size = allocsize;
         }
+        #ifdef TRACE_MEMSTAT
+        printf_log(LOG_INFO, "Custommem: Failled to alloc 32bits: allocation %p-%p for 128byte MAP Alloc p_blocks[%d]\n", p, p+allocsize, i);
+        #endif
         p_blocks[i].maxfree = allocsize - mapsize;
         return NULL;
     }
+    #ifdef TRACE_MEMSTAT
+    printf_log(LOG_INFO, "Custommem: allocation %p-%p for 128byte MAP Alloc p_blocks[%d]\n", p, p+allocsize, i);
+    #endif
     // alloc 1st block
     void* ret = p_blocks[i].block;
     map[0] |= 1;
     p_blocks[i].lowest = 1;
     p_blocks[i].maxfree = allocsize - (mapsize+128);
     mutex_unlock(&mutex_blocks);
-    if(blockstree)
-        rb_set(blockstree, (uintptr_t)p, (uintptr_t)p+allocsize-mapsize, i);
+    add_blockstree((uintptr_t)p, (uintptr_t)p+allocsize, i);
     if(mapallmem) {
         if(setting_prot) {
             // defer the setProtection...
@@ -677,15 +712,20 @@ void* internal_customMalloc(size_t size, int is32bits)
             }
             p_blocks[i].size = allocsize;
         }
+        #ifdef TRACE_MEMSTAT
+        printf_log(LOG_INFO, "Custommem: Failed to alloc 32bits: allocation %p-%p for LIST Alloc p_blocks[%d]\n", p, p+allocsize, i);
+        #endif
         p_blocks[i].maxfree = allocsize - sizeof(blockmark_t)*2;
         return NULL;
     }
+    #ifdef TRACE_MEMSTAT
+    printf_log(LOG_INFO, "Custommem: allocation %p-%p for LIST Alloc p_blocks[%d]\n", p, p+allocsize, i);
+    #endif
     // alloc 1st block
     void* ret  = allocBlock(p_blocks[i].block, p, size, &p_blocks[i].first);
     p_blocks[i].maxfree = getMaxFreeBlock(p_blocks[i].block, p_blocks[i].size, p_blocks[i].first);
     mutex_unlock(&mutex_blocks);
-    if(blockstree)
-        rb_set(blockstree, (uintptr_t)p, (uintptr_t)p+allocsize, i);
+    add_blockstree((uintptr_t)p, (uintptr_t)p+allocsize, i);
     if(mapallmem) {
         if(setting_prot) {
             // defer the setProtection...
@@ -710,14 +750,14 @@ void* customCalloc(size_t n, size_t size)
 {
     size_t newsize = roundSize(n*size);
     void* ret = internal_customMalloc(newsize, 0);
-    memset(ret, 0, newsize);
+    if(ret) memset(ret, 0, newsize);
     return ret;
 }
 void* customCalloc32(size_t n, size_t size)
 {
     size_t newsize = roundSize(n*size);
     void* ret = internal_customMalloc(newsize, 1);
-    memset(ret, 0, newsize);
+    if(ret) memset(ret, 0, newsize);
     return ret;
 }
 
@@ -726,7 +766,7 @@ void* internal_customRealloc(void* p, size_t size, int is32bits)
 {
     if(!p)
         return internal_customMalloc(size, is32bits);
-    size = roundSize(size);
+    //size = roundSize(size);
     uintptr_t addr = (uintptr_t)p;
     mutex_lock(&mutex_blocks);
     blocklist_t* l = findBlock(addr);
@@ -905,6 +945,9 @@ void* internal_customMemAligned(size_t align, size_t size, int is32bits)
     p_blocks[i].block = p;
     p_blocks[i].first = p;
     p_blocks[i].size = allocsize;
+    #ifdef TRACE_MEMSTAT
+    printf_log(LOG_INFO, "Custommem: allocation %p-%p for LIST Alloc p_blocks[%d], aligned\n", p, p+allocsize, i);
+    #endif
     // setup marks
     blockmark_t* m = (blockmark_t*)p;
     m->prev.x32 = 0;
@@ -933,8 +976,7 @@ void* internal_customMemAligned(size_t align, size_t size, int is32bits)
     mutex_unlock(&mutex_blocks);
     if(mapallmem)
         setProtection((uintptr_t)p, allocsize, PROT_READ | PROT_WRITE);
-    if(blockstree)
-        rb_set(blockstree, (uintptr_t)p, (uintptr_t)p+allocsize, i);
+    add_blockstree((uintptr_t)p, (uintptr_t)p+allocsize, i);
     return ret;
 }
 void* customMemAligned(size_t align, size_t size)
@@ -980,10 +1022,10 @@ void* box32_dynarec_mmap(size_t size)
     uintptr_t bend = 0;
     while(bend<0x800000000000LL) {
         if(rb_get_end(mapallmem, cur, &flag, &bend)) {
-            if(flag==2 && bend-cur>=size) {
+            if(flag == MEM_RESERVED && bend-cur>=size) {
                 void* ret = InternalMmap((void*)cur, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
                 if(ret!=MAP_FAILED)
-                    rb_set(mapallmem, cur, cur+size, 1);    // mark as allocated
+                    rb_set(mapallmem, cur, cur+size, MEM_ALLOCATED);    // mark as allocated
                 else
                     printf_log(LOG_INFO, "BOX32: Error allocating Dynarec memory: %s\n", strerror(errno));
                 cur = cur+size;
@@ -1002,7 +1044,6 @@ void* box32_dynarec_mmap(size_t size)
 #define NCHUNK          64
 typedef struct mapchunk_s {
     blocklist_t         chunk;
-    rbtree_t*           tree;
 } mapchunk_t;
 typedef struct mmaplist_s {
     mapchunk_t          chunks[NCHUNK];
@@ -1018,9 +1059,6 @@ dynablock_t* FindDynablockFromNativeAddress(void* p)
 
     mapchunk_t* bl = (mapchunk_t*)rb_get_64(rbt_dynmem, addr);
     if(bl) {
-        // search in the rbtree first
-        dynablock_t** ret = (dynablock_t**)rb_get_64(bl->tree, addr);
-        if(ret) return *ret;
         // browse the map allocation as a fallback
         blockmark_t* sub = (blockmark_t*)bl->chunk.block;
         while((uintptr_t)sub<addr) {
@@ -1029,9 +1067,7 @@ dynablock_t* FindDynablockFromNativeAddress(void* p)
                 // found it!
                 if(!sub->next.fill) return NULL; // empty space?
                 // self is the field of a block
-                ret = (dynablock_t**)((uintptr_t)sub+sizeof(blockmark_t));
-                // add it to the rbtree for later fast retreival
-                rb_set_64(bl->tree, (uintptr_t)*ret, (uintptr_t)ret+SIZE_BLOCK(sub->next), (uintptr_t)*ret);
+                dynablock_t** ret = (dynablock_t**)((uintptr_t)sub+sizeof(blockmark_t));
                 return *ret;
             }
             sub = n;
@@ -1054,9 +1090,10 @@ uintptr_t AllocDynarecMap(size_t size)
     if(!list)
         list = mmaplist = (mmaplist_t*)box_calloc(1, sizeof(mmaplist_t));
     // check if there is space in current open ones
-    int i = 0;
+    int idx = 0;
     uintptr_t sz = size + 2*sizeof(blockmark_t);
     while(1) {
+        int i = idx%NCHUNK;
         if(list->chunks[i].chunk.maxfree>=size) {
             // looks free, try to alloc!
             size_t rsize = 0;
@@ -1101,19 +1138,19 @@ uintptr_t AllocDynarecMap(size_t size)
             #endif
 #ifdef TRACE_MEMSTAT
             dynarec_allocated += allocsize;
+            printf_log(LOG_INFO, "Custommem: allocation %p-%p for Dynarec block %d\n", p, p+allocsize, idx);
 #endif
             setProtection((uintptr_t)p, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC);
 
             list->chunks[i].chunk.block = p;
             list->chunks[i].chunk.first = p;
             list->chunks[i].chunk.size = allocsize;
-            list->chunks[i].tree = rbtree_init("dynamap");
             rb_set_64(rbt_dynmem, (uintptr_t)p, (uintptr_t)p+allocsize, (uintptr_t)&list->chunks[i]);
             // setup marks
             blockmark_t* m = (blockmark_t*)p;
             m->prev.x32 = 0;
             m->next.fill = 0;
-            m->next.offs = allocsize-2*sizeof(blockmark_t);
+            m->next.offs = allocsize-sizeof(blockmark_t);
             blockmark_t* n = NEXT_BLOCK(m);
             n->next.x32 = 0;
             n->prev.x32 = m->next.x32;
@@ -1126,7 +1163,7 @@ uintptr_t AllocDynarecMap(size_t size)
             return (uintptr_t)ret;
         }
         // next chunk...
-        ++i;
+        ++idx; ++i;
         if(i==NCHUNK) {
             i = 0;
             if(!list->next)
@@ -1149,7 +1186,6 @@ void FreeDynarecMap(uintptr_t addr)
         size_t newfree = freeBlock(bl->chunk.block, bl->chunk.size, sub, &bl->chunk.first);
         if(bl->chunk.maxfree < newfree)
             bl->chunk.maxfree = newfree;
-        rb_unset(bl->tree, addr, addr+newfree);
         return;
     }
 }
@@ -1757,7 +1793,7 @@ void updateProtection(uintptr_t addr, size_t size, uint32_t prot)
     LOCK_PROT();
     uintptr_t cur = addr & ~(box64_pagesize-1);
     uintptr_t end = ALIGN(cur+size);
-    rb_set(mapallmem, cur, cur+size, 1);
+    rb_set(mapallmem, cur, cur+size, MEM_ALLOCATED);
     while (cur < end) {
         uintptr_t bend;
         uint32_t oprot;
@@ -1789,7 +1825,7 @@ void setProtection(uintptr_t addr, size_t size, uint32_t prot)
     ++setting_prot;
     uintptr_t cur = addr & ~(box64_pagesize-1);
     uintptr_t end = ALIGN(cur+size);
-    rb_set(mapallmem, cur, end, 1);
+    rb_set(mapallmem, cur, end, MEM_ALLOCATED);
     rb_set(memprot, cur, end, prot);
     --setting_prot;
     UNLOCK_PROT();
@@ -1801,15 +1837,22 @@ void setProtection_mmap(uintptr_t addr, size_t size, uint32_t prot)
         return;
     addr &= ~(box64_pagesize-1);
     size = ALIGN(size);
-    LOCK_PROT();
-    rb_set(mmapmem, addr, addr+size, 1);
     if(!prot) {
-        rb_set(mapallmem, addr, addr+size, 1);
+        LOCK_PROT();
+        rb_set(mapallmem, addr, addr+size, MEM_MMAP);
         rb_unset(memprot, addr, addr+size);
+        UNLOCK_PROT();
     }
-    UNLOCK_PROT();
-    if(prot)
-        setProtection(addr, size, prot);
+    else{//SetProtection
+        LOCK_PROT();
+        ++setting_prot;
+        uintptr_t cur = addr & ~(box64_pagesize-1);
+        uintptr_t end = ALIGN(cur+size);
+        rb_set(mapallmem, cur, end, MEM_MMAP);
+        rb_set(memprot, cur, end, prot);
+        --setting_prot;
+        UNLOCK_PROT();
+    }
 }
 
 void setProtection_elf(uintptr_t addr, size_t size, uint32_t prot)
@@ -1820,7 +1863,7 @@ void setProtection_elf(uintptr_t addr, size_t size, uint32_t prot)
         setProtection(addr, size, prot);
     else {
         LOCK_PROT();
-        rb_set(mapallmem, addr, addr+size, 1);
+        rb_set(mapallmem, addr, addr+size, MEM_ALLOCATED);
         rb_unset(memprot, addr, addr+size);
         UNLOCK_PROT();
     }
@@ -1849,7 +1892,7 @@ void allocProtection(uintptr_t addr, size_t size, uint32_t prot)
     int there = rb_get_end(mapallmem, addr, &val, &endb);
     // block is here or absent, no half-block handled..
     if(!there)
-        rb_set(mapallmem, addr, addr+size, 1);
+        rb_set(mapallmem, addr, addr+size, MEM_ALLOCATED);
     UNLOCK_PROT();
     // don't need to add precise tracking probably
 }
@@ -1904,7 +1947,6 @@ void freeProtection(uintptr_t addr, size_t size)
     dynarec_log(LOG_DEBUG, "freeProtection %p:%p\n", (void*)addr, (void*)(addr+size-1));
     LOCK_PROT();
     rb_unset(mapallmem, addr, addr+size);
-    rb_unset(mmapmem, addr, addr+size);
     rb_unset(memprot, addr, addr+size);
     UNLOCK_PROT();
 }
@@ -1927,7 +1969,7 @@ uint32_t getProtection_fast(uintptr_t addr)
 
 int getMmapped(uintptr_t addr)
 {
-    return rb_get(mmapmem, addr);
+    return rb_get(mapallmem, addr) == MEM_MMAP;
 }
 
 int memExist(uintptr_t addr)
@@ -2108,7 +2150,7 @@ void reverveHigMem32(void)
                 //printf_log(LOG_INFO, " Failed to reserve %zx sized block\n", cur_size);
             cur_size>>=1;
         } else {
-            rb_set(mapallmem, (uintptr_t)cur, (uintptr_t)cur+cur_size, 2);
+            rb_set(mapallmem, (uintptr_t)cur, (uintptr_t)cur+cur_size, MEM_RESERVED);
             //printf_log(LOG_INFO, "Reserved high %p (%zx)\n", cur, cur_size);
         }
     }
@@ -2156,7 +2198,7 @@ void my_reserveHighMem()
             void* ret = InternalMmap((void*)cur, bend - cur, 0, MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
             printf_log(LOG_DEBUG, "Reserve %p-%p => %p (%s)\n", (void*)cur, bend, ret, (ret==MAP_FAILED)?strerror(errno):"ok");
             if(ret!=(void*)-1) {
-                rb_set(mapallmem, cur, bend, 1);
+                rb_set(mapallmem, cur, bend, MEM_ALLOCATED);
             }
         }
         cur = bend;
@@ -2211,8 +2253,6 @@ void init_custommem_helper(box64context_t* ctx)
     pthread_atfork(NULL, NULL, atfork_child_custommem);
     // init mapallmem list
     mapallmem = rbtree_init("mapallmem");
-    // init mmapmem list
-    mmapmem = rbtree_init("mapmem");
     // Load current MMap
     loadProtectionFromMap();
     reserveHighMem();
@@ -2265,8 +2305,6 @@ void fini_custommem_helper(box64context_t *ctx)
             for (int i=0; i<NCHUNK; ++i) {
                 if(head->chunks[i].chunk.block)
                     InternalMunmap(head->chunks[i].chunk.block, head->chunks[i].chunk.size);
-                if(head->chunks[i].tree)
-                    rbtree_delete(head->chunks[i].tree);
             }
             mmaplist_t *old = head;
             head = head->next;
@@ -2304,8 +2342,6 @@ void fini_custommem_helper(box64context_t *ctx)
 #endif
     rbtree_delete(memprot);
     memprot = NULL;
-    rbtree_delete(mmapmem);
-    mmapmem = NULL;
     rbtree_delete(mapallmem);
     mapallmem = NULL;
     rbtree_delete(blockstree);

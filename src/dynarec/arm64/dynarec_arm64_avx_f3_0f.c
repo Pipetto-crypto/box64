@@ -106,7 +106,7 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             break;
 
         case 0x16:
-            INST_NAME("MOVSHDUP Gx, Ex");
+            INST_NAME("VMOVSHDUP Gx, Ex");
             nextop = F8;
             GETEX_Y(q1, 0, 0);
             GETGX_empty(q0);
@@ -386,7 +386,7 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             GETEXSS(v1, 0, 0);
             GETGX_empty_VX(v0, v2);
             FCMPS(v2, v1);
-            FCSELS(d1, v1, v2, cCS);
+            FCSELS(d1, v1, v2, cCS);    //CS: NAN or == or Ex > Vx
             if(v0!=v2) {
                 VMOVQ(v0, v2);
             }
@@ -426,7 +426,7 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             GETEXSS(v1, 0, 0);
             GETGX_empty_VX(v0, v2);
             FCMPS(v1, v2);
-            FCSELS(d1, v1, v2, cCS);
+            FCSELS(d1, v1, v2, cCS);    //CS: NAN or == or Ex > Vx
             if(v0!=v2) {
                 VMOVQ(v0, v2);
             }
@@ -438,22 +438,22 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             INST_NAME("VMOVDQU Gx, Ex");// no alignment constraint on NEON here, so same as MOVDQA
             nextop = F8;
             if(MODREG) {
-                v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
-                GETGX_empty(v0);
+                GETGX_empty_EX(v0, v1, 0);
                 VMOVQ(v0, v1);
                 if(vex.l) {
-                    v1 = ymm_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0, gd, -12, -1);
-                    GETGY_empty(v0, (nextop&7)+(rex.b<<3), -1, -1);
+                    GETGY_empty_EY(v0, v1);
                     VMOVQ(v0, v1);
                 }
             } else {
                 GETGX_empty(v0);
                 SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                VLDR128_U12(v0, ed, fixedaddress);
                 if(vex.l) {
-                    GETGY_empty(v0, -1, -1, -1);
-                    VLDR128_U12(v0, ed, fixedaddress+16);
+                    GETGY_empty(v1, -1, -1, -1);
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                    VLDP128_I7(v0, v1, ed, fixedaddress);
+                } else {
+                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                    VLD128(v0, ed, fixedaddress);
                 }
             }
             if(!vex.l) YMM0(gd);
@@ -488,7 +488,7 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             break;
 
         case 0x7E:
-            INST_NAME("MOVQ Gx, Ex");
+            INST_NAME("VMOVQ Gx, Ex");
             nextop = F8;
             if(MODREG) {
                 v1 = sse_get_reg(dyn, ninst, x1, (nextop&7) + (rex.b<<3), 0);
@@ -507,38 +507,37 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, 
             nextop = F8;
             GETGX(v0, 0);
             if(MODREG) {
-                v1 = sse_get_reg_empty(dyn, ninst, x1, (nextop&7) + (rex.b<<3));
+                ed = (nextop&7) + (rex.b<<3);
+                v1 = sse_get_reg_empty(dyn, ninst, x1, ed);
                 VMOVQ(v1, v0);
                 if(vex.l) {
-                    GETGY(v0, 0, (nextop&7) + (rex.b<<3), -1, -1);
-                    v1 = ymm_get_reg_empty(dyn, ninst, x1, (nextop&7) + (rex.b<<3), gd, -1, -1);
+                    GETGY(v0, 0, ed, -1, -1);
+                    v1 = ymm_get_reg_empty(dyn, ninst, x1, ed, gd, -1, -1);
                     VMOVQ(v1, v0);
-                } // no ymm raz here it seems
+                } else YMM0(ed);
             } else {
                 IF_UNALIGNED(ip) {
                     MESSAGE(LOG_DEBUG, "\tUnaligned path");
                     addr = geted(dyn, addr, ninst, nextop, &wback, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
-                    if(wback!=x1) {
-                        MOVx_REG(x1, wback);
-                        wback = x1;
-                    }
                     for(int i=0; i<16; ++i) {
-                        VST1_8(v0, i, wback);
-                        ADDx_U12(wback, wback, 1);
+                        VST1_8(v0, i, i?x1:wback);
+                        ADDx_U12(x1, i?x1:wback, 1);
                     }
                     if(vex.l) {
                         GETGY(v0, 0, -1, -1, -1);
                         for(int i=0; i<16; ++i) {
-                            VST1_8(v0, i, wback);
-                            ADDx_U12(wback, wback, 1);
+                            VST1_8(v0, i, x1);
+                            ADDx_U12(x1, x1, 1);
                         }
                     }
                 } else {
-                    addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0xffe<<4, 15, rex, NULL, 0, 0);
-                    VSTR128_U12(v0, ed, fixedaddress);
                     if(vex.l) {
-                        GETGY(v0, 0, -1, -1, -1);
-                        VSTR128_U12(v0, ed, fixedaddress+16);
+                        GETGY(v1, 0, -1, -1, -1);
+                        addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0x3f<<4, 15, rex, NULL, 1, 0);
+                        VSTP128_I7(v0, v1, ed, fixedaddress);
+                    } else {
+                        addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<4, 15, rex, NULL, 0, 0);
+                        VST128(v0, ed, fixedaddress);
                     }
                 }
                 SMWRITE2();

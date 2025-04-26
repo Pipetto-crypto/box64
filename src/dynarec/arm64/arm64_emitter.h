@@ -89,7 +89,8 @@ p0-p3 are used to pass scalable predicate arguments to a subroutine and to retur
 #define x4      4
 #define x5      5
 #define x6      6
-#define x7      7
+#define x87pc   7
+// x87 can be a scratch, but check if it's used as x87 PC and restore if needed in that case
 // 32bits version of scratch
 #define w1      x1
 #define w2      x2
@@ -97,7 +98,7 @@ p0-p3 are used to pass scalable predicate arguments to a subroutine and to retur
 #define w4      x4
 #define w5      x5
 #define w6      x6
-#define w7      x7
+#define w87pc   x87pc
 // emu is r0
 #define xEmu    0
 // ARM64 LR
@@ -339,7 +340,7 @@ int convert_bitmask(uint64_t bitmask);
 #define LDRSW_REGz(Rt, Rn, Rm)          EMIT(LDRS_REG_gen(0b10, Rm, rex.is32bits?0b110:0b011, 0, Rn, Rt))
 
 #define LDR_PC_gen(opc, imm19, Rt)      ((opc)<<30 | 0b011<<27 | (imm19)<<5 | (Rt))
-#define LDRx_literal(Rt, imm19)         EMIT(LDR_PC_gen(0b01, ((imm19)>>2)&0x7FFFF, Rt))
+#define LDRx_literal(Rt, imm21)         EMIT(LDR_PC_gen(0b01, (((int64_t)(imm21))>>2)&0x7FFFF, Rt))
 
 #define LDU_gen(size, opc, imm9, Rn, Rt)  ((size)<<30 | 0b111<<27 | (opc)<<22 | ((imm9)&0x1ff)<<12 | (Rn)<<5 | (Rt))
 #define LDURx_I9(Rt, Rn, imm9)            EMIT(LDU_gen(0b11, 0b01, imm9, Rn, Rt))
@@ -908,7 +909,7 @@ int convert_bitmask(uint64_t bitmask);
 #define FCSELS(Sd, Sn, Sm, cond)        EMIT(FCSEL_scalar(0b00, Sm, cond, Sn, Sd))
 #define FCSELD(Dd, Dn, Dm, cond)        EMIT(FCSEL_scalar(0b01, Dm, cond, Dn, Dd))
  
-// VLDR
+// VLDR/VSTR
 #define VMEM_gen(size, opc, imm12, Rn, Rt)  ((size)<<30 | 0b111<<27 | 1<<26 | 0b01<<24 | (opc)<<22 | (imm12)<<10 | (Rn)<<5 | (Rt))
 // imm13 must be 1-aligned
 #define VLDR16_U12(Ht, Rn, imm13)           EMIT(VMEM_gen(0b01, 0b01, ((uint32_t)((imm13)>>1))&0xfff, Rn, Ht))
@@ -926,6 +927,15 @@ int convert_bitmask(uint64_t bitmask);
 #define VSTR128_U12(Qt, Rn, imm16)          EMIT(VMEM_gen(0b00, 0b10, ((uint32_t)((imm16)>>4))&0xfff, Rn, Qt))
 // (imm13) must be 1-aligned
 #define VSTR16_U12(Ht, Rn, imm13)           EMIT(VMEM_gen(0b01, 0b00, ((uint32_t)((imm13)>>1))&0xfff, Rn, Ht))
+
+//VLDP/VSTP
+#define VMEMP_vector(opc, L, imm7, Rt2, Rn, Rt) ((opc)<<30 | 0b101<<27 | 1<<26 | 0b010<<23 | (L)<<22 | (imm7)<<15 | (Rt2)<<10 | (Rn)<<5 | (Rt))
+#define VLDP32_I7(Rt1, Rt2, Rn, imm9)       EMIT(VMEMP_vector(0b00, 1, (((int64_t)(imm9))>>2)&0x7f, Rt2, Rn, Rt1))
+#define VLDP64_I7(Rt1, Rt2, Rn, imm10)      EMIT(VMEMP_vector(0b01, 1, (((int64_t)(imm10))>>3)&0x7f, Rt2, Rn, Rt1))
+#define VLDP128_I7(Rt1, Rt2, Rn, imm11)     EMIT(VMEMP_vector(0b10, 1, (((int64_t)(imm11))>>4)&0x7f, Rt2, Rn, Rt1))
+#define VSTP32_I7(Rt1, Rt2, Rn, imm9)       EMIT(VMEMP_vector(0b00, 0, (((int64_t)(imm9))>>2)&0x7f, Rt2, Rn, Rt1))
+#define VSTP64_I7(Rt1, Rt2, Rn, imm10)      EMIT(VMEMP_vector(0b01, 0, (((int64_t)(imm10))>>3)&0x7f, Rt2, Rn, Rt1))
+#define VSTP128_I7(Rt1, Rt2, Rn, imm11)     EMIT(VMEMP_vector(0b10, 0, (((int64_t)(imm11))>>4)&0x7f, Rt2, Rn, Rt1))
 
 #define VMEMUR_vector(size, opc, imm9, Rn, Rt)  ((size)<<30 | 0b111<<27 | 1<<26 | (opc)<<22 | (imm9)<<12 | (Rn)<<5 | (Rt))
 // signed offset, no alignement!
@@ -1569,6 +1579,12 @@ int convert_bitmask(uint64_t bitmask);
 #define VFMAXQS(Vd, Vn, Vm)         EMIT(FMINMAX_vector(1, 0, 0, 0, Vm, Vn, Vd))
 #define VFMINQD(Vd, Vn, Vm)         EMIT(FMINMAX_vector(1, 0, 1, 1, Vm, Vn, Vd))
 #define VFMAXQD(Vd, Vn, Vm)         EMIT(FMINMAX_vector(1, 0, 0, 1, Vm, Vn, Vd))
+#define VFMINPS(Vd, Vn, Vm)         EMIT(FMINMAX_vector(0, 1, 1, 0, Vm, Vn, Vd))
+#define VFMAXPS(Vd, Vn, Vm)         EMIT(FMINMAX_vector(0, 1, 0, 0, Vm, Vn, Vd))
+#define VFMINPQS(Vd, Vn, Vm)        EMIT(FMINMAX_vector(1, 1, 1, 0, Vm, Vn, Vd))
+#define VFMAXPQS(Vd, Vn, Vm)        EMIT(FMINMAX_vector(1, 1, 0, 0, Vm, Vn, Vd))
+#define VFMINPQD(Vd, Vn, Vm)        EMIT(FMINMAX_vector(1, 1, 1, 1, Vm, Vn, Vd))
+#define VFMAXPQD(Vd, Vn, Vm)        EMIT(FMINMAX_vector(1, 1, 0, 1, Vm, Vn, Vd))
 
 #define FMINMAX_scalar(type, Rm, op, Rn, Rd)        (0b11110<<24 | (type)<<22 | 1<<21 | (Rm)<<16 | 0b01<<14 | (op)<<12 | 0b10<<10 | (Rn)<<5 | (Rd))
 #define FMINS(Sd, Sn, Sm)           EMIT(FMINMAX_scalar(0b00, Sm, 0b01, Sn, Sd))
@@ -2149,6 +2165,10 @@ int convert_bitmask(uint64_t bitmask);
 #define URHADDQ_8(Vd, Vn, Vm)       EMIT(RHADD_vector(1, 1, 0b00, Vm, Vn, Vd))
 #define URHADDQ_16(Vd, Vn, Vm)      EMIT(RHADD_vector(1, 1, 0b01, Vm, Vn, Vd))
 #define URHADDQ_32(Vd, Vn, Vm)      EMIT(RHADD_vector(1, 1, 0b10, Vm, Vn, Vd))
+
+//SRSHR/URSHR
+#define RSHR(Q, U, immh, immb, Rn, Rd)      ((Q)<<30 | (U)<<29 | 0b011110<<23 | (immh)<<19 | (immb)<<16 | 1<<13 | 0<<12 | 1<<10 | (Rn)<<5 | (Rd))
+#define SRSHRQ_32(Vd, Vn, shift)    EMIT(RSHR(1, 0, 0b0100 | (((32-(shift))>>3)&0b11), (32-(shift))&0b111, Vn, Vd))
 
 // QRDMULH Signed saturating (Rounding) Doubling Multiply returning High half
 #define QDMULH_vector(Q, U, size, Rm, Rn, Rd)   ((Q)<<30 | (U)<<29 | 0b01110<<24 | (size)<<22 | 1<<21 | (Rm)<<16 | 0b10110<<11 | 1<<10 | (Rn)<<5 | (Rd))

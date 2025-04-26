@@ -1,13 +1,21 @@
+#define _GNU_SOURCE
 #include <sys/syscall.h>
 #include <sched.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/personality.h>
+#include <dlfcn.h>
+#include <string.h>
 
 #include "os.h"
 #include "signals.h"
 #include "emu/x64int_private.h"
 #include "bridge.h"
+#include "elfloader.h"
+#include "env.h"
+#include "debug.h"
+#include "x64tls.h"
+#include "librarian.h"
 
 int GetTID(void)
 {
@@ -49,9 +57,78 @@ void EmuX86Syscall(void* emu)
     x86Syscall((x64emu_t*)emu);
 }
 
+extern int box64_is32bits;
+
+void* GetSeg43Base()
+{
+    tlsdatasize_t* ptr = getTLSData(my_context);
+    return ptr->data;
+}
+
+void* GetSegmentBase(uint32_t desc)
+{
+    if (!desc) {
+        printf_log(LOG_NONE, "Warning, accessing segment NULL\n");
+        return NULL;
+    }
+    int base = desc >> 3;
+    if (!box64_is32bits && base == 0x8 && !my_context->segtls[base].key_init)
+        return GetSeg43Base();
+    if (box64_is32bits && (base == 0x6))
+        return GetSeg43Base();
+    if (base > 15) {
+        printf_log(LOG_NONE, "Warning, accessing segment unknown 0x%x or unset\n", desc);
+        return NULL;
+    }
+    if (my_context->segtls[base].key_init) {
+        void* ptr = pthread_getspecific(my_context->segtls[base].key);
+        return ptr;
+    }
+
+    void* ptr = (void*)my_context->segtls[base].base;
+    return ptr;
+}
+
+const char* GetNativeName(void* p)
+{
+    static char buff[500] = { 0 };
+    {
+        const char* n = getBridgeName(p);
+        if (n)
+            return n;
+    }
+    Dl_info info;
+    if (dladdr(p, &info) == 0) {
+        const char* ret = GetNameOffset(my_context->maplib, p);
+        if (ret)
+            return ret;
+        sprintf(buff, "%s(%p)", "???", p);
+        return buff;
+    } else {
+        if (info.dli_sname) {
+            strcpy(buff, info.dli_sname);
+            if (info.dli_fname) {
+                strcat(buff, "(");
+                strcat(buff, info.dli_fname);
+                strcat(buff, ")");
+            }
+        } else {
+            sprintf(buff, "%s(%s+%p)", "???", info.dli_fname, (void*)(p - info.dli_fbase));
+            return buff;
+        }
+    }
+    return buff;
+}
+
+
 void PersonalityAddrLimit32Bit(void)
 {
     personality(ADDR_LIMIT_32BIT);
+}
+
+int IsAddrElfOrFileMapped(uintptr_t addr)
+{
+    return FindElfAddress(my_context, addr) || IsAddrFileMapped(addr, NULL, NULL);
 }
 
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
