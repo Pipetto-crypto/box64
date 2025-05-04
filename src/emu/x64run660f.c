@@ -1287,8 +1287,10 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         GETEX(0);
         GETGX;
         for (int i=0; i<2; ++i) {
-            if(EX->d[i]<0.0)        // on x86, default nan are negative
-                GX->d[i] = -NAN;    // but input NAN are not touched (so sqrt(+nan) -> +nan)
+            if(EX->d[i]<0.0)            // on x86, default nan are negative
+                GX->d[i] = -NAN;        // but input NAN are not touched (so sqrt(+nan) -> +nan)
+            else if(isnan(EX->d[i]))
+                GX->d[i] = EX->d[i];
             else
                 GX->d[i] = sqrt(EX->d[i]);
         }
@@ -1649,17 +1651,9 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             case 3:                 /* PSRLDQ Ex, Ib */
                 tmp8u = F8;
                 if(tmp8u>15)
-                    {EX->q[0] = EX->q[1] = 0;}
-                else if (tmp8u!=0) {
-                    tmp8u*=8;
-                    if (tmp8u < 64) {
-                        EX->q[0] = (EX->q[0] >> tmp8u) | (EX->q[1] << (64 - tmp8u));
-                        EX->q[1] = (EX->q[1] >> tmp8u);
-                    } else {
-                        EX->q[0] = EX->q[1] >> (tmp8u - 64);
-                        EX->q[1] = 0;
-                    }
-                }
+                    EX->u128 = 0;
+                else if (tmp8u)
+                    EX->u128 >>= (tmp8u<<3);
                 break;
             case 6:                 /* PSLLQ Ex, Ib */
                 tmp8u = F8;
@@ -1671,17 +1665,9 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             case 7:                 /* PSLLDQ Ex, Ib */
                 tmp8u = F8;
                 if(tmp8u>15)
-                    {EX->q[0] = EX->q[1] = 0;}
-                else if (tmp8u!=0) {
-                    tmp8u*=8;
-                    if (tmp8u < 64) {
-                        EX->q[1] = (EX->q[1] << tmp8u) | (EX->q[0] >> (64 - tmp8u));
-                        EX->q[0] = (EX->q[0] << tmp8u);
-                    } else {
-                        EX->q[1] = EX->q[0] << (tmp8u - 64);
-                        EX->q[0] = 0;
-                    }
-                }
+                    EX->u128 = 0;
+                else if (tmp8u)
+                    EX->u128 <<= (tmp8u<<3);
                 break;
             default:
                 return 0;
@@ -2115,26 +2101,32 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         GETEW(0);
         GETGW;
+        tmp8u = 0;
         if(rex.w) {
             tmp64u = EW->q[0];
             if(tmp64u) {
                 CLEAR_FLAG(F_ZF);
-                tmp8u = 0;
                 while(!(tmp64u&(1LL<<tmp8u))) ++tmp8u;
-                GW->q[0] = tmp8u;
             } else {
                 SET_FLAG(F_ZF);
             }
+            GW->q[0] = tmp8u;
         } else {
             tmp16u = EW->word[0];
             if(tmp16u) {
                 CLEAR_FLAG(F_ZF);
-                tmp8u = 0;
                 while(!(tmp16u&(1<<tmp8u))) ++tmp8u;
-                GW->word[0] = tmp8u;
             } else {
                 SET_FLAG(F_ZF);
             }
+            GW->word[0] = tmp8u;
+        }
+        if(!BOX64ENV(cputype)) {
+            CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);
+            CLEAR_FLAG(F_CF);
+            CLEAR_FLAG(F_AF);
+            CLEAR_FLAG(F_SF);
+            CLEAR_FLAG(F_OF);
         }
         break;
     case 0xBD:                      /* BSR Ew,Gw */
@@ -2142,26 +2134,34 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         GETEW(0);
         GETGW;
+        tmp8u = 0;
         if(rex.w) {
             tmp64u = EW->q[0];
             if(tmp64u) {
                 CLEAR_FLAG(F_ZF);
                 tmp8u = 63;
                 while(!(tmp64u&(1LL<<tmp8u))) --tmp8u;
-                GW->q[0] = tmp8u;
             } else {
                 SET_FLAG(F_ZF);
             }
+            GW->q[0] = tmp8u;
         } else {
             tmp16u = EW->word[0];
             if(tmp16u) {
                 CLEAR_FLAG(F_ZF);
                 tmp8u = 15;
                 while(!(tmp16u&(1<<tmp8u))) --tmp8u;
-                GW->word[0] = tmp8u;
             } else {
                 SET_FLAG(F_ZF);
             }
+            GW->word[0] = tmp8u;
+        }
+        if(!BOX64ENV(cputype)) {
+            CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);
+            CLEAR_FLAG(F_CF);
+            CLEAR_FLAG(F_AF);
+            CLEAR_FLAG(F_SF);
+            CLEAR_FLAG(F_OF);
         }
         break;
     case 0xBE:                      /* MOVSX Gw,Eb */

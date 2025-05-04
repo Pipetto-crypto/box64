@@ -413,11 +413,9 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     v0 = fpu_get_scratch(dyn, ninst);
                     NEGQ_8(v0, q0);     // get NEG
                     CMLTQ_0_8(v1, q1);  // calculate mask
-                    VBICQ(q0, q0, v1);  // apply not mask on dest
-                    VANDQ(v0, v0, v1);  // apply mask on src
-                    VORRQ(q0, q0, v0);  // merge
+                    VBIFQ(v0, q0, v1);  // put back positive values
                     CMEQQ_0_8(v1, q1);  // handle case where Ex is 0
-                    VBICQ(q0, q0, v1);
+                    VBICQ(q0, v0, v1);
                     break;
                 case 0x09:
                     INST_NAME("PSIGNW Gx, Ex");
@@ -426,13 +424,11 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     GETEX(q1, 0, 0);
                     v1 = fpu_get_scratch(dyn, ninst);
                     v0 = fpu_get_scratch(dyn, ninst);
-                    NEGQ_16(v0, q0);    // get NEG
-                    CMLTQ_0_16(v1, q1); // calculate mask
-                    VBICQ(q0, q0, v1);  // apply not mask on dest
-                    VANDQ(v0, v0, v1);  // apply mask on src
-                    VORRQ(q0, q0, v0);  // merge
-                    CMEQQ_0_16(v1, q1); // handle case where Ex is 0
-                    VBICQ(q0, q0, v1);
+                    NEGQ_16(v0, q0);     // get NEG
+                    CMLTQ_0_16(v1, q1);  // calculate mask
+                    VBIFQ(v0, q0, v1);   // put back positive values
+                    CMEQQ_0_16(v1, q1);  // handle case where Ex is 0
+                    VBICQ(q0, v0, v1);
                     break;
                 case 0x0A:
                     INST_NAME("PSIGND Gx, Ex");
@@ -441,13 +437,11 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     GETEX(q1, 0, 0);
                     v1 = fpu_get_scratch(dyn, ninst);
                     v0 = fpu_get_scratch(dyn, ninst);
-                    NEGQ_32(v0, q0);    // get NEG
-                    CMLTQ_0_32(v1, q1); // calculate mask
-                    VBICQ(q0, q0, v1);  // apply not mask on dest
-                    VANDQ(v0, v0, v1);  // apply mask on src
-                    VORRQ(q0, q0, v0);  // merge
-                    CMEQQ_0_32(v1, q1); // handle case where Ex is 0
-                    VBICQ(q0, q0, v1);
+                    NEGQ_32(v0, q0);     // get NEG
+                    CMLTQ_0_32(v1, q1);  // calculate mask
+                    VBIFQ(v0, q0, v1);   // put back positive values
+                    CMEQQ_0_32(v1, q1);  // handle case where Ex is 0
+                    VBICQ(q0, v0, v1);
                     break;
                 case 0x0B:
                     INST_NAME("PMULHRSW Gx, Ex");
@@ -506,24 +500,28 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     INST_NAME("PTEST Gx, Ex");
                     nextop = F8;
                     SETFLAGS(X_ALL, SF_SET);
-                    GETGX(q0, 0);
-                    GETEX(q1, 0, 0);
-                    v1 = fpu_get_scratch(dyn, ninst);
-                    IFX(X_ZF) {
-                        VANDQ(v1, q1, q0);
-                        CMEQQ_0_64(v1, v1);
-                        UADDLVQ_32(v1, v1);
-                        VMOVQDto(x1, v1, 0);
-                        UBFXx(x1, x1, 33, 1);   // bit33 will only be set if all bits are 1
-                        BFIw(xFlags, x1, F_ZF, 1);
-                    }
+                    GETGX(v0, 0);
+                    GETEX(v1, 0, 0);
+                    q0 = fpu_get_scratch(dyn, ninst);
                     IFX(X_CF) {
-                        VBICQ(v1, q1, q0);
-                        CMEQQ_0_64(v1, v1);
-                        UADDLVQ_32(v1, v1);
-                        VMOVQDto(x1, v1, 0);
-                        UBFXx(x1, x1, 33, 1);
-                        BFIw(xFlags, x1, F_CF, 1);
+                        VBICQ(q0, v1, v0);
+                        CMEQQ_0_64(q0, q0);
+                        UQXTN_32(q0, q0);
+                        VMOVQDto(x2, q0, 0);
+                        ADDSx_U12(xZR, x2, 1);
+                        CSETw(x2, cEQ);
+                        BFIw(xFlags, x2, F_CF, 1);
+                    }
+                    IFX(X_ZF) {
+                        VANDQ(q0, v0, v1);
+                        CMEQQ_0_64(q0, q0);
+                        UQXTN_32(q0, q0);
+                        VMOVQDto(x2, q0, 0);
+                        ADDSx_U12(xZR, x2, 1);
+                        IFNATIVE(NF_EQ) {} else {
+                            CSETw(x2, cEQ);
+                            BFIw(xFlags, x2, F_ZF, 1);
+                        }
                     }
                     IFX(X_PF|X_AF|X_OF|X_SF) {
                         MOV32w(x1, (1<<F_PF)|(1<<F_AF)|(1<<F_OF)|(1<<F_SF));
@@ -2008,39 +2006,92 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
         case 0x70:
             INST_NAME("PSHUFD Gx, Ex,Ib");
             nextop = F8;
-            i32 = -1;
             if(MODREG) {
-                u8 = F8;
                 v1 = sse_get_reg(dyn, ninst, x1, (nextop&7)+(rex.b<<3), 0);
-                GETGX_empty(v0);
-                if(u8==0x4E) {
-                    if(v0==v1) {
-                        VEXTQ_8(v0, v0, v0, 8); // Swap Up/Lower 64bits parts
-                    } else {
-                        VMOVeD(v0, 0, v1, 1);
-                        VMOVeD(v0, 1, v1, 0);
-                    }
-                } else if(u8==0x00) {
-                    // duplicate lower 32bits to all spot
+            } else {
+                SMREAD();
+                addr = geted(dyn, addr, ninst, nextop, &wback, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 1);
+                v1 = fpu_get_scratch(dyn, ninst);      
+            }
+            u8 = F8;
+            GETGX_empty(v0);
+            switch(u8) {
+            case 0x4E: // Swap Up/Lower 64bits parts
+                if(!MODREG)
+                    VLDR128_U12(v1, wback, 0);
+                VEXTQ_8(v0, v1, v1, 8);
+                break;
+            case 0x00: // duplicate lower 32bits to all spot
+                if(MODREG)
                     VDUPQ_32(v0, v1, 0);
-                } else if(u8==0x55) {
-                    // duplicate slot 1 to all spot
+                else
+                    VLDQ1R_32(v0, wback);
+                break;
+            case 0x55: // duplicate slot 1 to all spot
+                if(MODREG)
                     VDUPQ_32(v0, v1, 1);
-                } else if(u8==0xAA) {
-                    // duplicate slot 2 to all spot
+                else {
+                    ADDx_U12(x2, wback, 4);
+                    VLDQ1R_32(v0, x2);
+                }
+                break;
+            case 0xAA: // duplicate slot 2 to all spot
+                if(MODREG)
                     VDUPQ_32(v0, v1, 2);
-                } else if(u8==0xFF) {
-                    // duplicate slot 3 to all spot
+                else {
+                    ADDx_U12(x2, wback, 8);
+                    VLDQ1R_32(v0, x2);
+                }
+                break;
+            case 0xFF: // duplicate slot 3 to all spot
+                if(MODREG)
                     VDUPQ_32(v0, v1, 3);
-                } else if(u8==0x44) {
-                    // duplicate slot 0/1 to all spot
+                else {
+                    ADDx_U12(x2, wback, 12);
+                    VLDQ1R_32(v0, x2);
+                }
+                break;
+            case 0x44: // duplicate slot 0/1 to all spot
+                if(MODREG)
                     VDUPQ_64(v0, v1, 0);
-                } else if(u8==0xEE) {
-                    // duplicate slot 2/3 to all spot
+                else
+                    VLDQ1R_64(v0, wback);
+                break;
+            case 0xEE: // duplicate slot 2/3 to all spot
+                if(MODREG)
                     VDUPQ_64(v0, v1, 1);
-                } else if(u8==0xB1) {
-                    // invert 0/1 and 2/3
-                    VREV64Q_32(v0, v1);
+                else {
+                    ADDx_U12(x2, wback, 8);
+                    VLDQ1R_64(v0, x2);
+                }
+                break;
+            case 0xB1: // invert 0/1 and 2/3
+                if(!MODREG)
+                    VLDR128_U12(v1, wback, 0);
+                VREV64Q_32(v0, v1);
+                break;
+            case 0x39: // 0 3 2 1: ror 32 bits
+                if(!MODREG)
+                    VLDR128_U12(v1, wback, 0);
+                VEXTQ_8(v0, v1, v1, 4);
+                break;
+            case 0x93: // 2 1 0 3: 0 3 2 1: ror 32 bits then invert low/high 64bits
+                if(!MODREG)
+                    VLDR128_U12(v1, wback, 0);
+                VEXTQ_8(v0, v1, v1, 4);
+                VEXTQ_8(v0, v0, v0, 8);
+                break;
+            default:
+                if(!MODREG) {
+                    i32 = -1;
+                    for (int i=0; i<4; ++i) {
+                        int32_t idx = (u8>>(i*2))&3;
+                        if(idx!=i32) {
+                            ADDx_U12(x2, wback, idx*4);
+                            i32 = idx;
+                        }
+                        VLD1_32(v0, i, x2);
+                    }
                 } else if(v0!=v1) {
                     VMOVeS(v0, 0, v1, (u8>>(0*2))&3);
                     VMOVeS(v0, 1, v1, (u8>>(1*2))&3);
@@ -2065,23 +2116,6 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         VMOVQDfrom(d0, 1, x3);
                     }
                     VTBLQ1_8(v0, v1, d0);
-                }
-            } else {
-                GETGX_empty(v0);
-                SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 1);
-                u8 = F8;
-                if (u8) {
-                    for (int i=0; i<4; ++i) {
-                        int32_t idx = (u8>>(i*2))&3;
-                        if(idx!=i32) {
-                            ADDx_U12(x2, ed, idx*4);
-                            i32 = idx;
-                        }
-                        VLD1_32(v0, i, x2);
-                    }
-                } else {
-                    VLDQ1R_32(v0, ed);
                 }
             }
             break;
@@ -2706,7 +2740,11 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             break;
         case 0xBC:
             INST_NAME("BSF Gw,Ew");
-            SETFLAGS(X_ZF, SF_SUBSET);
+            if(!BOX64ENV(dynarec_safeflags) || BOX64ENV(cputype)) {
+                SETFLAGS(X_ZF, SF_SUBSET);
+            } else {
+                SETFLAGS(X_ALL, SF_SET);
+            }
             SET_DFNONE();
             nextop = F8;
             GETGD;
@@ -2718,19 +2756,30 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 CBZw_MARK(x1);
             }
             RBITw(x1, x1);   // reverse
-            CLZw(x2, x1);    // x2 gets leading 0 == BSF
-            BFIx(gd, x2, 0, 16);
+            CLZw(x1, x1);    // x2 gets leading 0 == BSF
             MARK;
+            BFIx(gd, x1, 0, 16);
             IFX(X_ZF) {
                 IFNATIVE(NF_EQ) {} else {
-                    CSETw(x1, cEQ);    //ZF not set
-                    BFIw(xFlags, x1, F_ZF, 1);
+                    CSETw(x2, cEQ);    //ZF not set
+                    BFIw(xFlags, x2, F_ZF, 1);
                 }
+            }
+            if(BOX64ENV(dynarec_safeflags) && !BOX64ENV(cputype)) {
+                IFX(X_CF) BFCw(xFlags, F_CF, 1);
+                IFX(X_AF) BFCw(xFlags, F_AF, 1);
+                IFX(X_SF) BFCw(xFlags, F_SF, 1);
+                IFX(X_OF) BFCw(xFlags, F_OF, 1);
+                IFX(X_PF) emit_pf(dyn, ninst, x1, x2);
             }
             break;
         case 0xBD:
             INST_NAME("BSR Gw,Ew");
-            SETFLAGS(X_ZF, SF_SUBSET);
+            if(!BOX64ENV(dynarec_safeflags) || BOX64ENV(cputype)) {
+                SETFLAGS(X_ZF, SF_SUBSET);
+            } else {
+                SETFLAGS(X_ALL, SF_SET);
+            }
             SET_DFNONE();
             nextop = F8;
             GETGD;
@@ -2744,14 +2793,21 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             LSLw(x1, x1, 16);   // put bits on top
             CLZw(x2, x1);       // x2 gets leading 0
             SUBw_U12(x2, x2, 15);
-            NEGw_REG(x2, x2);   // complement
-            BFIx(gd, x2, 0, 16);
+            NEGw_REG(x1, x2);   // complement
             MARK;
+            BFIx(gd, x1, 0, 16);
             IFX(X_ZF) {
                 IFNATIVE(NF_EQ) {} else {
-                    CSETw(x1, cEQ);    //ZF not set
-                    BFIw(xFlags, x1, F_ZF, 1);
+                    CSETw(x2, cEQ);    //ZF not set
+                    BFIw(xFlags, x2, F_ZF, 1);
                 }
+            }
+            if(BOX64ENV(dynarec_safeflags) && !BOX64ENV(cputype)) {
+                IFX(X_CF) BFCw(xFlags, F_CF, 1);
+                IFX(X_AF) BFCw(xFlags, F_AF, 1);
+                IFX(X_SF) BFCw(xFlags, F_SF, 1);
+                IFX(X_OF) BFCw(xFlags, F_OF, 1);
+                IFX(X_PF) emit_pf(dyn, ninst, x1, x2);
             }
             break;
         case 0xBE:
@@ -2933,7 +2989,7 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             MOVI_32(v1, 32);
             UMIN_32(v0, v0, v1);    // limit to 0 .. +32 values
             NEG_32(v0, v0);         // neg to do shr
-            VDUPQ_16(v0, v0, 0);    // only the low 8bits will be used anyway
+            VDUPQ_32(v0, v0, 0);    // only the low 8bits will be used anyway
             USHLQ_32(q0, q0, v0);   // SHR x4
             break;
         case 0xD3:
@@ -2947,7 +3003,7 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             MOVI_32(v1, 64);
             UMIN_32(v0, v0, v1);    // limit to 0 .. +64 values
             NEG_32(v0, v0);         // neg to do shr
-            VDUPQ_16(v0, v0, 0);    // only the low 8bits will be used anyway
+            VDUPQ_32(v0, v0, 0);    // only the low 8bits will be used anyway
             USHLQ_64(q0, q0, v0);
             break;
         case 0xD4:

@@ -214,15 +214,27 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         GETEX(0);
         GETGX;
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] = sqrtf(EX->f[0]);
+        if (EX->f[0]<0)
+            GX->f[0] = -NAN;
+        else if (isnanf(EX->f[0]))
+            GX->f[0] = EX->f[0];
+        else
+            GX->f[0] = sqrtf(EX->f[0]);
         break;
     case 0x52:  /* RSQRTSS Gx, Ex */
         nextop = F8;
         GETEX(0);
         GETGX;
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] = 1.0f/sqrtf(EX->f[0]);
+        if(EX->f[0]==0)
+            GX->f[0] = 1.0f/EX->f[0];
+        else if (EX->f[0]<0)
+            GX->f[0] = -NAN;
+        else if (isnan(EX->f[0]))
+            GX->f[0] = EX->f[0];
+        else if (isinf(EX->f[0]))
+            GX->f[0] = 0.0;
+        else
+            GX->f[0] = 1.0f/sqrtf(EX->f[0]);
         break;
     case 0x53:  /* RCPSS Gx, Ex */
         nextop = F8;
@@ -388,7 +400,12 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 GD->q[0] = 32;
             }
         }
-        break;
+        CLEAR_FLAG(F_AF);
+        CLEAR_FLAG(F_SF);
+        CLEAR_FLAG(F_PF);
+        if(!BOX64ENV(cputype))
+            CLEAR_FLAG(F_OF);
+    break;
     case 0xBD:  /* LZCNT Ed,Gd */
         CHECK_FLAGS(emu);
         nextop = F8;
@@ -406,6 +423,11 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             CONDITIONAL_SET_FLAG(tmp8u==32, F_CF);
         }
         GD->q[0] = tmp8u;
+        CLEAR_FLAG(F_PF);
+        CLEAR_FLAG(F_AF);
+        CLEAR_FLAG(F_SF);
+        if(!BOX64ENV(cputype))
+            CLEAR_FLAG(F_OF);
         break;
 
     case 0xC2:  /* CMPSS Gx, Ex, Ib */

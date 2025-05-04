@@ -215,11 +215,23 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
         case 0x51:
             INST_NAME("SQRTSS Gx, Ex");
             nextop = F8;
-            GETGX(v0, 1);
+            GETGX(q0, 1);
             d1 = fpu_get_scratch(dyn, ninst);
             GETEXSS(d0, 0, 0);
-            FSQRTS(d1, d0);
-            VMOVeS(v0, 0, d1, 0);
+            if(!BOX64ENV(dynarec_fastnan)) {
+                v0 = fpu_get_scratch(dyn, ninst);
+                v1 = fpu_get_scratch(dyn, ninst);
+                // check if any input value was NAN
+                FCMEQS(v0, d0, d0);    // 0 if NAN, 1 if not NAN
+                FSQRTS(d1, d0);
+                FCMEQS(v1, d1, d1);    // 0 => out is NAN
+                VBIC(v1, v0, v1);      // forget it in any input was a NAN already
+                VSHL_32(v1, v1, 31);   // only keep the sign bit
+                VORR(d1, d1, v1);      // NAN -> -NAN
+            } else {
+                FSQRTS(d1, d0);
+            }
+            VMOVeS(q0, 0, d1, 0);
             break;
         case 0x52:
             INST_NAME("RSQRTSS Gx, Ex");
@@ -545,7 +557,15 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
 
         case 0xBC:
             INST_NAME("TZCNT Gd, Ed");
-            SETFLAGS(X_CF|X_ZF, SF_SUBSET);
+            if(!BOX64ENV(dynarec_safeflags)) {
+                SETFLAGS(X_CF|X_ZF, SF_SUBSET);
+            } else {
+                if(BOX64ENV(cputype)) {
+                    SETFLAGS(X_ALL&~X_OF, SF_SUBSET);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET);
+                }
+            }
             SET_DFNONE();
             nextop = F8;
             GETED(0);
@@ -562,10 +582,24 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 CSETw(x3, cEQ);
                 BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
             }
+            if(BOX64ENV(dynarec_safeflags)) {
+                IFX(X_AF) BFCw(xFlags, F_AF, 1);
+                IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                IFX(X_SF) BFCw(xFlags, F_SF, 1);
+                IFX2(X_OF, && !BOX64ENV(cputype)) BFCw(xFlags, F_OF, 1);
+            }
             break;
         case 0xBD:
             INST_NAME("LZCNT Gd, Ed");
-            SETFLAGS(X_CF|X_ZF, SF_SUBSET);
+            if(!BOX64ENV(dynarec_safeflags)) {
+                SETFLAGS(X_CF|X_ZF, SF_SUBSET);
+            } else {
+                if(BOX64ENV(cputype)) {
+                    SETFLAGS(X_ALL&~X_OF, SF_SUBSET);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET);
+                }
+            }
             SET_DFNONE();
             nextop = F8;
             GETED(0);
@@ -580,6 +614,12 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 TSTxw_REG(gd, gd);
                 CSETw(x3, cEQ);
                 BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
+            }
+            if(BOX64ENV(dynarec_safeflags)) {
+                IFX(X_AF) BFCw(xFlags, F_AF, 1);
+                IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                IFX(X_SF) BFCw(xFlags, F_SF, 1);
+                IFX2(X_OF, && !BOX64ENV(cputype)) BFCw(xFlags, F_OF, 1);
             }
             break;
 

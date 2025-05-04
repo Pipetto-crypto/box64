@@ -1590,26 +1590,32 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             nextop = F8;
             GETED(0);
             GETGD;
+            tmp8u = 0;
             if(rex.w) {
                 tmp64u = ED->q[0];
                 if(tmp64u) {
                     CLEAR_FLAG(F_ZF);
-                    tmp8u = 0;
                     while(!(tmp64u&(1LL<<tmp8u))) ++tmp8u;
-                    GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
                 }
+                GD->q[0] = tmp8u;
             } else {
                 tmp32u = ED->dword[0];
                 if(tmp32u) {
                     CLEAR_FLAG(F_ZF);
-                    tmp8u = 0;
                     while(!(tmp32u&(1<<tmp8u))) ++tmp8u;
-                    GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
                 }
+                GD->q[0] = tmp8u;
+            }
+            if(!BOX64ENV(cputype)) {
+                CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);
+                CLEAR_FLAG(F_CF);
+                CLEAR_FLAG(F_AF);
+                CLEAR_FLAG(F_SF);
+                CLEAR_FLAG(F_OF);
             }
             break;
         case 0xBD:                      /* BSR Ed,Gd */
@@ -1617,16 +1623,17 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             nextop = F8;
             GETED(0);
             GETGD;
+            tmp8u = 0;
             if(rex.w) {
                 tmp64u = ED->q[0];
                 if(tmp64u) {
                     CLEAR_FLAG(F_ZF);
                     tmp8u = 63;
                     while(!(tmp64u&(1LL<<tmp8u))) --tmp8u;
-                    GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
                 }
+                GD->q[0] = tmp8u;
             } else {
                 tmp32u = ED->dword[0];
                 if(tmp32u) {
@@ -1636,7 +1643,15 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
+                    GD->q[0] = tmp8u;
                 }
+            }
+            if(!BOX64ENV(cputype)) {
+                CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);
+                CLEAR_FLAG(F_CF);
+                CLEAR_FLAG(F_AF);
+                CLEAR_FLAG(F_SF);
+                CLEAR_FLAG(F_OF);
             }
             break;
         case 0xBE:                      /* MOVSX Gd,Eb */
@@ -1956,14 +1971,12 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             nextop = F8;
             GETEM(0);
             GETGM;
-            if(EM->q>31) {
-                for(int i=0; i<2; ++i)
-                    GM->sd[i] = (GM->sd[i]<0)?-1:0;
-            } else {
+            if(EM->q>31)
+                tmp8u = 31;
+            else
                 tmp8u = EM->ub[0];
-                for(int i=0; i<2; ++i)
-                    GM->sd[i] >>= tmp8u;
-            }
+            for(int i=0; i<2; ++i)
+                GM->sd[i] >>= tmp8u;
             break;
         case 0xE3:                   /* PAVGW Gm, Em */
             nextop = F8;
@@ -2070,7 +2083,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             else {
                 tmp8u = EM->ub[0];
                 for(int i=0; i<4; ++i)
-                    GM->sw[i] <<= tmp8u;
+                    GM->uw[i] <<= tmp8u;
             }
             break;
         case 0xF2:                   /* PSLLD Gm, Em */
@@ -2082,7 +2095,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             else {
                 tmp8u = EM->ub[0];
                 for(int i=0; i<2; ++i)
-                    GM->sd[i] <<= tmp8u;
+                    GM->ud[i] <<= tmp8u;
             }
             break;
         case 0xF3:                   /* PSLLQ Gm, Em */
