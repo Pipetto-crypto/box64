@@ -68,6 +68,7 @@
 #include "globalsymbols.h"
 #include "env.h"
 #include "wine_tools.h"
+#include "pe_tools.h"
 #include "cleanup.h"
 #ifndef LOG_INFO
 #define LOG_INFO 1
@@ -2991,9 +2992,9 @@ EXPORT void* my_realpath(x64emu_t* emu, void* path, void* resolved_path)
 
 EXPORT int my_readlinkat(x64emu_t* emu, int fd, void* path, void* buf, size_t bufsize)
 {
-    if(isProcSelf(path, "exe")) {
-        strncpy(buf, emu->context->fullpath, bufsize);
-        size_t l = strlen(emu->context->fullpath);
+    if((fd==AT_FDCWD) && isProcSelf(path, "exe")) {
+        strncpy(buf, my_context->fullpath, bufsize);
+        size_t l = strlen(my_context->fullpath);
         return (l>bufsize)?bufsize:(l+1);
     }
     return readlinkat(fd, path, buf, bufsize);
@@ -3032,7 +3033,16 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int f
     #endif
     if(ret!=MAP_FAILED) {
         if(emu && !(flags&MAP_ANONYMOUS) && (fd>0)) {
-            DetectUnityPlayer(fd);
+            if ((box64_wine && BOX64ENV(dynarec_volatile_metadata)) || BOX64ENV(unityplayer)) {
+                char filename[4096];
+                char buf[128];
+                sprintf(buf, "/proc/self/fd/%d", fd);
+                ssize_t r = readlink(buf, filename, sizeof(filename) - 1);
+                if (r != -1) filename[r] = 0;
+
+                if (BOX64ENV(unityplayer)) DetectUnityPlayer(filename);
+                if (box64_wine && BOX64ENV(dynarec_volatile_metadata)) ParseVolatileMetadata(filename, addr);
+            }
             // the last_mmap will allow mmap created by wine, even those that have hole, to be fully tracked as one single mmap
             if((ret>=last_mmap_addr[0]) && ret+length<(last_mmap_addr[0]+last_mmap_len[0]))
                 RecordEnvMappings((uintptr_t)last_mmap_addr[0], last_mmap_len[0], fd);
@@ -3862,6 +3872,13 @@ EXPORT char* my_program_invocation_short_name = NULL;
 
 // ignoring this for now
 EXPORT char my___libc_single_threaded = 0;
+
+EXPORT char* secure_getenv(const char* name)
+{
+    // ignoring the "secure" part for now
+    //TODO: better handling of user and process ID
+    return getenv(name);
+}
 
 #ifdef STATICBUILD
 uint32_t get_random32();
