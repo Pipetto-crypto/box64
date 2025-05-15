@@ -171,6 +171,14 @@ Add --no-sandbox argument to the guest program.
 
 ## Compatibility
 
+### BOX64_AVX
+
+Expose AVX extension to CPUID and cpuinfo file. Default value is 2 on Arm64 because it's fully implemented in DynaRec, 0 otherwise.
+
+ * 0: Do not expose AVX capabilities. 
+ * 1: Expose AVX, BMI1, F16C and VAES extensions to CPUID and cpuinfo file. 
+ * 2: All in 1, plus AVX2, BMI2, FMA, ADX,VPCLMULQDQ and RDRAND extensions. 
+
 ### BOX64_BASH
 
 Path to the bash executable.
@@ -403,6 +411,7 @@ The GDBJIT debugging support, only available on build with `-DGDBJIT=ON`, enable
  * 0: Dynarec will not generate GDBJIT debuginfo. [Default]
  * 1: Dynarec will generate GDBJIT debuginfo. 
  * 2: Dynarec will generate detailed GDBJIT debuginfo with internal state. 
+ * 3: Dynarec will register detailed GDBJIT debuginfo only for dynablocks that the guest program trap into, greatly improving performance. 
  * 0xXXXXXXX-0xYYYYYYY: Define the range where Dynarec will generate detailed GDBJIT debuginfo with internal state. 
 
 ### BOX64_DYNAREC_LOG
@@ -461,9 +470,9 @@ Set the address where the program is loaded, only active for PIE guest programs.
 
 ### BOX64_LOG
 
-Enable or disable Box64 logs.
+Enable or disable Box64 logs, default value is 0 if stdout is not terminal, 1 otherwise.
 
- * 0: Disable Box64 logs. [Default]
+ * 0: Disable Box64 logs. 
  * 1: Enable minimal Box64 logs. 
  * 2: Enable debug level Box64 logs. 
  * 3: Enable verbose level Box64 logs. 
@@ -472,7 +481,7 @@ Enable or disable Box64 logs.
 
 Disable the Box64 banner.
 
- * 0: Show the Box64 banner. [Default]
+ * 0: Show the Box64 banner. 
  * 1: Do not show the Box64 banner. 
 
 ### BOX64_NOSIGSEGV
@@ -495,7 +504,7 @@ Show last few wrapped function call when a signal is caught.
 
  * 0: Does nothing. [Default]
  * 1: Show last 16 wrapped function call when a signal is caught. 
- * XXX: Show last XXX wrapped function call when a signal is caught. 
+ * XXXX: Show last XXXX wrapped function call when a signal is caught. 
 
 ### BOX64_SHOWBT
 
@@ -565,6 +574,13 @@ Only available on box64 build with trace. Adds trace of all instructions execute
  * 0xXXXXXXX-0xYYYYYYY: Enable trace output for the range of address (inclusive-exclusive). 
 
 ## Performance
+
+### BOX64_DYNAREC
+
+Enable/disable the Dynamic Recompiler (a.k.a DynaRec). This option defaults to 1 if it's enabled in the build options for a supported architecture.
+
+ * 0: Disable DynaRec. 
+ * 1: Enable DynaRec. 
 
 ### BOX64_DYNAREC_ALIGNED_ATOMICS
 
@@ -665,8 +681,8 @@ Enable the emulation of x86 strong memory model.
 
 Use volatile metadata parsed from PE files, only valid for 64bit Windows games.
 
- * 0: Do not use volatile metadata. [Default]
- * 1: Use volatile metadata, which will guide Box64 for better strong memory emulation. 
+ * 0: Do not use volatile metadata. 
+ * 1: Use volatile metadata, which will guide Box64 for better strong memory emulation. [Default]
 
 ### BOX64_DYNAREC_WAIT
 
@@ -682,6 +698,13 @@ Tweak the memory barriers to reduce the performance impact by strong memory emua
  * 0: Use regular safe barrier. 
  * 1: Use weak barriers to have more performance boost. [Default]
  * 2: All in 1, plus disabled the last write barriers. 
+
+### BOX64_MMAP32
+
+Force 32-bit compatible memory mappings on 64-bit programs that run 32-bit code (like Wine WOW64), can improve performance.
+
+ * 0: Do not force 32-bit memory mappings. 
+ * 1: Force 32-bit memory mappings. [Default]
 
 ### BOX64_NODYNAREC
 

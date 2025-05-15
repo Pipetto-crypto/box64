@@ -72,6 +72,7 @@ set(WOW64_BOX64CPU_SRC
     "${BOX64_ROOT}/src/os/perfmap.c"
     "${BOX64_ROOT}/src/os/my_cpuid_wine.c"
     "${BOX64_ROOT}/src/tools/alternate.c"
+    "${BOX64_ROOT}/src/tools/env.c"
     "${BOX64_ROOT}/src/tools/rbtree.c"
 )
 
@@ -116,6 +117,6 @@ import_dll(wow64)
 # always enable DynaRec, only supports ARM64 for now.
 add_compile_definitions(DYNAREC ARM64)
 
-target_link_options(wowbox64 PRIVATE -nostdlib -nodefaultlibs -lclang_rt.builtins-aarch64)
+target_link_options(wowbox64 PRIVATE -nostdlib -nodefaultlibs -lclang_rt.builtins-aarch64 -Wl,--image-base,0x004c0000)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
