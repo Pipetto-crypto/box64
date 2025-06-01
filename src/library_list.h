@@ -379,6 +379,7 @@ GO("libpangocairo-1.0.so", pangocairo)
 #ifdef ANDROID
 GO("libandroid-shmem.so", androidshmem)
 GO("libandroid-spawn.so", androidspawn)
+GO("libandroid.so", android)
 #endif
 
 GO("libc.so.6", libc)
