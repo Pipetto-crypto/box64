@@ -2669,11 +2669,13 @@ GOWM(_ITM_memcpyRnWt, vFppL)  //%noE
 GOM(__libc_init, vFEpppp)
 GO(__errno, pFv)
 GO(android_set_abort_message, vFp)
+GOW(res_mkquery, iFipiipippi)
 #else
 // Those symbols don't exist in non-Android builds
 //GOM(__libc_init, 
 //GO(__errno, 
 //GO(android_set_abort_message, vFp)
+//GO(res_mkquery, iFipiipippi)
 #endif
 #ifdef STATICBUILD
 GO(dummy_pFLp, pFLp)
