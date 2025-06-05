@@ -937,11 +937,10 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
     if (MODREG) {                                                                                \
         ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                \
         if (dyn->insts[ninst].nat_flags_fusion) {                                                \
-            NATIVEJUMP(NATNO, 8);                                                                \
+            NATIVEMV(NATYES, gd, ed);                                                            \
         } else {                                                                                 \
-            B##NO(tmp1, 8);                                                                      \
+            MV##YES(gd, ed, tmp1);                                                               \
         }                                                                                        \
-        MV(gd, ed);                                                                              \
         if (!rex.w) ZEROUP(gd);                                                                  \
     } else {                                                                                     \
         addr = geted(dyn, addr, ninst, nextop, &ed, tmp2, tmp3, &fixedaddress, rex, NULL, 1, 0); \
@@ -1666,14 +1665,23 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             INST_NAME("PCMPEQB Gm,Em");
             nextop = F8;
             GETGM();
-            GETEM(x2, 0, 7);
-            for (int i = 0; i < 8; ++i) {
-                LBU(x3, gback, gdoffset + i);
-                LBU(x4, wback, fixedaddress + i);
-                SUB(x3, x3, x4);
-                SEQZ(x3, x3);
-                NEG(x3, x3);
-                SB(x3, gback, gdoffset + i);
+            if (rv64_xtheadbb) {
+                GETEM(x2, 0, 0);
+                LD(x3, gback, gdoffset);
+                LD(x4, wback, fixedaddress);
+                XOR(x3, x3, x4);
+                TH_TSTNBZ(x3, x3);
+                SD(x3, gback, gdoffset);
+            } else {
+                GETEM(x2, 0, 7);
+                for (int i = 0; i < 8; ++i) {
+                    LBU(x3, gback, gdoffset + i);
+                    LBU(x4, wback, fixedaddress + i);
+                    SUB(x3, x3, x4);
+                    SEQZ(x3, x3);
+                    NEG(x3, x3);
+                    SB(x3, gback, gdoffset + i);
+                }
             }
             break;
         case 0x75:
@@ -1772,35 +1780,37 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GOCOND(0x80, "J", "Id");
 #undef GO
 
-#define GO(GETFLAGS, NO, YES, NATNO, NATYES, F)                                              \
-    READFLAGS(F);                                                                            \
-    tmp1 = x1;                                                                               \
-    tmp3 = x3;                                                                               \
-    GETFLAGS;                                                                                \
-    nextop = F8;                                                                             \
-    S##YES(x3, x1);                                                                          \
-    if (MODREG) {                                                                            \
-        if (rex.rex) {                                                                       \
-            eb1 = TO_NAT((nextop & 7) + (rex.b << 3));                                       \
-            eb2 = 0;                                                                         \
-        } else {                                                                             \
-            ed = (nextop & 7);                                                               \
-            eb2 = (ed >> 2) * 8;                                                             \
-            eb1 = TO_NAT(ed & 3);                                                            \
-        }                                                                                    \
-        if (eb2) {                                                                           \
-            LUI(x1, 0xffff0);                                                                \
-            ORI(x1, x1, 0xff);                                                               \
-            AND(eb1, eb1, x1);                                                               \
-            SLLI(x3, x3, 8);                                                                 \
-        } else {                                                                             \
-            ANDI(eb1, eb1, 0xf00);                                                           \
-        }                                                                                    \
-        OR(eb1, eb1, x3);                                                                    \
-    } else {                                                                                 \
-        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, 0); \
-        SB(x3, ed, fixedaddress);                                                            \
-        SMWRITE();                                                                           \
+#define GO(GETFLAGS, NO, YES, NATNO, NATYES, F)                                                  \
+    READFLAGS_FUSION(F, x1, x2, x3, x4, x5);                                                     \
+    if (!dyn->insts[ninst].nat_flags_fusion) { GETFLAGS; }                                       \
+    nextop = F8;                                                                                 \
+    if (dyn->insts[ninst].nat_flags_fusion) {                                                    \
+        NATIVESET(NATYES, tmp3);                                                                 \
+    } else {                                                                                     \
+        S##YES(tmp3, tmp1);                                                                      \
+    }                                                                                            \
+    if (MODREG) {                                                                                \
+        if (rex.rex) {                                                                           \
+            eb1 = TO_NAT((nextop & 7) + (rex.b << 3));                                           \
+            eb2 = 0;                                                                             \
+        } else {                                                                                 \
+            ed = (nextop & 7);                                                                   \
+            eb2 = (ed >> 2) * 8;                                                                 \
+            eb1 = TO_NAT(ed & 3);                                                                \
+        }                                                                                        \
+        if (eb2) {                                                                               \
+            LUI(tmp1, 0xffff0);                                                                  \
+            ORI(tmp1, tmp1, 0xff);                                                               \
+            AND(eb1, eb1, tmp1);                                                                 \
+            SLLI(tmp3, tmp3, 8);                                                                 \
+        } else {                                                                                 \
+            ANDI(eb1, eb1, 0xf00);                                                               \
+        }                                                                                        \
+        OR(eb1, eb1, tmp3);                                                                      \
+    } else {                                                                                     \
+        addr = geted(dyn, addr, ninst, nextop, &ed, tmp2, tmp1, &fixedaddress, rex, NULL, 1, 0); \
+        SB(tmp3, ed, fixedaddress);                                                              \
+        SMWRITE();                                                                               \
     }
             GOCOND(0x90, "SET", "Eb");
 #undef GO
@@ -2075,6 +2085,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             INST_NAME("MOVZX Gd, Eb");
             nextop = F8;
             GETGD;
+            SCRATCH_USAGE(0);
             if (MODREG) {
                 if (rex.rex) {
                     eb1 = TO_NAT((nextop & 7) + (rex.b << 3));
@@ -2255,7 +2266,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             B_NEXT_nocond;
             MARK;
             // gd is undefined if ed is all zeros, don't worry.
-            CTZxw(gd, ed, rex.w, x1, x2);
+            CTZxw(gd, ed, rex.w, x3, x5);
             ANDI(xFlags, xFlags, ~(1 << F_ZF));
             break;
         case 0xBD:
@@ -2274,9 +2285,9 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             B_NEXT_nocond;
             MARK;
             ANDI(xFlags, xFlags, ~(1 << F_ZF));
-            CLZxw(gd, ed, rex.w, x1, x2, x3);
-            ADDI(x1, xZR, rex.w ? 63 : 31);
-            SUB(gd, x1, gd);
+            CLZxw(gd, ed, rex.w, x3, x5, x7);
+            ADDI(x3, xZR, rex.w ? 63 : 31);
+            SUB(gd, x3, gd);
             break;
         case 0xBE:
             INST_NAME("MOVSX Gd, Eb");

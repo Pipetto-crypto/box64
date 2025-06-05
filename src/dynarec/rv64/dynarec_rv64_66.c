@@ -403,6 +403,7 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0x56:
         case 0x57:
             INST_NAME("PUSH reg");
+            SCRATCH_USAGE(0);
             gd = TO_NAT((opcode & 0x07) + (rex.b << 3));
             PUSH1_16(gd);
             break;
@@ -623,9 +624,9 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             if (MODREG) {
                 GETGD;
                 GETED(0);
-                MV(x1, gd);
+                MV(x5, gd);
                 INSHz(gd, ed, x3, x4, 1, 1);
-                INSHz(ed, x1, x3, x4, 0, 1);
+                INSHz(ed, x5, x3, x4, 0, 1);
             } else {
                 GETGD;
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
@@ -683,6 +684,7 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     INSHz(ed, gd, x2, x3, 1, 1);
                 }
             } else {
+                SCRATCH_USAGE(0);
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, &lock, 1, 0);
                 SH(gd, ed, fixedaddress);
                 SMWRITELOCK(lock);
@@ -1176,7 +1178,7 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                             }
                             wb1 = 0;
                             EWBACK;
-                            if (dyn->insts[ninst].nat_flags_fusion) NAT_FLAGS_OPS(ed, xZR);
+                            if (dyn->insts[ninst].nat_flags_fusion) NAT_FLAGS_OPS(ed, xZR, x5, xZR);
                         } else {
                             GETEW(x1, 0);
                             u8 = (F8) & 0x1f;

@@ -355,6 +355,7 @@ set(OS_LINUX_SRC
     "${BOX64_ROOT}/src/os/perfmap.c"
     "${BOX64_ROOT}/src/os/symbolfuncs_linux.c"
     "${BOX64_ROOT}/src/os/my_cpuid_linux.c"
+    "${BOX64_ROOT}/src/os/my_cpuid_common.c"
 )
 
 set(ELFLOADER_SRC
@@ -464,6 +465,7 @@ set(INTERPRETER
     "${BOX64_ROOT}/src/emu/x64run66dd.c"
     "${BOX64_ROOT}/src/emu/x64run66f0.c"
     "${BOX64_ROOT}/src/emu/x64run67.c"
+    "${BOX64_ROOT}/src/emu/x64run6764.c"
     "${BOX64_ROOT}/src/emu/x64run67avx.c"
     "${BOX64_ROOT}/src/emu/x64run67_32.c"
     "${BOX64_ROOT}/src/emu/x64run6764_32.c"
@@ -871,6 +873,8 @@ if(BOX32)
         "${BOX64_ROOT}/src/wrapped32/wrappedselinux.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedblkid.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedmount.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappeddbus.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedcurl.c"
     )
     endif()
     string(REPLACE ".c" "_private.h" MODROOT ${BOX64_ROOT})
@@ -1140,7 +1144,7 @@ if(DYNAREC)
     add_custom_command(
         OUTPUT "${BOX64_ROOT}/src/git_head.h"
         COMMAND sh -c "echo \\\#define GITREV \\\"$(git rev-parse --short HEAD)\\\">\"${BOX64_ROOT}/src/git_head.h\""
-        DEPENDS dynarec ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32}
+        DEPENDS ${DYNAREC_SRC} ${DYNAREC_ASM} ${DYNAREC_PASS} ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32}
         VERBATIM)
 else()
     add_custom_command(
@@ -1150,9 +1154,19 @@ else()
         VERBATIM)
 endif()
 
+add_custom_target(generate_git_head_target
+  DEPENDS "${BOX64_ROOT}/src/git_head.h"
+)
+add_custom_target(functions_list DEPENDS "${BOX64_ROOT}/src/wrapped/generated/functions_list.txt" "${BOX64_ROOT}/src/wrapped32/generated/functions_list.txt")
+add_dependencies(generate_git_head_target functions_list)
+
 add_library(interpreter OBJECT ${INTERPRETER})
 
-add_executable(${BOX64} ${OS_LINUX_SRC} ${ELFLOADER_SRC} ${WRAPPEDS} ${WRAPPEDS32} "${BOX64_ROOT}/src/git_head.h")
+add_library(mainobj OBJECT ${OS_LINUX_SRC} ${ELFLOADER_SRC} ${WRAPPEDS} ${WRAPPEDS32})
+add_dependencies(mainobj generate_git_head_target)
+
+add_executable(${BOX64})
+target_link_libraries(${BOX64} mainobj)
 set_target_properties(${BOX64} PROPERTIES ENABLE_EXPORTS ON)
 add_dependencies(${BOX64} WRAPPERS)
 if(BOX32)
@@ -1338,6 +1352,7 @@ if(WOW64 AND ARM_DYNAREC)
         TEST_COMMAND ""
         BUILD_ALWAYS ON
     )
+    add_dependencies(wowbox64 generate_git_head_target)
 endif()
 
 set(CPACK_GENERATOR "DEB")

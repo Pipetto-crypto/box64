@@ -1,8 +1,12 @@
+#include <stdio.h>
+#include <string.h>
 #include <windows.h>
 #include <ntstatus.h>
 #include <winternl.h>
 
 #include "os.h"
+#include "debug.h"
+#include "wine/debug.h"
 
 #define HandleToULong(h) ((ULONG)(ULONG_PTR)(h))
 
@@ -36,22 +40,26 @@ void* GetSeg43Base()
 
 void* GetSegmentBase(uint32_t desc)
 {
-    // FIXME
+    printf_log(LOG_NONE, "GetSegmentBase NYI\n");
     return NULL;
 }
 
-void EmuInt3(void* emu, void* addr) { }
 void* EmuFork(void* emu, int forktype) { return NULL; }
 
 
 void EmuX64Syscall(void* emu)
 {
-    // FIXME
+    printf_log(LOG_NONE, "EmuX64Syscall NYI\n");
 }
 
 void EmuX86Syscall(void* emu)
 {
-    // FIXME
+    printf_log(LOG_NONE, "EmuX86Syscall NYI\n");
+}
+
+const char* GetBridgeName(void* p)
+{
+    return NULL;
 }
 
 const char* GetNativeName(void* p)
@@ -59,6 +67,10 @@ const char* GetNativeName(void* p)
     return NULL;
 }
 
+void* GetNativeFnc(uintptr_t fnc)
+{
+    return NULL;
+}
 
 void PersonalityAddrLimit32Bit(void)
 {
@@ -192,4 +204,47 @@ void free(void* ptr)
 int VolatileRangesContains(uintptr_t addr)
 {
     return 0;
+}
+
+void PrintfFtrace(int prefix, const char* fmt, ...)
+{
+    static char buf[1024] = { 0 };
+
+    char* p = buf;
+    p[0] = '\0';
+    if (prefix) strcpy(p, prefix > 1 ? "[\033[31mBOX64\033[0m] " : "[BOX64] ");
+    va_list args;
+    va_start(args, fmt);
+    vsprintf(p + strlen(p), fmt, args);
+    va_end(args);
+    __wine_dbg_output(p);
+}
+
+void* GetEnv(const char* name)
+{
+    static char buf[1024] = { 0 };
+    int len = GetEnvironmentVariableA(name, buf, sizeof(buf));
+    return len ? buf : NULL;
+}
+
+int FileExist(const char* filename, int flags)
+{
+    DWORD attrs = GetFileAttributesA(filename);
+    if (attrs == INVALID_FILE_ATTRIBUTES) return 0;
+    if (flags == -1) return 1;
+
+    if (flags & IS_FILE) {
+        if ((attrs & FILE_ATTRIBUTE_DIRECTORY) || (attrs & FILE_ATTRIBUTE_DEVICE) || (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            return 0;
+        }
+    } else {
+        if (!(attrs & FILE_ATTRIBUTE_DIRECTORY))
+            return 0;
+    }
+
+    if (flags & IS_EXECUTABLE) {
+        printf_log(LOG_NONE, "Warning: Executable check not implemented for Windows\n");
+    }
+
+    return 1;
 }

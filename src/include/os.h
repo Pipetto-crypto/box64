@@ -8,6 +8,7 @@
 #include <dlfcn.h>
 #include <sys/mman.h>
 #else
+#include <windows.h>
 typedef __int64 ssize_t;
 #define dlsym(a, b) NULL
 
@@ -25,6 +26,8 @@ typedef __int64 ssize_t;
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset);
 int munmap(void* addr, size_t length);
 int mprotect(void* addr, size_t len, int prot);
+
+void x86Int(void* emu, int code);
 
 void* WinMalloc(size_t size);
 void* WinRealloc(void* ptr, size_t size);
@@ -54,6 +57,7 @@ void PersonalityAddrLimit32Bit(void);
 
 int IsAddrElfOrFileMapped(uintptr_t addr);
 const char* GetNativeName(void* p);
+const char* GetBridgeName(void* p);
 // ----------------------------------------------------------------
 
 #ifndef _WIN32
@@ -92,6 +96,36 @@ extern int isnanf(float);
 #elif defined(_WIN32)
 #define isnanf isnan
 #define isinff isinf
+#endif
+
+void PrintfFtrace(int prefix, const char* fmt, ...);
+
+void* GetEnv(const char* name);
+
+#define IS_EXECUTABLE (1 << 0)
+#define IS_FILE       (1 << 1)
+
+// 0 : doesn't exist, 1: does exist.
+int FileExist(const char* filename, int flags);
+
+#ifdef _WIN32
+#define BOXFILE_BUFSIZE 4096
+typedef struct {
+    HANDLE hFile;
+    char buffer[BOXFILE_BUFSIZE];
+    size_t buf_pos;
+    size_t buf_size;
+    int eof;
+} BOXFILE;
+
+BOXFILE* box_fopen(const char* filename, const char* mode);
+char* box_fgets(char* str, int num, BOXFILE* stream);
+int box_fclose(BOXFILE* stream);
+#else
+#define BOXFILE    FILE
+#define box_fopen  fopen
+#define box_fgets  fgets
+#define box_fclose fclose
 #endif
 
 #endif //__OS_H_
