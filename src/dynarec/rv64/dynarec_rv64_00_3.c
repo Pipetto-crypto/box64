@@ -63,7 +63,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEB(x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
-                    CALL_(rol8, ed, x3, x1, x2);
+                    CALL_(const_rol8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 1:
@@ -73,7 +73,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEB(x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
-                    CALL_(ror8, ed, x3, x1, x2);
+                    CALL_(const_ror8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 2:
@@ -84,7 +84,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEB(x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
-                    CALL_(rcl8, ed, x3, x1, x2);
+                    CALL_(const_rcl8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 3:
@@ -95,7 +95,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEB(x1, 1);
                     u8 = F8;
                     MOV32w(x2, u8);
-                    CALL_(rcr8, ed, x3, x1, x2);
+                    CALL_(const_rcr8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 4:
@@ -196,7 +196,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEDW(x4, x1, 0);
                     u8 = (F8) & (rex.w ? 0x3f : 0x1f);
                     MOV32w(x2, u8);
-                    CALL_(rex.w ? ((void*)rcl64) : ((void*)rcl32), ed, x4, x1, x2);
+                    CALL_(rex.w ? (const_rcl64) : (const_rcl32), ed, x4, x1, x2);
                     WBACK;
                     if (!wback && !rex.w) ZEROUP(ed);
                     break;
@@ -208,7 +208,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     GETEDW(x4, x1, 0);
                     u8 = (F8) & (rex.w ? 0x3f : 0x1f);
                     MOV32w(x2, u8);
-                    CALL_(rex.w ? ((void*)rcr64) : ((void*)rcr32), ed, x4, x1, x2);
+                    CALL_(rex.w ? (const_rcr64) : (const_rcr32), ed, x4, x1, x2);
                     WBACK;
                     if (!wback && !rex.w) ZEROUP(ed);
                     break;
@@ -460,14 +460,14 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     if (tmp < 0 || (tmp & 15) > 1)
                         tmp = 0; // TODO: removed when FP is in place
                     if ((BOX64ENV(log) < 2 && !BOX64ENV(rolling_log)) && tmp) {
-                        call_n(dyn, ninst, *(void**)(addr + 8), tmp);
+                        call_n(dyn, ninst, (void*)(addr + 8), tmp);
                         addr += 8 + 8;
                     } else {
                         GETIP(ip + 1, x7); // read the 0xCC
                         STORE_XEMU_CALL(x3);
                         ADDI(x3, xRIP, 8 + 8 + 2);                        // expected return address
                         ADDI(x1, xEmu, (uint32_t)offsetof(x64emu_t, ip)); // setup addr as &emu->ip
-                        CALL_(EmuInt3, -1, x3, x1, 0);
+                        CALL_(const_int3, -1, x3, x1, 0);
                         LOAD_XEMU_CALL();
                         addr += 8 + 8;
                         BNE_MARK(xRIP, x3);
@@ -481,14 +481,14 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 INST_NAME("INT 3");
                 if (!BOX64ENV(ignoreint3)) {
                     // check if TRAP signal is handled
-                    TABLE64(x1, (uintptr_t)my_context);
+                    TABLE64C(x1, const_context);
                     MOV32w(x2, offsetof(box64context_t, signals[SIGTRAP]));
                     ADD(x2, x2, x1);
                     LD(x3, x2, 0);
                     BEQZ_MARK(x3);
                     GETIP(addr, x7);
                     STORE_XEMU_CALL(x3);
-                    CALL(native_int3, -1, 0, 0);
+                    CALL(const_native_int3, -1, 0, 0);
                     LOAD_XEMU_CALL();
                     MARK;
                     jump_to_epilog(dyn, addr, 0, ninst);
@@ -507,7 +507,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 GETIP(ip, x7); // priviledged instruction, IP not updated
                 STORE_XEMU_CALL(x3);
                 MOV32w(x1, u8);
-                CALL(native_int, -1, x1, 0);
+                CALL(const_native_int, -1, x1, 0);
                 LOAD_XEMU_CALL();
             } else if (u8 == 0x80) {
                 INST_NAME("32bits SYSCALL");
@@ -515,7 +515,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 SMEND();
                 GETIP(addr, x7);
                 STORE_XEMU_CALL(x3);
-                CALL_S(EmuX86Syscall, -1, 0);
+                CALL_S(const_x86syscall, -1, 0);
                 LOAD_XEMU_CALL();
                 TABLE64(x3, addr); // expected return address
                 BNE_MARK(xRIP, x3);
@@ -533,7 +533,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 }
                 GETIP(addr, x7);
                 STORE_XEMU_CALL(x3);
-                CALL(native_int3, -1, 0, 0);
+                CALL(const_native_int3, -1, 0, 0);
                 LOAD_XEMU_CALL();
                 jump_to_epilog(dyn, 0, xRIP, ninst);
                 *need_epilog = 0;
@@ -547,7 +547,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 }
                 GETIP(ip, x7); // priviledged instruction, IP not updated
                 STORE_XEMU_CALL(x3);
-                CALL(native_priv, -1, 0, 0);
+                CALL(const_native_priv, -1, 0, 0);
                 LOAD_XEMU_CALL();
                 jump_to_epilog(dyn, 0, xRIP, ninst);
                 *need_epilog = 0;
@@ -578,7 +578,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     }
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
-                    CALL_(rol8, ed, x3, x1, x2);
+                    CALL_(const_rol8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 1:
@@ -593,7 +593,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     }
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
-                    CALL_(ror8, ed, x3, x1, x2);
+                    CALL_(const_ror8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 2:
@@ -609,7 +609,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     READFLAGS(X_CF);
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
-                    CALL_(rcl8, ed, x3, x1, x2);
+                    CALL_(const_rcl8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 3:
@@ -625,7 +625,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     READFLAGS(X_CF);
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
-                    CALL_(rcr8, ed, x3, x1, x2);
+                    CALL_(const_rcr8, ed, x3, x1, x2);
                     EBBACK(x5, 0);
                     break;
                 case 4:
@@ -710,7 +710,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
                     MOV32w(x2, 1);
                     GETEDW(x4, x1, 0);
-                    CALL_(rex.w ? ((void*)rcl64) : ((void*)rcl32), ed, x4, x1, x2);
+                    CALL_(rex.w ? (const_rcl64) : (const_rcl32), ed, x4, x1, x2);
                     WBACK;
                     if (!wback && !rex.w) ZEROUP(ed);
                     break;
@@ -721,7 +721,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
                     MOV32w(x2, 1);
                     GETEDW(x4, x1, 0);
-                    CALL_(rex.w ? ((void*)rcr64) : ((void*)rcr32), ed, x4, x1, x2);
+                    CALL_(rex.w ? (const_rcr64) : (const_rcr32), ed, x4, x1, x2);
                     WBACK;
                     if (!wback && !rex.w) ZEROUP(ed);
                     break;
@@ -780,7 +780,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
                     ANDI(x2, xRCX, rex.w ? 0x3f : 0x1f);
                     GETEDW(x4, x1, 0);
-                    CALL_(rex.w ? ((void*)rcl64) : ((void*)rcl32), ed, x4, x1, x2);
+                    CALL_(rex.w ? (const_rcl64) : (const_rcl32), ed, x4, x1, x2);
                     WBACK;
                     if (!wback && !rex.w) ZEROUP(ed);
                     break;
@@ -791,7 +791,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     SETFLAGS(X_OF | X_CF, SF_SET_DF, NAT_FLAGS_NOFUSION);
                     ANDI(x2, xRCX, rex.w ? 0x3f : 0x1f);
                     GETEDW(x4, x1, 0);
-                    CALL_(rex.w ? ((void*)rcr64) : ((void*)rcr32), ed, x4, x1, x2);
+                    CALL_(rex.w ? (const_rcr64) : (const_rcr32), ed, x4, x1, x2);
                     WBACK;
                     if (!wback && !rex.w) ZEROUP(ed);
                     break;
@@ -964,7 +964,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
 #endif
             }
 #if STEP < 2
-            if (!rex.is32bits && IsNativeCall(addr + i32, rex.is32bits, &dyn->insts[ninst].natcall, &dyn->insts[ninst].retn))
+            if (!rex.is32bits && !dyn->need_reloc && IsNativeCall(addr + i32, rex.is32bits, &dyn->insts[ninst].natcall, &dyn->insts[ninst].retn))
                 tmp = dyn->insts[ninst].pass2choice = 3;
             else
                 tmp = dyn->insts[ninst].pass2choice = i32 ? 0 : 1;
@@ -978,8 +978,14 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     BARRIER(BARRIER_FULL);
                     if (dyn->last_ip && (addr - dyn->last_ip < 0x800)) {
                         ADDI(x2, xRIP, addr - dyn->last_ip);
+                    } else if (dyn->last_ip && (dyn->last_ip - addr < 0x800)) {
+                        SUBI(x2, xRIP, dyn->last_ip - addr);
                     } else {
-                        MOV64x(x2, addr);
+                        if (dyn->need_reloc) {
+                            TABLE64(x2, addr);
+                        } else {
+                            MOV64x(x2, addr);
+                        }
                     }
                     PUSH1(x2);
                     MESSAGE(LOG_DUMP, "Native Call to %s (retn=%d)\n", GetNativeName(GetNativeFnc(dyn->insts[ninst].natcall - 1)), dyn->insts[ninst].retn);
@@ -996,14 +1002,14 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         // return value will be on the stack, so the stack depth needs to be updated
                         x87_purgecache(dyn, ninst, 0, x3, x1, x4);
                     if ((BOX64ENV(log) < 2 && !BOX64ENV(rolling_log)) && dyn->insts[ninst].natcall && tmp) {
-                        call_n(dyn, ninst, *(void**)(dyn->insts[ninst].natcall + 2 + 8), tmp);
+                        call_n(dyn, ninst, (void*)(dyn->insts[ninst].natcall + 2 + 8), tmp);
                         POP1(xRIP); // pop the return address
                         dyn->last_ip = addr;
                     } else {
                         GETIP_(dyn->insts[ninst].natcall, x7); // read the 0xCC already
                         STORE_XEMU_CALL(x3);
                         ADDI(x1, xEmu, (uint32_t)offsetof(x64emu_t, ip)); // setup addr as &emu->ip
-                        CALL_S(EmuInt3, -1, x1);
+                        CALL_S(const_int3, -1, x1);
                         LOAD_XEMU_CALL();
                         MOV64x(x3, dyn->insts[ninst].natcall);
                         ADDI(x3, x3, 2 + 8 + 8);
@@ -1026,7 +1032,11 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     break;
                 case 1:
                     // this is call to next step, so just push the return address to the stack
-                    MOV64x(x2, addr);
+                    if (dyn->need_reloc) {
+                        TABLE64(x2, addr);
+                    } else {
+                        MOV64x(x2, addr);
+                    }
                     PUSH1z(x2);
                     break;
                 default:
@@ -1036,15 +1046,11 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION); // Hack to set flags to "dont'care" state
                     }
                     // regular call
-                    /*if(BOX64DRENV(dynarec_callret) && BOX64DRENV(dynarec_bigblock)>1) {
-                        BARRIER(BARRIER_FULL);
+                    if (dyn->need_reloc) {
+                        TABLE64(x2, addr);
                     } else {
-                        BARRIER(BARRIER_FLOAT);
-                        *need_epilog = 0;
-                        *ok = 0;
-                    }*/
-
-                    MOV64x(x2, addr);
+                        MOV64x(x2, addr);
+                    }
                     fpu_purgecache(dyn, ninst, 1, x1, x3, x4);
                     PUSH1z(x2);
                     if (BOX64DRENV(dynarec_callret)) {
@@ -1072,7 +1078,12 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     if (BOX64DRENV(dynarec_callret) && addr >= (dyn->start + dyn->isize)) {
                         // jumps out of current dynablock...
                         j64 = getJumpTableAddress64(addr);
-                        MOV64x(x4, j64);
+                        if (dyn->need_reloc) {
+                            AddRelocTable64JmpTbl(dyn, ninst, addr, STEP);
+                            TABLE64_(x4, j64);
+                        } else {
+                            MOV64x(x4, j64);
+                        }
                         LD(x4, x4, 0);
                         BR(x4);
                     }
@@ -1124,7 +1135,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION); // Hack to set flags in "don't care" state
             GETIP(ip, x7);
             STORE_XEMU_CALL(xRIP);
-            CALL(native_priv, -1, 0, 0);
+            CALL(const_native_priv, -1, 0, 0);
             LOAD_XEMU_CALL();
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
@@ -1204,7 +1215,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     SETFLAGS(X_ALL, SF_SET_DF, NAT_FLAGS_NOFUSION);
                     GETEB(x1, 0);
-                    CALL(div8, -1, x1, 0);
+                    CALL(const_div8, -1, x1, 0);
                     break;
                 case 7:
                     INST_NAME("IDIV Eb");
@@ -1212,7 +1223,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     MESSAGE(LOG_DUMP, "Need Optimization\n");
                     SETFLAGS(X_ALL, SF_SET_DF, NAT_FLAGS_NOFUSION);
                     GETEB(x1, 0);
-                    CALL(idiv8, -1, x1, 0);
+                    CALL(const_idiv8, -1, x1, 0);
                     break;
             }
             break;
@@ -1326,14 +1337,14 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             MESSAGE(LOG_INFO, "Divide by 0 hack\n");
                             GETIP(ip, x7);
                             STORE_XEMU_CALL(x3);
-                            CALL(native_div0, -1, 0, 0);
+                            CALL(const_native_div0, -1, 0, 0);
                             LOAD_XEMU_CALL();
                         } else {
                             if (BOX64ENV(dynarec_div0)) {
                                 BNE_MARK3(ed, xZR);
                                 GETIP_(ip, x7);
                                 STORE_XEMU_CALL(x3);
-                                CALL(native_div0, -1, 0, 0);
+                                CALL(const_native_div0, -1, 0, 0);
                                 CLEARIP();
                                 LOAD_XEMU_CALL();
                                 jump_to_epilog(dyn, 0, xRIP, ninst);
@@ -1361,7 +1372,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                                 BNE_MARK3(ed, xZR);
                                 GETIP_(ip, x7);
                                 STORE_XEMU_CALL(x3);
-                                CALL(native_div0, -1, 0, 0);
+                                CALL(const_native_div0, -1, 0, 0);
                                 CLEARIP();
                                 LOAD_XEMU_CALL();
                                 jump_to_epilog(dyn, 0, xRIP, ninst);
@@ -1376,14 +1387,14 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                                 BNE_MARK3(ed, xZR);
                                 GETIP_(ip, x7);
                                 STORE_XEMU_CALL(x3);
-                                CALL(native_div0, -1, 0, 0);
+                                CALL(const_native_div0, -1, 0, 0);
                                 CLEARIP();
                                 LOAD_XEMU_CALL();
                                 jump_to_epilog(dyn, 0, xRIP, ninst);
                                 MARK3;
                             }
                             BEQ_MARK(xRDX, xZR);
-                            CALL(div64, -1, ed, 0);
+                            CALL(const_div64, -1, ed, 0);
                             B_NEXT_nocond;
                             MARK;
                             DIVU(x2, xRAX, ed);
@@ -1403,7 +1414,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             BNE_MARK3(ed, xZR);
                             GETIP_(ip, x7);
                             STORE_XEMU_CALL(x3);
-                            CALL(native_div0, -1, 0, 0);
+                            CALL(const_native_div0, -1, 0, 0);
                             CLEARIP();
                             LOAD_XEMU_CALL();
                             jump_to_epilog(dyn, 0, xRIP, ninst);
@@ -1426,7 +1437,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                                 BNE_MARK3(ed, xZR);
                                 GETIP_(ip, x7);
                                 STORE_XEMU_CALL(x3);
-                                CALL(native_div0, -1, 0, 0);
+                                CALL(const_native_div0, -1, 0, 0);
                                 CLEARIP();
                                 LOAD_XEMU_CALL();
                                 jump_to_epilog(dyn, 0, xRIP, ninst);
@@ -1441,7 +1452,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                                 BNE_MARK3(ed, xZR);
                                 GETIP_(ip, x7);
                                 STORE_XEMU_CALL(x3);
-                                CALL(native_div0, -1, 0, 0);
+                                CALL(const_native_div0, -1, 0, 0);
                                 CLEARIP();
                                 LOAD_XEMU_CALL();
                                 jump_to_epilog(dyn, 0, xRIP, ninst);
@@ -1456,7 +1467,7 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             BNE_MARK3(x2, xZR);
                             BLT_MARK(xRAX, xZR);
                             MARK3;
-                            CALL((void*)idiv64, -1, ed, 0);
+                            CALL(const_idiv64, -1, ed, 0);
                             B_NEXT_nocond;
                             MARK;
                             DIV(x2, xRAX, ed);
@@ -1562,7 +1573,8 @@ uintptr_t dynarec64_00_3(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     if (BOX64DRENV(dynarec_callret) && addr >= (dyn->start + dyn->isize)) {
                         // jumps out of current dynablock...
                         j64 = getJumpTableAddress64(addr);
-                        TABLE64(x4, j64);
+                        if (dyn->need_reloc) AddRelocTable64RetEndBlock(dyn, ninst, addr, STEP);
+                        TABLE64_(x4, j64);
                         LD(x4, x4, 0);
                         BR(x4);
                     }

@@ -154,6 +154,7 @@ typedef struct dynarec_rv64_s {
     int32_t             size;
     int32_t             cap;
     uintptr_t           start;      // start of the block
+    uintptr_t           end;        // maximum end of the block (only used in pass0)
     uint32_t            isize;      // size in byte of x64 instructions included
     void*               block;      // memory pointer where next instruction is emitted
     uintptr_t           native_start;  // start of the riscv code
@@ -194,6 +195,9 @@ typedef struct dynarec_rv64_s {
     void*               gdbjit_block;
     uint32_t            need_x87check; // x87 low precision check
     uint32_t            need_dump;     // need to dump the block
+    int                 need_reloc; // does the dynablock need relocations
+    int                 reloc_size;
+    uint32_t*           relocs;
 } dynarec_rv64_t;
 
 // v0 is hardware wired to vector mask register, which should be always reserved
@@ -210,16 +214,17 @@ int get_first_jump_addr(dynarec_rv64_t *dyn, uintptr_t next);
 int is_nops(dynarec_rv64_t *dyn, uintptr_t addr, int n);
 int is_instructions(dynarec_rv64_t *dyn, uintptr_t addr, int n);
 
+int isTable64(dynarec_rv64_t *dyn, uint64_t val); // return 1 if val already in Table64
 int Table64(dynarec_rv64_t *dyn, uint64_t val, int pass);  // add a value to table64 (if needed) and gives back the imm19 to use in LDR_literal
 
 void CreateJmpNext(void* addr, void* next);
 
-#define GO_TRACE(A, B, s0) \
-    GETIP(addr, s0);       \
-    MV(x1, xRIP);          \
-    STORE_XEMU_CALL(s0);   \
-    MOV64x(x2, B);         \
-    CALL(A, -1, x1, x2);   \
+#define GO_TRACE(A, B, s0)       \
+    GETIP(addr, s0);             \
+    MV(x1, xRIP);                \
+    STORE_XEMU_CALL(s0);         \
+    MOV64x(x2, B);               \
+    CALL(const_##A, -1, x1, x2); \
     LOAD_XEMU_CALL()
 
 #endif //__DYNAREC_RV64_PRIVATE_H_

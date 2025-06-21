@@ -174,12 +174,12 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             }
             break;
         case 0x64:
-            if (rv64_vector)
+            if (cpuext.vector)
                 retaddr = dynarec64_64_vector(dyn, addr, ip, ninst, rex, rep, _FS, ok, need_epilog);
             addr = retaddr ? retaddr : dynarec64_64(dyn, addr, ip, ninst, rex, rep, _FS, ok, need_epilog);
             break;
         case 0x65:
-            if (rv64_vector)
+            if (cpuext.vector)
                 retaddr = dynarec64_64_vector(dyn, addr, ip, ninst, rex, rep, _GS, ok, need_epilog);
             addr = retaddr ? retaddr : dynarec64_64(dyn, addr, ip, ninst, rex, rep, _GS, ok, need_epilog);
             break;
@@ -190,7 +190,7 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             if (rex.is32bits)
                 addr = dynarec64_67_32(dyn, addr, ip, ninst, rex, rep, ok, need_epilog);
             else {
-                if (rv64_vector)
+                if (cpuext.vector)
                     retaddr = dynarec64_67_vector(dyn, addr, ip, ninst, rex, rep, ok, need_epilog);
                 addr = retaddr ? retaddr : dynarec64_67(dyn, addr, ip, ninst, rex, rep, ok, need_epilog);
             }
@@ -293,7 +293,7 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             }
             GETIP(ip, x7);
             STORE_XEMU_CALL(x3);
-            CALL(native_priv, -1, 0, 0);
+            CALL(const_native_priv, -1, 0, 0);
             LOAD_XEMU_CALL();
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
@@ -309,7 +309,7 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             }
             GETIP(ip, x7);
             STORE_XEMU_CALL(x3);
-            CALL(native_priv, -1, 0, 0);
+            CALL(const_native_priv, -1, 0, 0);
             LOAD_XEMU_CALL();
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;

@@ -31,12 +31,23 @@
 static mmaplist_t          *mmaplist = NULL;
 static rbtree_t            *rbt_dynmem = NULL;
 static uint64_t jmptbl_allocated = 0, jmptbl_allocated1 = 0, jmptbl_allocated2 = 0, jmptbl_allocated3 = 0;
+#if JMPTABL_SHIFTMAX != 16
+#error Incorect value for jumptable shift max that should be 16
+#endif
 #ifdef JMPTABL_SHIFT4
+#if JMPTABL_SHIFT3 != 16
+#error Incorect value for jumptable shift3 that should be 16
+#endif
 static uint64_t jmptbl_allocated4 = 0;
 static uintptr_t****       box64_jmptbl4[1<<JMPTABL_SHIFT4];
 static uintptr_t***        box64_jmptbldefault3[1<<JMPTABL_SHIFT3];
+static uintptr_t***        box64_jmptbl_48[1<<JMPTABL_SHIFT3];
 #else
+#if JMPTABL_SHIFT2 != 16
+#error Incorect value for jumptable shift2 that should be 16
+#endif
 static uintptr_t***        box64_jmptbl3[1<<JMPTABL_SHIFT3];
+static uintptr_t**         box64_jmptbl_48[1<<JMPTABL_SHIFT2];
 #endif
 static uintptr_t**         box64_jmptbldefault2[1<<JMPTABL_SHIFT2];
 static uintptr_t*          box64_jmptbldefault1[1<<JMPTABL_SHIFT1];
@@ -83,6 +94,7 @@ typedef struct blocklist_s {
 #define MMAPSIZE (512*1024)     // allocate 512kb sized blocks
 #define MMAPSIZE128 (128*1024)  // allocate 128kb sized blocks for 128byte map
 #define DYNMMAPSZ (2*1024*1024) // allocate 2Mb block for dynarec
+#define DYNMMAPSZ0 (128*1024)   // allocate 128kb block for 1st page, to avoid wasting too much memory on small program / libs
 
 static int                 n_blocks = 0;       // number of blocks for custom malloc
 static int                 c_blocks = 0;       // capacity of blocks for custom malloc
@@ -472,7 +484,7 @@ void add_blockstree(uintptr_t start, uintptr_t end, int idx)
     reent = 0;
 }
 
-void* box32_dynarec_mmap(size_t size);
+void* box32_dynarec_mmap(size_t size, int fd, off_t offset);
 #ifdef BOX32
 int isCustomAddr(void* p)
 {
@@ -566,7 +578,7 @@ void* map128_customMalloc(size_t size, int is32bits)
     if(is32bits) mutex_unlock(&mutex_blocks);   // unlocking, because mmap might use it
     void* p = is32bits
         ? box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)
-        : (box64_is32bits ? box32_dynarec_mmap(allocsize) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
+        : (box64_is32bits ? box32_dynarec_mmap(allocsize, -1, 0) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
     if(is32bits) mutex_lock(&mutex_blocks);
     #ifdef TRACE_MEMSTAT
     customMalloc_allocated += allocsize;
@@ -593,7 +605,7 @@ void* map128_customMalloc(size_t size, int is32bits)
             testAllBlocks();
             if(BOX64ENV(log)>=LOG_DEBUG) {
                 printf_log(LOG_NONE, "Used 32bits address space map:\n");
-                uintptr_t addr = rb_get_lefter(mapallmem);
+                uintptr_t addr = rb_get_leftmost(mapallmem);
                 while(addr<0x100000000LL) {
                     uintptr_t bend;
                     uint32_t val;
@@ -676,7 +688,7 @@ void* internal_customMalloc(size_t size, int is32bits)
         mutex_unlock(&mutex_blocks);
     void* p = is32bits
         ? box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)
-        : (box64_is32bits ? box32_dynarec_mmap(allocsize) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
+        : (box64_is32bits ? box32_dynarec_mmap(allocsize, -1, 0) : InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
     if(is32bits)
         mutex_lock(&mutex_blocks);
 #ifdef TRACE_MEMSTAT
@@ -704,7 +716,7 @@ void* internal_customMalloc(size_t size, int is32bits)
             testAllBlocks();
             if(BOX64ENV(log)>=LOG_DEBUG) {
                 printf_log(LOG_NONE, "Used 32bits address space map:\n");
-                uintptr_t addr = rb_get_lefter(mapallmem);
+                uintptr_t addr = rb_get_leftmost(mapallmem);
                 while(addr<0x100000000LL) {
                     uintptr_t bend;
                     uint32_t val;
@@ -1020,18 +1032,19 @@ size_t customGetUsableSize(void* p)
     return 0;
 }
 
-void* box32_dynarec_mmap(size_t size)
+void* box32_dynarec_mmap(size_t size, int fd, off_t offset)
 {
-#ifdef BOX32
+    #ifdef BOX32
     // find a block that was prereserve before and big enough
     size = (size+box64_pagesize-1)&~(box64_pagesize-1);
     uint32_t flag;
     static uintptr_t cur = 0x100000000LL;
     uintptr_t bend = 0;
     while(bend<0x800000000000LL) {
+        uint32_t map_flags = MAP_FIXED | ((fd==-1)?MAP_ANONYMOUS:0) | MAP_PRIVATE;
         if(rb_get_end(mapallmem, cur, &flag, &bend)) {
             if(flag == MEM_RESERVED && bend-cur>=size) {
-                void* ret = InternalMmap((void*)cur, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+                void* ret = InternalMmap((void*)cur, size, PROT_READ | PROT_WRITE | PROT_EXEC, map_flags, fd, offset);
                 if(ret!=MAP_FAILED)
                     rb_set(mapallmem, cur, cur+size, MEM_ALLOCATED);    // mark as allocated
                 else
@@ -1043,20 +1056,203 @@ void* box32_dynarec_mmap(size_t size)
         cur = bend;
     }
 #endif
+    uint32_t map_flags = ((fd==-1)?0:MAP_ANONYMOUS) | MAP_PRIVATE;
     //printf_log(LOG_INFO, "BOX32: Error allocating Dynarec memory: %s\n", "fallback to internal mmap");
-    return InternalMmap((void*)0x100000000LL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    return InternalMmap((void*)0x100000000LL, size, PROT_READ | PROT_WRITE | PROT_EXEC, map_flags, fd, offset);
     ;
 }
 
 #ifdef DYNAREC
-#define NCHUNK          64
-typedef struct mapchunk_s {
-    blocklist_t         chunk;
-} mapchunk_t;
 typedef struct mmaplist_s {
-    mapchunk_t          chunks[NCHUNK];
-    mmaplist_t*         next;
+    blocklist_t**   chunks;
+    int             cap;
+    int             size;
+    int             has_new;
+    int             dirty;
 } mmaplist_t;
+
+mmaplist_t* NewMmaplist()
+{
+    return (mmaplist_t*)box_calloc(1, sizeof(mmaplist_t));
+}
+
+int MmaplistHasNew(mmaplist_t* list, int clear)
+{
+    if(!list) return 0;
+    int ret = list->has_new;
+    if(clear) list->has_new = 0;
+    return ret;
+}
+
+int MmaplistIsDirty(mmaplist_t* list)
+{
+    if(!list) return 0;
+    return list->dirty;
+}
+
+int MmaplistNBlocks(mmaplist_t* list)
+{
+    if(!list) return 0;
+    return list->size;
+}
+
+void MmaplistAddNBlocks(mmaplist_t* list, int nblocks)
+{
+    if(!list) return;
+    if(nblocks<=0) return;
+    list->cap = list->size + nblocks;
+    list->chunks = box_realloc(list->chunks, list->cap*sizeof(blocklist_t**));
+}
+
+int RelocsHaveCancel(dynablock_t* block);
+size_t MmaplistChunkGetUsedcode(blocklist_t* list)
+{
+    void* p = list->block;
+    void* end = list->block + list->size - sizeof(blockmark_t);
+    size_t total = 0;
+    while(p<end) {
+        if(((blockmark_t*)p)->next.fill) {
+            dynablock_t* b = *(dynablock_t**)((blockmark_t*)p)->mark;
+            size_t b_size = SIZE_BLOCK(((blockmark_t*)p)->next);
+            if(b->relocs && b->relocsize && RelocsHaveCancel(b))
+                b_size = 0;
+            total +=  b_size;
+        }
+        p = NEXT_BLOCK((blockmark_t*)p);
+    }
+    return total;
+}
+
+size_t MmaplistTotalAlloc(mmaplist_t* list)
+{
+    if(!list) return 0;
+    size_t total = 0;
+    for(int i=0; i<list->size; ++i)
+        total += MmaplistChunkGetUsedcode(list->chunks[i]);
+    return total;
+}
+
+int ApplyRelocs(dynablock_t* block, intptr_t delta_block, intptr_t delat_map, uintptr_t mapping_start);
+uintptr_t RelocGetNext();
+int MmaplistAddBlock(mmaplist_t* list, int fd, off_t offset, void* orig, size_t size, intptr_t delta_map, uintptr_t mapping_start)
+{
+    if(!list) return -1;
+    if(list->cap==list->size) {
+        list->cap += 4;
+        list->chunks = box_realloc(list->chunks, list->cap*sizeof(blocklist_t**));
+    }
+    int i = list->size++;
+    void* map = MAP_FAILED;
+    #ifdef BOX32
+    if(box64_is32bits)
+        map = box32_dynarec_mmap(size, fd, offset);
+    #endif
+    if(map==MAP_FAILED)
+        map = InternalMmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, offset);
+    if(map==MAP_FAILED) {
+        printf_log(LOG_INFO, "Failed to load block %d of a maplist\n", i);
+        return -3;
+    }
+    #ifdef MADV_HUGEPAGE
+    madvise(map, size, MADV_HUGEPAGE);
+    #endif
+    setProtection((uintptr_t)map, size, PROT_READ | PROT_WRITE | PROT_EXEC);
+    list->chunks[i] = map;
+    intptr_t delta = map - orig;
+    // relocate the pointers
+    if(delta) {
+        list->chunks[i]->block = ((void*)list->chunks[i]->block) + delta;
+        list->chunks[i]->first += delta;
+    }
+    // relocate all allocated dynablocks
+    void* p = list->chunks[i]->block;
+    void* end = map + size - sizeof(blockmark_t);
+    while(p<end) {
+        if(((blockmark_t*)p)->next.fill) {
+            void** b = (void**)((blockmark_t*)p)->mark;
+            // first is the address of the dynablock itself, that needs to be adjusted
+            b[0] += delta;
+            dynablock_t* bl = b[0];
+            // now reloacte the dynablocks, all that need to be adjusted!
+            #define GO(A) if(bl->A) bl->A = ((void*)bl->A)+delta
+            GO(block);
+            GO(actual_block);
+            GO(instsize);
+            GO(arch);
+            GO(callrets);
+            GO(jmpnext);
+            GO(table64);
+            GO(relocs);
+            #undef GO
+            bl->previous = NULL;    // that seems safer that way
+            // shift the self referece to dynablock
+            if(bl->block!=bl->jmpnext) {
+                void** db_ref = (bl->jmpnext-sizeof(void*));
+                *db_ref = (*db_ref)+delta;
+            }
+            // adjust x64_addr with delta_map
+            bl->x64_addr += delta_map;
+            *(uintptr_t*)(bl->jmpnext+2*sizeof(void*)) = RelocGetNext();
+            if(bl->relocs && bl->relocsize)
+                ApplyRelocs(bl, delta, delta_map, mapping_start);
+            ClearCache(bl->actual_block+sizeof(void*), bl->native_size);
+            //add block, as dirty for now
+            if(!addJumpTableIfDefault64(bl->x64_addr, bl->jmpnext)) {
+                // cannot add blocks?
+                printf_log(LOG_INFO, "Warning, cannot add DynaCache Block %d to JmpTable\n", i);
+            } else {
+                if(bl->x64_size) {
+                    dynarec_log(LOG_DEBUG, "Added DynCache bl %p for %p - %p\n", bl, bl->x64_addr, bl->x64_addr+bl->x64_size);
+                    if(bl->x64_size>my_context->max_db_size) {
+                        my_context->max_db_size = bl->x64_size;
+                        dynarec_log(LOG_INFO, "BOX64 Dynarec: higher max_db=%d\n", my_context->max_db_size);
+                    }
+                    rb_inc(my_context->db_sizes, bl->x64_size, bl->x64_size+1);
+                }
+            }
+
+        }
+        p = NEXT_BLOCK((blockmark_t*)p);
+    }
+    // add new block to rbtt_dynmem
+    rb_set_64(rbt_dynmem, (uintptr_t)map, (uintptr_t)map+size, (uintptr_t)list->chunks[i]);
+
+    return 0;
+}
+
+void MmaplistFillBlocks(mmaplist_t* list, DynaCacheBlock_t* blocks)
+{
+    if(!list) return;
+    for(int i=0; i<list->size; ++i) {
+        blocks[i].block = list->chunks[i];
+        blocks[i].size = list->chunks[i]->size+sizeof(blocklist_t);
+        blocks[i].free_size = list->chunks[i]->maxfree;
+    }
+}
+
+void DelMmaplist(mmaplist_t* list)
+{
+    if(!list) return;
+    for(int i=0; i<list->size; ++i)
+        if(list->chunks[i]->size) {
+            cleanDBFromAddressRange((uintptr_t)list->chunks[i]->block, list->chunks[i]->size, 1);
+            rb_unset(rbt_dynmem, (uintptr_t)list->chunks[i]->block, (uintptr_t)list->chunks[i]->block+list->chunks[i]->size);
+            // the blocklist_t "chunk" structure is port of the memory map, so grab info before freing the memory
+            // also need to include back the blocklist_t that is excluded from the blocklist tracking
+            void* addr = list->chunks[i]->block - sizeof(blocklist_t);
+            size_t size = list->chunks[i]->size + sizeof(blocklist_t);
+            int isReserved = box64_is32bits && (uintptr_t)addr>0xffffffffLL;
+            InternalMunmap(addr, size);
+            // check if memory should be protected and alloced for box32
+            if(isReserved) {
+                //rereserve and mark as reserved
+                if(InternalMmap(addr, size, 0, MAP_NORESERVE|MAP_ANONYMOUS|MAP_FIXED, -1, 0)!=MAP_FAILED)
+                    rb_set(mapallmem, (uintptr_t)addr, (uintptr_t)addr+size, MEM_RESERVED);
+            } else
+                rb_unset(mapallmem, (uintptr_t)addr, (uintptr_t)addr+size);
+        }
+    box_free(list);
+}
 
 dynablock_t* FindDynablockFromNativeAddress(void* p)
 {
@@ -1065,10 +1261,10 @@ dynablock_t* FindDynablockFromNativeAddress(void* p)
     
     uintptr_t addr = (uintptr_t)p;
 
-    mapchunk_t* bl = (mapchunk_t*)rb_get_64(rbt_dynmem, addr);
+    blocklist_t* bl = (blocklist_t*)rb_get_64(rbt_dynmem, addr);
     if(bl) {
         // browse the map allocation as a fallback
-        blockmark_t* sub = (blockmark_t*)bl->chunk.block;
+        blockmark_t* sub = (blockmark_t*)bl->block;
         while((uintptr_t)sub<addr) {
             blockmark_t* n = NEXT_BLOCK(sub);
             if((uintptr_t)n>addr) {
@@ -1087,98 +1283,98 @@ dynablock_t* FindDynablockFromNativeAddress(void* p)
 #ifdef TRACE_MEMSTAT
 static uint64_t dynarec_allocated = 0;
 #endif
-uintptr_t AllocDynarecMap(size_t size)
+uintptr_t AllocDynarecMap(uintptr_t x64_addr, size_t size, int is_new)
 {
     if(!size)
         return 0;
 
     size = roundSize(size);
 
-    mmaplist_t* list = mmaplist;
+    mmaplist_t* list = GetMmaplistByAddr(x64_addr);
     if(!list)
-        list = mmaplist = (mmaplist_t*)box_calloc(1, sizeof(mmaplist_t));
+        list = mmaplist;
+    if(!list)
+        list = mmaplist = NewMmaplist();
+    if(is_new) list->has_new = 1;
+    list->dirty = 1;
     // check if there is space in current open ones
     int idx = 0;
     uintptr_t sz = size + 2*sizeof(blockmark_t);
-    while(1) {
-        int i = idx%NCHUNK;
-        if(list->chunks[i].chunk.maxfree>=size) {
+    for(int i=0; i<list->size; ++i)
+        if(list->chunks[i]->maxfree>=size) {
             // looks free, try to alloc!
             size_t rsize = 0;
-            void* sub = getFirstBlock(list->chunks[i].chunk.block, size, &rsize, list->chunks[i].chunk.first);
+            void* sub = getFirstBlock(list->chunks[i]->block, size, &rsize, list->chunks[i]->first);
             if(sub) {
-                void* ret = allocBlock(list->chunks[i].chunk.block, sub, size, &list->chunks[i].chunk.first);
-                if(rsize==list->chunks[i].chunk.maxfree)
-                    list->chunks[i].chunk.maxfree = getMaxFreeBlock(list->chunks[i].chunk.block, list->chunks[i].chunk.size, list->chunks[i].chunk.first);
+                void* ret = allocBlock(list->chunks[i]->block, sub, size, &list->chunks[i]->first);
+                if(rsize==list->chunks[i]->maxfree)
+                    list->chunks[i]->maxfree = getMaxFreeBlock(list->chunks[i]->block, list->chunks[i]->size, list->chunks[i]->first);
                 //rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
                 return (uintptr_t)ret;
             }
         }
-        // check if new
-        if(!list->chunks[i].chunk.size) {
-            // alloc a new block, aversized or not, we are at the end of the list
-            size_t allocsize = (sz>DYNMMAPSZ)?sz:DYNMMAPSZ;
-            // allign sz with pagesize
-            allocsize = (allocsize+(box64_pagesize-1))&~(box64_pagesize-1);
-            void* p=MAP_FAILED;
-            #ifdef BOX32
-            if(box64_is32bits)
-                p = box32_dynarec_mmap(allocsize);
-            #endif
-            // disabling for now. explicit hugepage needs to be enabled to be used on userspace 
-            // with`/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages` as the number of allowaed 2M huge page
-            // At least with a 2M allocation, transparent huge page should kick-in
-            #if 0//def MAP_HUGETLB
-            if(p==MAP_FAILED && allocsize==DYNMMAPSZ) {
-                p = InternalMmap(NULL, allocsize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
-                if(p!=MAP_FAILED) printf_log(LOG_INFO, "Allocated a dynarec memory block with HugeTLB\n");
-                else printf_log(LOG_INFO, "Failled to allocated a dynarec memory block with HugeTLB (%s)\n", strerror(errno));
-            }
-            #endif
-            if(p==MAP_FAILED)
-                p = InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-            if(p==MAP_FAILED) {
-                dynarec_log(LOG_INFO, "Cannot create dynamic map of %zu bytes (%s)\n", allocsize, strerror(errno));
-                return 0;
-            }
-            #ifdef MADV_HUGEPAGE
-            madvise(p, allocsize, MADV_HUGEPAGE);
-            #endif
-#ifdef TRACE_MEMSTAT
-            dynarec_allocated += allocsize;
-            printf_log(LOG_INFO, "Custommem: allocation %p-%p for Dynarec block %d\n", p, p+allocsize, idx);
-#endif
-            setProtection((uintptr_t)p, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC);
-
-            list->chunks[i].chunk.block = p;
-            list->chunks[i].chunk.first = p;
-            list->chunks[i].chunk.size = allocsize;
-            rb_set_64(rbt_dynmem, (uintptr_t)p, (uintptr_t)p+allocsize, (uintptr_t)&list->chunks[i]);
-            // setup marks
-            blockmark_t* m = (blockmark_t*)p;
-            m->prev.x32 = 0;
-            m->next.fill = 0;
-            m->next.offs = allocsize-sizeof(blockmark_t);
-            blockmark_t* n = NEXT_BLOCK(m);
-            n->next.x32 = 0;
-            n->prev.x32 = m->next.x32;
-            // alloc 1st block
-            void* ret  = allocBlock(list->chunks[i].chunk.block, p, size, &list->chunks[i].chunk.first);
-            list->chunks[i].chunk.maxfree = getMaxFreeBlock(list->chunks[i].chunk.block, list->chunks[i].chunk.size, list->chunks[i].chunk.first);
-            if(list->chunks[i].chunk.maxfree)
-                list->chunks[i].chunk.first = getNextFreeBlock(m);
-            //rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
-            return (uintptr_t)ret;
-        }
-        // next chunk...
-        ++idx; ++i;
-        if(i==NCHUNK) {
-            i = 0;
-            if(!list->next)
-                list->next = (mmaplist_t*)box_calloc(1, sizeof(mmaplist_t));
-            list = list->next;
-        }
+    // need to add a new
+    if(list->size == list->cap) {
+        list->cap+=4;
+        list->chunks = box_realloc(list->chunks, list->cap*sizeof(blocklist_t**));
     }
+    int i = list->size++;
+    size_t need_sz = sz + sizeof(blocklist_t);
+    // alloc a new block, aversized or not, we are at the end of the list
+    size_t allocsize = (need_sz>(i?DYNMMAPSZ:DYNMMAPSZ0))?need_sz:(i?DYNMMAPSZ:DYNMMAPSZ0);
+    // allign sz with pagesize
+    allocsize = (allocsize+(box64_pagesize-1))&~(box64_pagesize-1);
+    void* p=MAP_FAILED;
+    #ifdef BOX32
+    if(box64_is32bits)
+        p = box32_dynarec_mmap(allocsize, -1, 0);
+    #endif
+    // disabling for now. explicit hugepage needs to be enabled to be used on userspace 
+    // with`/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages` as the number of allowaed 2M huge page
+    // At least with a 2M allocation, transparent huge page should kick-in
+    #if 0//def MAP_HUGETLB
+    if(p==MAP_FAILED && allocsize==DYNMMAPSZ) {
+        p = InternalMmap(NULL, allocsize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+        if(p!=MAP_FAILED) printf_log(LOG_INFO, "Allocated a dynarec memory block with HugeTLB\n");
+        else printf_log(LOG_INFO, "Failled to allocated a dynarec memory block with HugeTLB (%s)\n", strerror(errno));
+    }
+    #endif
+    if(p==MAP_FAILED)
+        p = InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if(p==MAP_FAILED) {
+        dynarec_log(LOG_INFO, "Cannot create dynamic map of %zu bytes (%s)\n", allocsize, strerror(errno));
+        return 0;
+    }
+    #ifdef MADV_HUGEPAGE
+    madvise(p, allocsize, MADV_HUGEPAGE);
+    #endif
+#ifdef TRACE_MEMSTAT
+    dynarec_allocated += allocsize;
+    printf_log(LOG_INFO, "Custommem: allocation %p-%p for Dynarec block %d\n", p, p+allocsize, idx);
+#endif
+    setProtection((uintptr_t)p, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC);
+    list->chunks[i] = p;
+    rb_set_64(rbt_dynmem, (uintptr_t)p, (uintptr_t)p+allocsize, (uintptr_t)list->chunks[i]);
+    p = p + sizeof(blocklist_t);    // adjust pointer and size, to exclude blocklist_t itself
+    allocsize-=sizeof(blocklist_t);
+    list->chunks[i]->block = p;
+    list->chunks[i]->first = p;
+    list->chunks[i]->size = allocsize;
+    // setup marks
+    blockmark_t* m = (blockmark_t*)p;
+    m->prev.x32 = 0;
+    m->next.fill = 0;
+    m->next.offs = allocsize-sizeof(blockmark_t);
+    blockmark_t* n = NEXT_BLOCK(m);
+    n->next.x32 = 0;
+    n->prev.x32 = m->next.x32;
+    // alloc 1st block
+    void* ret  = allocBlock(list->chunks[i]->block, p, size, &list->chunks[i]->first);
+    list->chunks[i]->maxfree = getMaxFreeBlock(list->chunks[i]->block, list->chunks[i]->size, list->chunks[i]->first);
+    if(list->chunks[i]->maxfree)
+        list->chunks[i]->first = getNextFreeBlock(m);
+    //rb_set_64(list->chunks[i].tree, (uintptr_t)ret, (uintptr_t)ret+size, (uintptr_t)ret);
+    return (uintptr_t)ret;
 }
 
 void FreeDynarecMap(uintptr_t addr)
@@ -1187,13 +1383,13 @@ void FreeDynarecMap(uintptr_t addr)
         return;
     
 
-    mapchunk_t* bl = (mapchunk_t*)rb_get_64(rbt_dynmem, addr);
+    blocklist_t* bl = (blocklist_t*)rb_get_64(rbt_dynmem, addr);
 
     if(bl) {
         void* sub = (void*)(addr-sizeof(blockmark_t));
-        size_t newfree = freeBlock(bl->chunk.block, bl->chunk.size, sub, &bl->chunk.first);
-        if(bl->chunk.maxfree < newfree)
-            bl->chunk.maxfree = newfree;
+        size_t newfree = freeBlock(bl->block, bl->size, sub, &bl->first);
+        if(bl->maxfree < newfree)
+            bl->maxfree = newfree;
         return;
     }
 }
@@ -1281,7 +1477,7 @@ int cleanDBFromAddressRange(uintptr_t addr, size_t size, int destroy)
 }
 
 #ifdef JMPTABL_SHIFT4
-static uintptr_t *create_jmptbl(uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, uintptr_t idx3, uintptr_t idx4)
+static uintptr_t *create_jmptbl(int for32bits, uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, uintptr_t idx3, uintptr_t idx4)
 {
     if(box64_jmptbl4[idx4] == box64_jmptbldefault3) {
         uintptr_t**** tbl = (uintptr_t****)customMalloc((1<<JMPTABL_SHIFT3)*sizeof(uintptr_t***));
@@ -1309,6 +1505,7 @@ static uintptr_t *create_jmptbl(uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, 
         }
 #endif
     }
+    if(for32bits) return NULL;
     if(box64_jmptbl4[idx4][idx3][idx2] == box64_jmptbldefault1) {
         uintptr_t** tbl = (uintptr_t**)customMalloc((1<<JMPTABL_SHIFT1)*sizeof(uintptr_t*));
         for(int i=0; i<(1<<JMPTABL_SHIFT1); ++i)
@@ -1338,7 +1535,7 @@ static uintptr_t *create_jmptbl(uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, 
     return &box64_jmptbl4[idx4][idx3][idx2][idx1][idx0];
 }
 #else
-static uintptr_t *create_jmptbl(uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, uintptr_t idx3)
+static uintptr_t *create_jmptbl(int for32bits, uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, uintptr_t idx3)
 {
     if(box64_jmptbl3[idx3] == box64_jmptbldefault2) {
         uintptr_t*** tbl = (uintptr_t***)customMalloc((1<<JMPTABL_SHIFT2)*sizeof(uintptr_t**));
@@ -1366,6 +1563,7 @@ static uintptr_t *create_jmptbl(uintptr_t idx0, uintptr_t idx1, uintptr_t idx2, 
         }
 #endif
     }
+    if(for32bits) return NULL;
     if(box64_jmptbl3[idx3][idx2][idx1] == box64_jmptbldefault0) {
         uintptr_t* tbl = (uintptr_t*)customMalloc((1<<JMPTABL_SHIFT0)*sizeof(uintptr_t));
         for(int i=0; i<(1<<JMPTABL_SHIFT0); ++i)
@@ -1396,9 +1594,9 @@ int addJumpTableIfDefault64(void* addr, void* jmp)
     idx0 = (((uintptr_t)addr)                )&JMPTABLE_MASK0;
 
     #ifdef JMPTABL_SHIFT4
-    return (native_lock_storeifref(create_jmptbl(idx0, idx1, idx2, idx3, idx4), jmp, native_next)==jmp)?1:0;
+    return (native_lock_storeifref(create_jmptbl(0, idx0, idx1, idx2, idx3, idx4), jmp, native_next)==jmp)?1:0;
     #else
-    return (native_lock_storeifref(create_jmptbl(idx0, idx1, idx2, idx3), jmp, native_next)==jmp)?1:0;
+    return (native_lock_storeifref(create_jmptbl(0, idx0, idx1, idx2, idx3), jmp, native_next)==jmp)?1:0;
     #endif
 }
 void setJumpTableDefault64(void* addr)
@@ -1456,9 +1654,9 @@ int setJumpTableIfRef64(void* addr, void* jmp, void* ref)
     idx1 = (((uintptr_t)addr)>>JMPTABL_START1)&JMPTABLE_MASK1;
     idx0 = (((uintptr_t)addr)    )&JMPTABLE_MASK0;
     #ifdef JMPTABL_SHIFT4
-    return (native_lock_storeifref(create_jmptbl(idx0, idx1, idx2, idx3, idx4), jmp, ref)==jmp)?1:0;
+    return (native_lock_storeifref(create_jmptbl(0, idx0, idx1, idx2, idx3, idx4), jmp, ref)==jmp)?1:0;
     #else
-    return (native_lock_storeifref(create_jmptbl(idx0, idx1, idx2, idx3), jmp, ref)==jmp)?1:0;
+    return (native_lock_storeifref(create_jmptbl(0, idx0, idx1, idx2, idx3), jmp, ref)==jmp)?1:0;
     #endif
 }
 int isJumpTableDefault64(void* addr)
@@ -1491,13 +1689,19 @@ uintptr_t getJumpTable64()
     return (uintptr_t)box64_jmptbl3;
     #endif
 }
+uintptr_t getJumpTable48()
+{
+    return (uintptr_t)box64_jmptbl_48;
+}
 
 uintptr_t getJumpTable32()
 {
     #ifdef JMPTABL_SHIFT4
+    create_jmptbl(1, 0, 0, 0, 0, 0);
     return (uintptr_t)box64_jmptbl4[0][0];
     #else
-    return (uintptr_t)box64_jmptbl3[0];
+    create_jmptbl(1, 0, 0, 0, 0);
+    return (uintptr_t)box64_jmptbl3[0][0];
     #endif
 }
 
@@ -1512,9 +1716,9 @@ uintptr_t getJumpTableAddress64(uintptr_t addr)
     idx1 = ((addr)>>JMPTABL_START1)&JMPTABLE_MASK1;
     idx0 = ((addr)                )&JMPTABLE_MASK0;
     #ifdef JMPTABL_SHIFT4
-    return (uintptr_t)create_jmptbl(idx0, idx1, idx2, idx3, idx4);
+    return (uintptr_t)create_jmptbl(0, idx0, idx1, idx2, idx3, idx4);
     #else
-    return (uintptr_t)create_jmptbl(idx0, idx1, idx2, idx3);
+    return (uintptr_t)create_jmptbl(0, idx0, idx1, idx2, idx3);
     #endif
 }
 
@@ -2242,11 +2446,17 @@ void init_custommem_helper(box64context_t* ctx)
         #ifdef JMPTABL_SHIFT4
         for(int i=0; i<(1<<JMPTABL_SHIFT4); ++i)
             box64_jmptbl4[i] = box64_jmptbldefault3;
-        for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i)
+        for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i) {
             box64_jmptbldefault3[i] = box64_jmptbldefault2;
+            box64_jmptbl_48[i] = box64_jmptbldefault2;
+        }
+        box64_jmptbl4[0] = box64_jmptbl_48;
         #else
-        for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i)
-            box64_jmptbl3[i] = box64_jmptbldefault2;
+        for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i) {
+                box64_jmptbl3[i] = box64_jmptbldefault2;
+                box64_jmptbl_48[i] = box64_jmptbldefault1;
+            }
+        box64_jmptbl3[0] = box64_jmptbl_48;
         #endif
         for(int i=0; i<(1<<JMPTABL_SHIFT2); ++i)
             box64_jmptbldefault2[i] = box64_jmptbldefault1;
@@ -2309,14 +2519,11 @@ void fini_custommem_helper(box64context_t *ctx)
         dynarec_log(LOG_DEBUG, "Free global Dynarecblocks\n");
         mmaplist_t* head = mmaplist;
         mmaplist = NULL;
-        while(head) {
-            for (int i=0; i<NCHUNK; ++i) {
-                if(head->chunks[i].chunk.block)
-                    InternalMunmap(head->chunks[i].chunk.block, head->chunks[i].chunk.size);
+        if(head) {
+            for (int i=0; i<head->size; ++i) {
+                InternalMunmap(head->chunks[i]->block-sizeof(blocklist_t), head->chunks[i]->size+sizeof(blocklist_t));
             }
-            mmaplist_t *old = head;
-            head = head->next;
-            free(old);
+            free(head);
         }
 
         box_free(mmaplist);
@@ -2336,10 +2543,14 @@ void fini_custommem_helper(box64context_t *ctx)
                             }
                         customFree(box64_jmptbl3[i3][i2]);
                     }
-                customFree(box64_jmptbl3[i3]);
+                #ifndef JMPTABL_SHIFT4
+                if(i3)
+                #endif
+                    customFree(box64_jmptbl3[i3]);
             }
         #ifdef JMPTABL_SHIFT4
-                customFree(box64_jmptbl4[i4]);
+                if(i4)
+                    customFree(box64_jmptbl4[i4]);
             }
         #endif
     }
@@ -2378,7 +2589,27 @@ int isLockAddress(uintptr_t addr)
     khint_t k = kh_get(lockaddress, lockaddress, addr);
     return (k==kh_end(lockaddress))?0:1;
 }
-
+int nLockAddressRange(uintptr_t start, size_t size)
+{
+    int n = 0;
+    uintptr_t end = start + size -1;
+    uintptr_t addr;
+    kh_foreach_key(lockaddress, addr,
+        if(addr>=start && addr<=end)
+            ++n;
+    );
+    return n;
+}
+void getLockAddressRange(uintptr_t start, size_t size, uintptr_t addrs[])
+{
+    int n = 0;
+    uintptr_t end = start + size -1;
+    uintptr_t addr;
+    kh_foreach_key(lockaddress, addr,
+        if(addr>=start && addr<=end)
+            addrs[n++] = addr;
+    );
+}
 #endif
 
 #ifndef MAP_FIXED_NOREPLACE

@@ -89,7 +89,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         INST_NAME("RDTSCP");
                         NOTEST(x1);
                         if (box64_rdtsc) {
-                            CALL(ReadTSC, x3, 0, 0); // will return the u64 in x3
+                            CALL(const_readtsc, x3, 0, 0); // will return the u64 in x3
                         } else {
                             CSRRS(x3, xZR, 0xC01); // RDTIME
                         }
@@ -116,7 +116,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             SMEND();
             GETIP(addr, x7);
             STORE_XEMU_CALL(x3);
-            CALL_S(EmuX64Syscall, -1, 0);
+            CALL_S(const_x64syscall, -1, 0);
             LOAD_XEMU_CALL();
             TABLE64(x3, addr); // expected return address
             BNE_MARK(xRIP, x3);
@@ -136,7 +136,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             }
             GETIP(ip, x7);
             STORE_XEMU_CALL(x3);
-            CALL(native_ud, -1, 0, 0);
+            CALL(const_native_ud, -1, 0, 0);
             LOAD_XEMU_CALL();
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
@@ -152,7 +152,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             }
             GETIP(ip, x7);
             STORE_XEMU_CALL(x3);
-            CALL(native_ud, -1, 0, 0);
+            CALL(const_native_ud, -1, 0, 0);
             LOAD_XEMU_CALL();
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
@@ -445,7 +445,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             INST_NAME("RDTSC");
             NOTEST(x1);
             if (box64_rdtsc) {
-                CALL(ReadTSC, x3, 0, 0); // will return the u64 in x3
+                CALL(const_readtsc, x3, 0, 0); // will return the u64 in x3
             } else {
                 CSRRS(x3, xZR, 0xC01); // RDTIME
             }
@@ -537,7 +537,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         LH(x3, gback, gdoffset + 2 * (i * 2 + 0));
                         LH(x4, gback, gdoffset + 2 * (i * 2 + 1));
                         ADDW(x3, x3, x4);
-                        if (rv64_zbb) {
+                        if (cpuext.zbb) {
                             MIN(x3, x3, x5);
                             MAX(x3, x3, x6);
                         } else {
@@ -560,7 +560,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                             LH(x3, wback, fixedaddress + 2 * (i * 2 + 0));
                             LH(x4, wback, fixedaddress + 2 * (i * 2 + 1));
                             ADDW(x3, x3, x4);
-                            if (rv64_zbb) {
+                            if (cpuext.zbb) {
                                 MIN(x3, x3, x5);
                                 MAX(x3, x3, x6);
                             } else {
@@ -588,7 +588,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         LB(x4, wback, fixedaddress + i * 2 + 1);
                         MUL(x3, x3, x4);
                         ADD(x3, x3, x7);
-                        if (rv64_zbb) {
+                        if (cpuext.zbb) {
                             MIN(x3, x3, x5);
                             MAX(x3, x3, x6);
                         } else {
@@ -661,7 +661,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         LH(x3, gback, gdoffset + 2 * (i * 2 + 0));
                         LH(x4, gback, gdoffset + 2 * (i * 2 + 1));
                         SUBW(x3, x3, x4);
-                        if (rv64_zbb) {
+                        if (cpuext.zbb) {
                             MIN(x3, x3, x5);
                             MAX(x3, x3, x6);
                         } else {
@@ -684,7 +684,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                             LH(x3, wback, fixedaddress + 2 * (i * 2 + 0));
                             LH(x4, wback, fixedaddress + 2 * (i * 2 + 1));
                             SUBW(x3, x3, x4);
-                            if (rv64_zbb) {
+                            if (cpuext.zbb) {
                                 MIN(x3, x3, x5);
                                 MAX(x3, x3, x6);
                             } else {
@@ -831,22 +831,22 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     sse_reflect_reg(dyn, ninst, x6, 0);
                     switch (u8) {
                         case 0xC8:
-                            CALL(sha1nexte, -1, x1, ed);
+                            CALL(const_sha1nexte, -1, x1, ed);
                             break;
                         case 0xC9:
-                            CALL(sha1msg1, -1, x1, ed);
+                            CALL(const_sha1msg1, -1, x1, ed);
                             break;
                         case 0xCA:
-                            CALL(sha1msg2, -1, x1, ed);
+                            CALL(const_sha1msg2, -1, x1, ed);
                             break;
                         case 0xCB:
-                            CALL(sha256rnds2, -1, x1, ed);
+                            CALL(const_sha256rnds2, -1, x1, ed);
                             break;
                         case 0xCC:
-                            CALL(sha256msg1, -1, x1, ed);
+                            CALL(const_sha256msg1, -1, x1, ed);
                             break;
                         case 0xCD:
-                            CALL(sha256msg2, -1, x1, ed);
+                            CALL(const_sha256msg2, -1, x1, ed);
                             break;
                     }
                     break;
@@ -920,7 +920,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     sse_forget_reg(dyn, ninst, x6, gd);
                     ADDI(x1, xEmu, offsetof(x64emu_t, xmm[gd]));
                     MOV32w(x3, u8);
-                    CALL4(sha1rnds4, -1, x1, wback, x3, 0);
+                    CALL4(const_sha1rnds4, -1, x1, wback, x3, 0);
                     break;
                 default:
                     DEFAULT;
@@ -1292,7 +1292,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             MOV64x(x6, -128);
             for (int i = 0; i < 4; ++i) {
                 LH(x3, gback, gdoffset + i * 2);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MIN(x3, x3, x5);
                     MAX(x3, x3, x6);
                 } else {
@@ -1309,7 +1309,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             } else
                 for (int i = 0; i < 4; ++i) {
                     LH(x3, wback, fixedaddress + i * 2);
-                    if (rv64_zbb) {
+                    if (cpuext.zbb) {
                         MIN(x3, x3, x5);
                         MAX(x3, x3, x6);
                     } else {
@@ -1665,7 +1665,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             INST_NAME("PCMPEQB Gm,Em");
             nextop = F8;
             GETGM();
-            if (rv64_xtheadbb) {
+            if (cpuext.xtheadbb) {
                 GETEM(x2, 0, 0);
                 LD(x3, gback, gdoffset);
                 LD(x4, wback, fixedaddress);
@@ -1818,7 +1818,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0xA2:
             INST_NAME("CPUID");
             NOTEST(x1);
-            CALL_(my_cpuid, -1, 0, xRAX, 0);
+            CALL_(const_cpuid, -1, 0, xRAX, 0);
             // BX and DX are not synchronized during the call, so need to force the update
             LD(xRDX, xEmu, offsetof(x64emu_t, regs[_DX]));
             LD(xRBX, xEmu, offsetof(x64emu_t, regs[_BX]));
@@ -1963,7 +1963,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         SKIPTEST(x1);
                         fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
                         addr = geted(dyn, addr, ninst, nextop, &ed, x1, x3, &fixedaddress, rex, NULL, 0, 0);
-                        CALL(rex.is32bits ? ((void*)fpu_fxsave32) : ((void*)fpu_fxsave64), -1, ed, 0);
+                        CALL(rex.is32bits ? (const_fpu_fxsave32) : (const_fpu_fxsave64), -1, ed, 0);
                         break;
                     case 1:
                         INST_NAME("FXRSTOR Ed");
@@ -1971,7 +1971,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         SKIPTEST(x1);
                         fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
                         addr = geted(dyn, addr, ninst, nextop, &ed, x1, x3, &fixedaddress, rex, NULL, 0, 0);
-                        CALL(rex.is32bits ? ((void*)fpu_fxrstor32) : ((void*)fpu_fxrstor64), -1, ed, 0);
+                        CALL(rex.is32bits ? (const_fpu_fxrstor32) : (const_fpu_fxrstor64), -1, ed, 0);
                         break;
                     case 2:
                         INST_NAME("LDMXCSR Md");
@@ -1993,7 +1993,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
                         addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
                         MOV32w(x2, rex.w ? 0 : 1);
-                        CALL((void*)fpu_xsave, -1, ed, x2);
+                        CALL(const_fpu_xsave, -1, ed, x2);
                         break;
                     case 5:
                         INST_NAME("XRSTOR Ed");
@@ -2001,13 +2001,13 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
                         addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
                         MOV32w(x2, rex.w ? 0 : 1);
-                        CALL((void*)fpu_xrstor, -1, ed, x2);
+                        CALL(const_fpu_xrstor, -1, ed, x2);
                         break;
                     case 7:
                         INST_NAME("CLFLUSH Ed");
                         MESSAGE(LOG_DUMP, "Need Optimization?\n");
                         addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
-                        CALL_(native_clflush, -1, 0, ed, 0);
+                        CALL_(const_native_clflush, -1, 0, ed, 0);
                         break;
                     default:
                         DEFAULT;
@@ -2567,7 +2567,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETEM(x2, 0, 1);
             LD(x1, wback, fixedaddress + 0);
             for (int i = 0; i < 8; i++) {
-                if (rv64_zbs) {
+                if (cpuext.zbs) {
                     if (i == 0) {
                         BEXTI(gd, x1, 63);
                     } else {
@@ -2582,7 +2582,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     }
                 }
                 if (i != 0) {
-                    if (rv64_zba) {
+                    if (cpuext.zba) {
                         SH1ADD(gd, gd, x6);
                     } else {
                         SLLI(gd, gd, 1);
@@ -2600,7 +2600,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LBU(x3, gback, gdoffset + i);
                 LBU(x4, wback, fixedaddress + i);
                 SUB(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MAX(x3, x3, xZR);
                 } else {
                     NOT(x4, x3);
@@ -2615,7 +2615,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             nextop = F8;
             GETGM();
             GETEM(x2, 0, 6);
-            MMX_LOOP_W(x3, x4, SUB(x3, x3, x4); if (rv64_zbb) { MAX(x3, x3, xZR); } else {
+            MMX_LOOP_W(x3, x4, SUB(x3, x3, x4); if (cpuext.zbb) { MAX(x3, x3, xZR); } else {
                     NOT(x4, x3);
                     SRAI(x4, x4, 63);
                     AND(x3, x3, x4); } SH(x3, gback, gdoffset + i * 2););
@@ -2628,7 +2628,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             for (int i = 0; i < 8; ++i) {
                 LBU(x3, gback, gdoffset + i);
                 LBU(x4, wback, fixedaddress + i);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MINU(x3, x3, x4);
                 } else {
                     BLTU(x3, x4, 8);
@@ -2657,7 +2657,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LBU(x3, gback, gdoffset + i);
                 LBU(x4, wback, fixedaddress + i);
                 ADD(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MINU(x3, x3, x5);
                 } else {
                     BLT(x3, x5, 8);
@@ -2678,7 +2678,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LHU(x3, gback, gdoffset + i * 2);
                 LHU(x4, wback, fixedaddress + i * 2);
                 ADDW(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MINU(x3, x3, x5);
                 } else {
                     BGE(x5, x3, 8); // tmp32s <= 65535?
@@ -2695,7 +2695,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             for (int i = 0; i < 8; ++i) {
                 LBU(x3, gback, gdoffset + i);
                 LBU(x4, wback, fixedaddress + i);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MAXU(x3, x3, x4);
                 } else {
                     BLTU(x4, x3, 8);
@@ -2711,7 +2711,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETEM(x2, 0, 1);
             LD(x1, gback, gdoffset);
             LD(x3, wback, fixedaddress);
-            if (rv64_zbb) {
+            if (cpuext.zbb) {
                 ANDN(x1, x3, x1);
             } else {
                 NOT(x1, x1);
@@ -2740,7 +2740,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETEM(x4, 0, 1);
             LBU(x1, wback, fixedaddress);
             ADDI(x2, xZR, 15);
-            if (rv64_zbb) {
+            if (cpuext.zbb) {
                 MINU(x1, x1, x2);
             } else {
                 BLTU(x1, x2, 4 + 4);
@@ -2759,7 +2759,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             GETEM(x4, 0, 1);
             LBU(x1, wback, fixedaddress);
             ADDI(x2, xZR, 31);
-            if (rv64_zbb) {
+            if (cpuext.zbb) {
                 MINU(x1, x1, x2);
             } else {
                 BLTU(x1, x2, 4 + 4);
@@ -2834,7 +2834,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LB(x3, gback, gdoffset + i);
                 LB(x4, wback, fixedaddress + i);
                 SUBW(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MIN(x3, x3, x5);
                     MAX(x3, x3, x6);
                 } else {
@@ -2859,7 +2859,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LH(x3, gback, gdoffset + 2 * i);
                 LH(x4, wback, fixedaddress + 2 * i);
                 SUBW(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MIN(x3, x3, x5);
                     MAX(x3, x3, x6);
                 } else {
@@ -2879,7 +2879,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             for (int i = 0; i < 4; ++i) {
                 LH(x3, gback, gdoffset + 2 * i);
                 LH(x4, wback, fixedaddress + 2 * i);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MIN(x3, x3, x4);
                 } else {
                     BLT(x3, x4, 8);
@@ -2911,7 +2911,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LB(x3, gback, gdoffset + i);
                 LB(x4, wback, fixedaddress + i);
                 ADDW(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MIN(x3, x3, x5);
                     MAX(x3, x3, x6);
                 } else {
@@ -2936,7 +2936,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 LH(x3, gback, gdoffset + 2 * i);
                 LH(x4, wback, fixedaddress + 2 * i);
                 ADDW(x3, x3, x4);
-                if (rv64_zbb) {
+                if (cpuext.zbb) {
                     MIN(x3, x3, x5);
                     MAX(x3, x3, x6);
                 } else {
@@ -2953,7 +2953,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             nextop = F8;
             GETGM();
             GETEM(x1, 0, 6);
-            MMX_LOOP_WS(x3, x4, if (rv64_zbb) { MAX(x3, x3, x4); } else {
+            MMX_LOOP_WS(x3, x4, if (cpuext.zbb) { MAX(x3, x3, x4); } else {
                     BGE(x3, x4, 8);
                     MV(x3, x4); });
             break;

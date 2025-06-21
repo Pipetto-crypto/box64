@@ -24,6 +24,7 @@
 #include "rbtree.h"
 #include "wine/compiler.h"
 #include "wine/debug.h"
+#include "hostext.h"
 
 uintptr_t box64_pagesize = 4096;
 
@@ -56,6 +57,18 @@ NTSTATUS(WINAPI* __wine_unix_call_dispatcher)(unixlib_handle_t, unsigned int, vo
 #define ROUND_SIZE(addr, size) (((SIZE_T)(size) + ((UINT_PTR)(addr) & page_mask) + page_mask) & ~page_mask)
 static const UINT_PTR page_mask = 0xfff;
 
+/* reserved TEB64 TLS slots for Wow64
+#define WOW64_TLS_CPURESERVED      1
+#define WOW64_TLS_TEMPLIST         3
+#define WOW64_TLS_USERCALLBACKDATA 5
+#define WOW64_TLS_APCLIST          7
+#define WOW64_TLS_FILESYSREDIR     8
+#define WOW64_TLS_WOW64INFO        10
+#define WOW64_TLS_MAX_NUMBER       19
+*/
+#define WOW64_TLS_ENTRY_CONTEXT (WOW64_TLS_MAX_NUMBER - 1)
+#define WOW64_TLS_EMU           (WOW64_TLS_MAX_NUMBER - 2)
+
 int is_addr_unaligned(uintptr_t addr)
 {
     // FIXME
@@ -73,19 +86,7 @@ int isRetX87Wrapper(wrapper_t fun)
     return 0;
 }
 
-int arm64_asimd = 0;
-int arm64_aes = 0;
-int arm64_pmull = 0;
-int arm64_crc32 = 0;
-int arm64_atomics = 0;
-int arm64_sha1 = 0;
-int arm64_sha2 = 0;
-int arm64_uscat = 0;
-int arm64_flagm = 0;
-int arm64_flagm2 = 0;
-int arm64_frintts = 0;
-int arm64_afp = 0;
-int arm64_rndr = 0;
+cpu_ext_t cpuext = {0};
 
 static box64context_t box64_context;
 box64context_t* my_context = &box64_context;
@@ -225,8 +226,16 @@ NTSTATUS WINAPI BTCpuProcessInit(void)
     LoadEnvVariables();
     InitializeEnvFiles();
 
+    if (!BOX64ENV(nobanner)) PrintBox64Version(1);
+    if (DetectHostCpuFeatures())
+        PrintHostCpuFeatures();
+    else {
+        printf_log(LOG_INFO, "Minimum CPU requirements not met, disabling DynaRec\n");
+        SET_BOX64ENV(dynarec, 0);
+    }
+
     TCHAR filename[MAX_PATH];
-    if (GetModuleFileName(NULL, filename, MAX_PATH)) {
+    if (GetModuleFileNameA(NULL, filename, MAX_PATH)) {
         char* shortname = strrchr(filename, '\\');
         if (shortname) {
             shortname++;
@@ -234,7 +243,6 @@ NTSTATUS WINAPI BTCpuProcessInit(void)
         }
     }
 
-    if (!BOX64ENV(nobanner)) PrintBox64Version(1);
     PrintEnvVariables(&box64env, LOG_INFO);
 
     memset(bopcode, 0xc3, sizeof(bopcode));
@@ -277,7 +285,7 @@ static uint8_t box64_is_addr_in_jit(void* addr)
 NTSTATUS WINAPI BTCpuResetToConsistentState(EXCEPTION_POINTERS* ptrs)
 {
     printf_log(LOG_DEBUG, "BTCpuResetToConsistentState(%p)\n", ptrs);
-    x64emu_t* emu = NtCurrentTeb()->TlsSlots[0]; // FIXME
+    x64emu_t* emu = NtCurrentTeb()->TlsSlots[WOW64_TLS_EMU];
     EXCEPTION_RECORD* rec = ptrs->ExceptionRecord;
     CONTEXT* ctx = ptrs->ContextRecord;
 
@@ -299,7 +307,7 @@ NTSTATUS WINAPI BTCpuResetToConsistentState(EXCEPTION_POINTERS* ptrs)
         return STATUS_SUCCESS;
 
     /* Replace the host context with one captured before JIT entry so host code can unwind */
-    memcpy(ctx, NtCurrentTeb()->TlsSlots[WOW64_TLS_MAX_NUMBER], sizeof(*ctx));
+    memcpy(ctx, NtCurrentTeb()->TlsSlots[WOW64_TLS_ENTRY_CONTEXT], sizeof(*ctx));
     return STATUS_SUCCESS;
 }
 
@@ -313,12 +321,12 @@ void WINAPI BTCpuSimulate(void)
 {
     printf_log(LOG_DEBUG, "BTCpuSimulate()\n");
     WOW64_CPURESERVED* cpu = NtCurrentTeb()->TlsSlots[WOW64_TLS_CPURESERVED];
-    x64emu_t* emu = NtCurrentTeb()->TlsSlots[0]; // FIXME
+    x64emu_t* emu = NtCurrentTeb()->TlsSlots[WOW64_TLS_EMU];
     WOW64_CONTEXT* ctx = (WOW64_CONTEXT*)(cpu + 1);
     CONTEXT entry_context;
 
     RtlCaptureContext(&entry_context);
-    NtCurrentTeb()->TlsSlots[WOW64_TLS_MAX_NUMBER] = &entry_context;
+    NtCurrentTeb()->TlsSlots[WOW64_TLS_ENTRY_CONTEXT] = &entry_context;
 
     R_EAX = ctx->Eax;
     R_EBX = ctx->Ebx;
@@ -364,7 +372,7 @@ NTSTATUS WINAPI BTCpuThreadInit(void)
 
     reset_fpu(emu);
 
-    NtCurrentTeb()->TlsSlots[0] = emu; // FIXME
+    NtCurrentTeb()->TlsSlots[WOW64_TLS_EMU] = emu;
     return STATUS_SUCCESS;
 }
 
@@ -444,9 +452,9 @@ static void __attribute__((naked)) SEHFrameTrampoline2Args(void* Arg0, int Arg1,
 
 void EmitInterruption(x64emu_t* emu, int num, void* addr)
 {
-    CONTEXT* entry_context = NtCurrentTeb()->TlsSlots[WOW64_TLS_MAX_NUMBER];
+    CONTEXT* entry_context = NtCurrentTeb()->TlsSlots[WOW64_TLS_ENTRY_CONTEXT];
     SEHFrameTrampoline2Args(emu, num, (void*)EmitInterruptionImpl, entry_context->Sp, entry_context->Pc);
-    NtCurrentTeb()->TlsSlots[WOW64_TLS_MAX_NUMBER] = entry_context;
+    NtCurrentTeb()->TlsSlots[WOW64_TLS_ENTRY_CONTEXT] = entry_context;
 }
 
 NTSTATUS WINAPI LdrDisableThreadCalloutsForDll(HMODULE);

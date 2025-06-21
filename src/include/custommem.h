@@ -31,9 +31,18 @@ size_t customGetUsableSize(void* p);
 
 #ifdef DYNAREC
 typedef struct dynablock_s dynablock_t;
+typedef struct mmaplist_s mmaplist_t;
+typedef struct DynaCacheBlock_s DynaCacheBlock_t;
 // custom protection flag to mark Page that are Write protected for Dynarec purpose
-uintptr_t AllocDynarecMap(size_t size);
+uintptr_t AllocDynarecMap(uintptr_t x64_addr, size_t size, int is_new);
 void FreeDynarecMap(uintptr_t addr);
+mmaplist_t* NewMmaplist();
+void DelMmaplist(mmaplist_t* list);
+int MmaplistHasNew(mmaplist_t* list, int clear);
+int MmaplistNBlocks(mmaplist_t* list);
+void MmaplistFillBlocks(mmaplist_t* list, DynaCacheBlock_t* blocks);
+void MmaplistAddNBlocks(mmaplist_t* list, int nblocks);
+int MmaplistAddBlock(mmaplist_t* list, int fd, off_t offset, void* orig, size_t size, intptr_t delta_map, uintptr_t mapping_start);
 
 void addDBFromAddressRange(uintptr_t addr, size_t size);
 // Will return 1 if at least 1 db in the address range
@@ -47,13 +56,15 @@ void setJumpTableDefault64(void* addr);
 void setJumpTableDefaultRef64(void* addr, void* jmp);
 int isJumpTableDefault64(void* addr);
 uintptr_t getJumpTable64(void);
+uintptr_t getJumpTable48(void);
 uintptr_t getJumpTable32(void);
 uintptr_t getJumpTableAddress64(uintptr_t addr);
 uintptr_t getJumpAddress64(uintptr_t addr);
 
 #ifdef SAVE_MEM
+#define JMPTABL_SHIFTMAX   JMPTABL_SHIFT4
 #define JMPTABL_SHIFT4 16
-#define JMPTABL_SHIFT3 14
+#define JMPTABL_SHIFT3 16
 #define JMPTABL_SHIFT2 12
 #define JMPTABL_SHIFT1 12
 #define JMPTABL_SHIFT0 10
@@ -68,10 +79,11 @@ uintptr_t getJumpAddress64(uintptr_t addr);
 #define JMPTABLE_MASK1 ((1<<JMPTABL_SHIFT1)-1)
 #define JMPTABLE_MASK0 ((1<<JMPTABL_SHIFT0)-1)
 #else
-#define JMPTABL_SHIFT3 18
-#define JMPTABL_SHIFT2 18
+#define JMPTABL_SHIFTMAX   JMPTABL_SHIFT3
+#define JMPTABL_SHIFT3 16
+#define JMPTABL_SHIFT2 16
 #define JMPTABL_SHIFT1 18
-#define JMPTABL_SHIFT0 10
+#define JMPTABL_SHIFT0 14
 #define JMPTABL_START3 (JMPTABL_START2+JMPTABL_SHIFT2)
 #define JMPTABL_START2 (JMPTABL_START1+JMPTABL_SHIFT1)
 #define JMPTABL_START1 (JMPTABL_START0+JMPTABL_SHIFT0)
@@ -128,6 +140,8 @@ void fini_custommem_helper(box64context_t* ctx);
 // ---- StrongMemoryModel
 void addLockAddress(uintptr_t addr);    // add an address to the list of "LOCK"able
 int isLockAddress(uintptr_t addr);  // return 1 is the address is used as a LOCK, 0 else
+int nLockAddressRange(uintptr_t start, size_t size);    // gives the number of lock address for a range
+void getLockAddressRange(uintptr_t start, size_t size, uintptr_t addrs[]);   // fill in the array with the lock addresses in the range (array must be of the correct size)
 
 void SetHotPage(uintptr_t addr);
 void CheckHotPage(uintptr_t addr);

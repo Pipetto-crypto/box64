@@ -22,11 +22,6 @@
 #include "dynarec_arm64_functions.h"
 #include "../dynarec_helper.h"
 
-static const float addsubps[4] = {-1.f, 1.f, -1.f, 1.f};
-static const double addsubpd[2] = {-1., 1.};
-static const float subaddps[4] = {1.f, -1.f, 1.f, -1.f};
-static const double subaddpd[2] = {1., -1.};
-
 uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog)
 {
     (void)ip; (void)need_epilog;
@@ -1587,7 +1582,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             INST_NAME("VFMADDSUB213PS/D Gx, Vx, Ex");
             nextop = F8;
             q0 = fpu_get_scratch(dyn, ninst);
-            TABLE64(x2, (rex.w)?((uintptr_t)&addsubpd):((uintptr_t)&addsubps));
+            TABLE64C(x2, rex.w?const_2d_m1_1:const_4f_m1_1_m1_1);
             VLDR128_U12(q0, x2, 0);
             q1 = fpu_get_scratch(dyn, ninst);
             for(int l=0; l<1+vex.l; ++l) {
@@ -1738,7 +1733,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             INST_NAME("VFMADDSUB231PS/D Gx, Vx, Ex");
             nextop = F8;
             q0 = fpu_get_scratch(dyn, ninst);
-            TABLE64(x2, (rex.w)?((uintptr_t)&addsubpd):((uintptr_t)&addsubps));
+            TABLE64C(x2, rex.w?const_2d_m1_1:const_4f_m1_1_m1_1);
             VLDR128_U12(q0, x2, 0);
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { GETGX_VXEX(v0, v2, v1, 0); if(v0==v2 || v0==v1) q1 = fpu_get_scratch(dyn, ninst); } else { GETGY_VYEY(v0, v2, v1); }
@@ -1761,7 +1756,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             INST_NAME("VFMSUBADD231PS/D Gx, Vx, Ex");
             nextop = F8;
             q0 = fpu_get_scratch(dyn, ninst);
-            TABLE64(x2, (rex.w)?((uintptr_t)&subaddpd):((uintptr_t)&subaddps));
+            TABLE64C(x2, rex.w?const_2d_1_m1:const_4f_1_m1_1_m1);
             VLDR128_U12(q0, x2, 0);
             for(int l=0; l<1+vex.l; ++l) {
                 if(!l) { GETGX_VXEX(v0, v2, v1, 0); if(v0==v2 || v0==v1) q1 = fpu_get_scratch(dyn, ninst); } else { GETGY_VYEY(v0, v2, v1); }
@@ -1879,7 +1874,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             INST_NAME("VAESIMC Gx, Ex");
             nextop = F8;
             GETGX_empty_EX(v0, v1, 0);
-            if(arm64_aes) {
+            if(cpuext.aes) {
                 AESIMC(v0, v1);
             } else {
                 if(v0!=v1) {
@@ -1887,7 +1882,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 }
                 sse_forget_reg(dyn, ninst, gd);
                 MOV32w(x1, gd);
-                CALL(native_aesimc, -1);
+                CALL(const_native_aesimc, -1);
             }
             YMM0(gd);
             break;
@@ -1895,7 +1890,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         case 0xDC:
             INST_NAME("VAESENC Gx, Vx, Ex");  // AES-NI
             nextop = F8;
-            if(arm64_aes) {
+            if(cpuext.aes) {
                 d0 = fpu_get_scratch(dyn, ninst);  // ARM64 internal operation differs a bit from x86_64
                 for(int l=0; l<1+vex.l; ++l) {
                     if(!l) {GETGX_empty_VXEX(v0, v2, v1, 0);} else {GETGY_empty_VYEY(v0, v2, v1);}
@@ -1922,8 +1917,8 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 }
                 sse_forget_reg(dyn, ninst, gd);
                 MOV32w(x1, gd);
-                CALL(native_aese, -1);
-                if(vex.l) {MOV32w(x1, gd); CALL(native_aese_y, -1);}
+                CALL(const_native_aese, -1);
+                if(vex.l) {MOV32w(x1, gd); CALL(const_native_aese_y, -1);}
                 GETGX(q0, 1);
                 VEORQ(q0, q0, (d0==-1)?q1:d0);
                 if(vex.l) {
@@ -1936,7 +1931,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         case 0xDD:
             INST_NAME("VAESENCLAST Gx, Vx, Ex");  // AES-NI
             nextop = F8;
-            if(arm64_aes) {
+            if(cpuext.aes) {
                 d0 = fpu_get_scratch(dyn, ninst);  // ARM64 internal operation differs a bit from x86_64
                 for(int l=0; l<1+vex.l; ++l) {
                     if(!l) { GETGX_empty_VXEX(v0, v2, v1, 0); } else { GETGY_empty_VYEY(v0, v2, v1); }
@@ -1962,8 +1957,8 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 }
                 sse_forget_reg(dyn, ninst, gd);
                 MOV32w(x1, gd);
-                CALL(native_aeselast, -1);
-                if(vex.l) {MOV32w(x1, gd); CALL(native_aeselast_y, -1);}
+                CALL(const_native_aeselast, -1);
+                if(vex.l) {MOV32w(x1, gd); CALL(const_native_aeselast_y, -1);}
                 GETGX(q0, 1);
                 VEORQ(q0, q0, (d0==-1)?q1:d0);
                 if(vex.l) {
@@ -1976,7 +1971,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         case 0xDE:
             INST_NAME("VAESDEC Gx, Vx, Ex");  // AES-NI
             nextop = F8;
-            if(arm64_aes) {
+            if(cpuext.aes) {
                 d0 = fpu_get_scratch(dyn, ninst);  // ARM64 internal operation differs a bit from x86_64
                 for(int l=0; l<1+vex.l; ++l) {
                     if(!l) {GETGX_empty_VXEX(v0, v2, v1, 0);} else {GETGY_empty_VYEY(v0, v2, v1);}
@@ -2003,8 +1998,8 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 }
                 sse_forget_reg(dyn, ninst, gd);
                 MOV32w(x1, gd);
-                CALL(native_aesd, -1);
-                if(vex.l) {MOV32w(x1, gd); CALL(native_aesd_y, -1);}
+                CALL(const_native_aesd, -1);
+                if(vex.l) {MOV32w(x1, gd); CALL(const_native_aesd_y, -1);}
                 GETGX(q0, 1);
                 VEORQ(q0, q0, (d0==-1)?q1:d0);
                 if(vex.l) {
@@ -2017,7 +2012,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         case 0xDF:
             INST_NAME("VAESDECLAST Gx, Vx, Ex");  // AES-NI
             nextop = F8;
-            if(arm64_aes) {
+            if(cpuext.aes) {
                 d0 = fpu_get_scratch(dyn, ninst);  // ARM64 internal operation differs a bit from x86_64
                 for(int l=0; l<1+vex.l; ++l) {
                     if(!l) {GETGX_empty_VXEX(v0, v2, v1, 0);} else {GETGY_empty_VYEY(v0, v2, v1);}
@@ -2043,8 +2038,8 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 }
                 sse_forget_reg(dyn, ninst, gd);
                 MOV32w(x1, gd);
-                CALL(native_aesdlast, -1);
-                if(vex.l) {MOV32w(x1, gd); CALL(native_aesdlast_y, -1);}
+                CALL(const_native_aesdlast, -1);
+                if(vex.l) {MOV32w(x1, gd); CALL(const_native_aesdlast_y, -1);}
                 GETGX(q0, 1);
                 VEORQ(q0, q0, (d0==-1)?q1:d0);
                 if(vex.l) {

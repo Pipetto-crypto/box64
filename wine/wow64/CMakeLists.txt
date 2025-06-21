@@ -17,15 +17,16 @@ else()
     set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE} CACHE INTERNAL "The Python3 executable" FORCE)
 endif()
 
-set(BOX64_ROOT "${CMAKE_SOURCE_DIR}/..")
+set(BOX64_ROOT "${CMAKE_SOURCE_DIR}/../..")
 
 string(REPLACE "," ";" DYNAREC_ASM "${DYNAREC_ASM_STR}")
 string(REPLACE "," ";" DYNAREC_PASS "${DYNAREC_PASS_STR}")
 string(REPLACE "," ";" INTERPRETER "${INTERPRETER_STR}")
 
 set(WOW64_MAIN_SRC
-    "${BOX64_ROOT}/wow64/crt.c"
-    "${BOX64_ROOT}/wow64/wowbox64.c"
+    "${BOX64_ROOT}/wine/common/crt.c"
+    "${BOX64_ROOT}/wine/common/wrt.c"
+    "${BOX64_ROOT}/wine/wow64/wowbox64.c"
 )
 
 set(MUSL_SRC
@@ -70,10 +71,12 @@ set(WOW64_BOX64CPU_SRC
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_arch.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_functions.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_jmpnext.c"
+    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_consts.c"
     "${BOX64_ROOT}/src/dynarec/dynablock.c"
     "${BOX64_ROOT}/src/dynarec/dynarec_native_functions.c"
     "${BOX64_ROOT}/src/dynarec/dynarec_native.c"
     "${BOX64_ROOT}/src/dynarec/dynarec.c"
+    "${BOX64_ROOT}/src/dynarec/dynacache_reloc.c"
     "${BOX64_ROOT}/src/emu/x64compstrings.c"
     "${BOX64_ROOT}/src/emu/x64emu.c"
     "${BOX64_ROOT}/src/emu/x64primop.c"
@@ -84,6 +87,8 @@ set(WOW64_BOX64CPU_SRC
     "${BOX64_ROOT}/src/emu/x87emu_private.c"
     "${BOX64_ROOT}/src/os/backtrace.c"
     "${BOX64_ROOT}/src/os/os_wine.c"
+    "${BOX64_ROOT}/src/os/hostext_common.c"
+    "${BOX64_ROOT}/src/os/hostext_wine.c"
     "${BOX64_ROOT}/src/os/freq_wine.c"
     "${BOX64_ROOT}/src/os/symbolfuncs_wine.c"
     "${BOX64_ROOT}/src/os/emit_signal_wine.c"
@@ -101,12 +106,12 @@ add_library(wowbox64 SHARED ${WOW64_MAIN_SRC} ${MUSL_SRC} ${WOW64_BOX64CPU_SRC} 
     $<TARGET_OBJECTS:wow64_dynarec_pass2>
     $<TARGET_OBJECTS:wow64_dynarec_pass3>
     $<TARGET_OBJECTS:wow64_test_interpreter>
-    "${BOX64_ROOT}/wow64/wowbox64.def")
+    "${BOX64_ROOT}/wine/wow64/wowbox64.def")
 
 include_directories(
     "${BOX64_ROOT}/src/include"
     "${BOX64_ROOT}/src"
-    "${BOX64_ROOT}/wow64/include"
+    "${BOX64_ROOT}/wine/include"
     "${BOX64_ROOT}/external/musl"
     "${BOX64_ROOT}/external/musl/internal"
 )
@@ -118,10 +123,10 @@ function(import_dll name)
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${name}.a
         COMMAND ${DLLTOOL} 
             -D ${name}.dll
-            -d ${BOX64_ROOT}/wow64/${name}.def
+            -d ${BOX64_ROOT}/wine/${name}.def
             -l ${CMAKE_CURRENT_BINARY_DIR}/${name}.a
             -k
-        DEPENDS ${BOX64_ROOT}/wow64/${name}.def
+        DEPENDS ${BOX64_ROOT}/wine/${name}.def
         COMMENT "Generating import library ${name}.a from ${name}.def"
     )
     add_custom_target(generate_${name}_import_lib DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${name}.a)
@@ -136,7 +141,12 @@ import_dll(wow64)
 # always enable DynaRec, only supports ARM64 for now.
 add_compile_definitions(DYNAREC ARM64)
 
-target_link_options(wowbox64 PRIVATE -nostdlib -nodefaultlibs -lclang_rt.builtins-aarch64 -Wl,--image-base,0x004c0000)
+target_compile_options(wowbox64 PRIVATE -Wno-inconsistent-dllimport)
+target_link_options(wowbox64 PRIVATE -nostdlib -nodefaultlibs 
+    -lclang_rt.builtins-aarch64
+    -Wl,--image-base,0x004c0000
+    -Wl,/ignore:4217 # LNK4217: locally defined symbol imported
+)
 set_target_properties(wowbox64 PROPERTIES
     PREFIX ""
     SUFFIX ".dll"
@@ -145,7 +155,7 @@ set_target_properties(wowbox64 PROPERTIES
 
 add_custom_command(
     TARGET wowbox64 POST_BUILD
-    COMMAND "${PYTHON_EXECUTABLE}" ${CMAKE_SOURCE_DIR}/override_wine_builtin.py $<TARGET_FILE:wowbox64>
+    COMMAND "${PYTHON_EXECUTABLE}" ${CMAKE_SOURCE_DIR}/../override_wine_builtin.py $<TARGET_FILE:wowbox64>
 )
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

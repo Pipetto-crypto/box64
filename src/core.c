@@ -16,10 +16,6 @@
 #include <stdarg.h>
 #include <ctype.h>
 #ifdef DYNAREC
-#ifdef ARM64
-#include <linux/auxvec.h>
-#include <asm/hwcap.h>
-#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -49,6 +45,7 @@
 #include "env.h"
 #include "cleanup.h"
 #include "freq.h"
+#include "hostext.h"
 
 box64context_t *my_context = NULL;
 extern box64env_t box64env;
@@ -75,43 +72,7 @@ uint32_t default_fs = 0;
 int box64_isglibc234 = 0;
 
 #ifdef DYNAREC
-#ifdef ARM64
-int arm64_asimd = 0;
-int arm64_aes = 0;
-int arm64_pmull = 0;
-int arm64_crc32 = 0;
-int arm64_atomics = 0;
-int arm64_sha1 = 0;
-int arm64_sha2 = 0;
-int arm64_uscat = 0;
-int arm64_flagm = 0;
-int arm64_flagm2 = 0;
-int arm64_frintts = 0;
-int arm64_afp = 0;
-int arm64_rndr = 0;
-#elif defined(RV64)
-int rv64_zba = 0;
-int rv64_zbb = 0;
-int rv64_zbc = 0;
-int rv64_zbs = 0;
-int rv64_vector = 0; // rvv 1.0 or xtheadvector
-int rv64_xtheadvector = 0;
-int rv64_vlen = 0;
-int rv64_xtheadba = 0;
-int rv64_xtheadbb = 0;
-int rv64_xtheadbs = 0;
-int rv64_xtheadcondmov = 0;
-int rv64_xtheadmemidx = 0;
-int rv64_xtheadmempair = 0;
-int rv64_xtheadfmemidx = 0;
-int rv64_xtheadmac = 0;
-int rv64_xtheadfmv = 0;
-#elif defined(LA64)
-int la64_lbt = 0;
-int la64_lam_bh = 0;
-int la64_lamcas = 0;
-int la64_scq = 0;
-#endif
+cpu_ext_t cpuext = {0};
 #endif
 
 int box64_wine = 0;
@@ -219,167 +180,7 @@ void my_child_fork()
 }
 
 const char* getCpuName();
-int getNCpu();
-
-#ifdef DYNAREC
-void GatherDynarecExtensions()
-{
-#ifdef ARM64
-    unsigned long hwcap = real_getauxval(AT_HWCAP);
-    if(!hwcap)
-        hwcap = HWCAP_ASIMD;
-    // first, check all needed extensions, lif half, edsp and fastmult
-    if((hwcap&HWCAP_ASIMD) == 0) {
-        printf_log(LOG_INFO, "Missing ASMID cpu support, disabling Dynarec\n");
-        SET_BOX64ENV(dynarec, 0);
-        return;
-    }
-    if(hwcap&HWCAP_CRC32)
-        arm64_crc32 = 1;
-    if(hwcap&HWCAP_PMULL)
-        arm64_pmull = 1;
-    if(hwcap&HWCAP_AES)
-        arm64_aes = 1;
-    if(hwcap&HWCAP_ATOMICS)
-        arm64_atomics = 1;
-    #ifdef HWCAP_SHA1
-    if(hwcap&HWCAP_SHA1)
-        arm64_sha1 = 1;
-    #endif
-    #ifdef HWCAP_SHA2
-    if(hwcap&HWCAP_SHA2)
-        arm64_sha2 = 1;
-    #endif
-    #ifdef HWCAP_USCAT
-    if(hwcap&HWCAP_USCAT)
-        arm64_uscat = 1;
-    #endif
-    #ifdef HWCAP_FLAGM
-    if(hwcap&HWCAP_FLAGM)
-        arm64_flagm = 1;
-    #endif
-    unsigned long hwcap2 = real_getauxval(AT_HWCAP2);
-    #ifdef HWCAP2_FLAGM2
-    if(hwcap2&HWCAP2_FLAGM2)
-        arm64_flagm2 = 1;
-    #endif
-    #ifdef HWCAP2_FRINT
-    if(hwcap2&HWCAP2_FRINT)
-        arm64_frintts = 1;
-    #endif
-    #ifdef HWCAP2_AFP
-    if(hwcap2&HWCAP2_AFP)
-        arm64_afp = 1;
-    #endif
-    #ifdef HWCAP2_RNG
-    if(hwcap2&HWCAP2_RNG)
-        arm64_rndr = 1;
-    #endif
-    printf_log(LOG_INFO, "Dynarec for ARM64, with extension: ASIMD");
-    if(arm64_aes)
-        printf_log_prefix(0, LOG_INFO, " AES");
-    if(arm64_crc32)
-        printf_log_prefix(0, LOG_INFO, " CRC32");
-    if(arm64_pmull)
-        printf_log_prefix(0, LOG_INFO, " PMULL");
-    if(arm64_atomics)
-        printf_log_prefix(0, LOG_INFO, " ATOMICS");
-    if(arm64_sha1)
-        printf_log_prefix(0, LOG_INFO, " SHA1");
-    if(arm64_sha2)
-        printf_log_prefix(0, LOG_INFO, " SHA2");
-    if(arm64_uscat)
-        printf_log_prefix(0, LOG_INFO, " USCAT");
-    if(arm64_flagm)
-        printf_log_prefix(0, LOG_INFO, " FLAGM");
-    if(arm64_flagm2)
-        printf_log_prefix(0, LOG_INFO, " FLAGM2");
-    if(arm64_frintts)
-        printf_log_prefix(0, LOG_INFO, " FRINT");
-    if(arm64_afp)
-        printf_log_prefix(0, LOG_INFO, " AFP");
-    if(arm64_rndr)
-        printf_log_prefix(0, LOG_INFO, " RNDR");
-    printf_log_prefix(0, LOG_INFO, "\n");
-#elif defined(LA64)
-    printf_log(LOG_INFO, "Dynarec for LoongArch ");
-    char* p = getenv("BOX64_DYNAREC_LA64NOEXT");
-    if(p == NULL || p[0] == '0') {
-        uint32_t cpucfg2 = 0, idx = 2;
-        asm volatile("cpucfg %0, %1" : "=r"(cpucfg2) : "r"(idx));
-        if (((cpucfg2 >> 6) & 0b11) == 3) {
-            printf_log_prefix(0, LOG_INFO, "with extension LSX LASX");
-        } else {
-            printf_log(LOG_INFO, "\nMissing LSX and/or LASX extension support, disabling Dynarec\n");
-            SET_BOX64ENV(dynarec, 0);
-            return;
-        }
-
-        if (la64_lbt = ((cpucfg2 >> 18) & 0b1))
-            printf_log_prefix(0, LOG_INFO, " LBT_X86");
-        if ((la64_lam_bh = (cpucfg2 >> 27) & 0b1))
-            printf_log_prefix(0, LOG_INFO, " LAM_BH");
-        if ((la64_lamcas = (cpucfg2 >> 28) & 0b1))
-            printf_log_prefix(0, LOG_INFO, " LAMCAS");
-        if ((la64_scq = (cpucfg2 >> 30) & 0b1))
-            printf_log_prefix(0, LOG_INFO, " SCQ");
-    }
-    printf_log_prefix(0, LOG_INFO, "\n");
-#elif defined(RV64)
-    void RV64_Detect_Function();
-    // private env. variable for the developer ;)
-    char *p = getenv("BOX64_DYNAREC_RV64NOEXT");
-    if(p == NULL || strcasecmp(p, "1")) {
-        RV64_Detect_Function();
-        if (p) {
-            p = strtok(p, ",");
-            while (p) {
-                if (!strcasecmp(p, "zba")) rv64_zba = 0;
-                if (!strcasecmp(p, "zbb")) rv64_zbb = 0;
-                if (!strcasecmp(p, "zbc")) rv64_zbc = 0;
-                if (!strcasecmp(p, "zbs")) rv64_zbs = 0;
-                if (!strcasecmp(p, "vector")) {
-                    rv64_vector = 0;
-                    rv64_xtheadvector = 0;
-                }
-                if (!strcasecmp(p, "xtheadba")) rv64_xtheadba = 0;
-                if (!strcasecmp(p, "xtheadbb")) rv64_xtheadbb = 0;
-                if (!strcasecmp(p, "xtheadbs")) rv64_xtheadbs = 0;
-                if (!strcasecmp(p, "xtheadmemidx")) rv64_xtheadmemidx = 0;
-                // if (!strcasecmp(p, "xtheadfmemidx")) rv64_xtheadfmemidx = 0;
-                // if (!strcasecmp(p, "xtheadmac")) rv64_xtheadmac = 0;
-                // if (!strcasecmp(p, "xtheadfmv")) rv64_xtheadfmv = 0;
-                if (!strcasecmp(p, "xtheadmempair")) rv64_xtheadmempair = 0;
-                if (!strcasecmp(p, "xtheadcondmov")) rv64_xtheadcondmov = 0;
-                p = strtok(NULL, ",");
-            }
-        }
-    }
-
-    printf_log(LOG_INFO, "Dynarec for rv64g");
-    if (rv64_vector && !rv64_xtheadvector) printf_log_prefix(0, LOG_INFO, "v");
-    if (rv64_zba) printf_log_prefix(0, LOG_INFO, "_zba");
-    if (rv64_zbb) printf_log_prefix(0, LOG_INFO, "_zbb");
-    if (rv64_zbc) printf_log_prefix(0, LOG_INFO, "_zbc");
-    if (rv64_zbs) printf_log_prefix(0, LOG_INFO, "_zbs");
-    if (rv64_vector && !rv64_xtheadvector) printf_log_prefix(0, LOG_INFO, "_zvl%d", rv64_vlen);
-    if (rv64_xtheadba) printf_log_prefix(0, LOG_INFO, "_xtheadba");
-    if (rv64_xtheadbb) printf_log_prefix(0, LOG_INFO, "_xtheadbb");
-    if (rv64_xtheadbs) printf_log_prefix(0, LOG_INFO, "_xtheadbs");
-    if (rv64_xtheadmempair) printf_log_prefix(0, LOG_INFO, "_xtheadmempair");
-    if (rv64_xtheadcondmov) printf_log_prefix(0, LOG_INFO, "_xtheadcondmov");
-    if (rv64_xtheadmemidx) printf_log_prefix(0, LOG_INFO, "_xtheadmemidx");
-    // Disable the display since these are only detected but never used.
-    // if(rv64_xtheadfmemidx) printf_log_prefix(0, LOG_INFO, " xtheadfmemidx");
-    // if(rv64_xtheadmac) printf_log_prefix(0, LOG_INFO, " xtheadmac");
-    // if(rv64_xtheadfmv) printf_log_prefix(0, LOG_INFO, " xtheadfmv");
-    if (rv64_xtheadvector) printf_log_prefix(0, LOG_INFO, "_xthvector");
-    printf_log_prefix(0, LOG_INFO, "\n");
-#else
-#error Unsupported architecture
-#endif
-}
-#endif
+int getNCpuUnmasked();
 
 void computeRDTSC()
 {
@@ -434,18 +235,17 @@ static void displayMiscInfo()
 
     char* p;
 
-    // grab pagesize
-    box64_pagesize = sysconf(_SC_PAGESIZE);
-    if(!box64_pagesize)
-        box64_pagesize = 4096;
-
 #ifdef DYNAREC
-    // grab cpu extensions for dynarec usage
-    GatherDynarecExtensions();
+    if (DetectHostCpuFeatures())
+        PrintHostCpuFeatures();
+    else {
+        printf_log(LOG_INFO, "Minimum CPU requirements not met, disabling DynaRec\n");
+        SET_BOX64ENV(dynarec, 0);
+    }
 #endif
 
     // grab ncpu and cpu name
-    int ncpu = getNCpu();
+    int ncpu = getNCpuUnmasked();
     const char* cpuname = getCpuName();
 
     printf_log(LOG_INFO, "Running on %s with %d core%s, pagesize: %zd\n", cpuname, ncpu, ncpu > 1 ? "s" : "", box64_pagesize);
@@ -551,6 +351,8 @@ void PrintHelp() {
     PrintfFtrace(0, "    '-v'|'--version' to print box64 version and quit\n");
     PrintfFtrace(0, "    '-h'|'--help' to print this and quit\n");
     PrintfFtrace(0, "    '-k'|'--kill-all' to kill all box64 instances\n");
+    PrintfFtrace(0, "    '--dynacache-list' to list of DynaCache file and their validity\n");
+    PrintfFtrace(0, "    '--dynacache-clean' to remove invalide DynaCache files\n");
 }
 
 void KillAllInstances()
@@ -586,7 +388,7 @@ void KillAllInstances()
     snprintf(self_name_with_deleted, sizeof(self_name_with_deleted), "%s (deleted)", self_name);
 
     const pid_t self = getpid();
-    while (entry = readdir(proc_dir)) {
+    while ((entry = readdir(proc_dir))) {
         const pid_t pid = atoi(entry->d_name);
         if (!pid || pid == self) continue;
 
@@ -734,6 +536,8 @@ void setupTraceInit()
         uintptr_t s_trace_start=0, s_trace_end=0;
         if (strcmp(p, "1")==0)
             SetTraceEmu(0, 0);
+        else if (strcmp(p, "0")==0)
+            ;
         else if (strchr(p,'-')) {
             if(sscanf(p, "%ld-%ld", &s_trace_start, &s_trace_end)!=2) {
                 if(sscanf(p, "0x%lX-0x%lX", &s_trace_start, &s_trace_end)!=2)
@@ -803,6 +607,8 @@ void setupTrace()
         uintptr_t s_trace_start=0, s_trace_end=0;
         if (strcmp(p, "1")==0)
             SetTraceEmu(0, 0);
+        else if (strcmp(p, "0")==0)
+            ;
         else if (strchr(p,'-')) {
             if(sscanf(p, "%ld-%ld", &s_trace_start, &s_trace_end)!=2) {
                 if(sscanf(p, "0x%lX-0x%lX", &s_trace_start, &s_trace_end)!=2)
@@ -851,6 +657,7 @@ void endBox64()
     if(!my_context || box64_quit)
         return;
 
+    SerializeAllMapping();   // just to be safe
     // then call all the fini
     dynarec_log(LOG_DEBUG, "endBox64() called\n");
     box64_quit = 1;
@@ -874,6 +681,7 @@ void endBox64()
     #ifndef STATICBUILD
     endMallocHook();
     #endif
+    SerializeAllMapping();   // to be safe
     FreeBox64Context(&my_context);
     #ifdef DYNAREC
     // disable dynarec now
@@ -954,6 +762,11 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
     LoadEnvVariables();
     InitializeEnvFiles();
 
+    // grab pagesize
+    box64_pagesize = sysconf(_SC_PAGESIZE);
+    if(!box64_pagesize)
+        box64_pagesize = 4096;
+
     const char* prog = argv[1];
     int nextarg = 1;
     // check if some options are passed
@@ -968,6 +781,14 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         }
         if (!strcmp(prog, "-k") || !strcmp(prog, "--kill-all")) {
             KillAllInstances();
+            exit(0);
+        }
+        if(!strcmp(prog, "--dynacache-list")) {
+            DynaCacheList(argv[nextarg+1]);
+            exit(0);
+        }
+        if(!strcmp(prog, "--dynacache-clean")) {
+            DynaCacheClean();
             exit(0);
         }
         // other options?

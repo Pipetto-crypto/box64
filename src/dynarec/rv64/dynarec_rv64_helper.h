@@ -17,6 +17,7 @@
 #include "debug.h"
 #include "rv64_emitter.h"
 #include "../emu/x64primop.h"
+#include "dynarec_rv64_consts.h"
 
 #define F8      *(uint8_t*)(addr++)
 #define F8S     *(int8_t*)(addr++)
@@ -240,7 +241,7 @@
             wback = TO_NAT(wback & 3);                                                          \
         }                                                                                       \
         if (wb2) {                                                                              \
-            if (rv64_xtheadbb) {                                                                \
+            if (cpuext.xtheadbb) {                                                              \
                 TH_EXTU(i, wback, 15, 8);                                                       \
             } else {                                                                            \
                 SRLI(i, wback, wb2);                                                            \
@@ -269,7 +270,7 @@
             wback = TO_NAT(wback & 3);                                                          \
         }                                                                                       \
         if (wb2) {                                                                              \
-            if (rv64_xtheadbb) {                                                                \
+            if (cpuext.xtheadbb) {                                                                \
                 TH_EXTU(i, wback, 15, 8);                                                       \
             } else {                                                                            \
                 SRLI(i, wback, wb2);                                                            \
@@ -323,7 +324,7 @@
             wback = TO_NAT(wback & 3);                                                            \
         }                                                                                         \
         if (wb2) {                                                                                \
-            if (rv64_xtheadbb) {                                                                  \
+            if (cpuext.xtheadbb) {                                                                \
                 TH_EXTU(i, wback, 15, 8);                                                         \
             } else {                                                                              \
                 MV(i, wback);                                                                     \
@@ -354,7 +355,7 @@
     }                                                        \
     gd = i;                                                  \
     if (gb2) {                                               \
-        if (rv64_xtheadbb) {                                 \
+        if (cpuext.xtheadbb) {                               \
             TH_EXTU(gd, gb1, 15, 8);                         \
         } else {                                             \
             SRLI(gd, gb1, 8);                                \
@@ -903,7 +904,7 @@
         MOV_U12(S, (N));                                                                                                        \
         SW(S, xEmu, offsetof(x64emu_t, df));                                                                                    \
         if (dyn->f.pending == SF_PENDING && dyn->insts[ninst].x64.need_after && !(dyn->insts[ninst].x64.need_after & X_PEND)) { \
-            CALL_(UpdateFlags, -1, 0, 0, 0);                                                                                    \
+            CALL_(const_updateflags, -1, 0, 0, 0);                                                                              \
             dyn->f.pending = SF_SET;                                                                                            \
             SET_NODF();                                                                                                         \
         }                                                                                                                       \
@@ -920,7 +921,7 @@
 
 #define SET_FLAGS_NEZ(reg, F, scratch)      \
     do {                                    \
-        if (rv64_xtheadcondmov) {           \
+        if (cpuext.xtheadcondmov) {         \
             ORI(scratch, xFlags, 1 << F);   \
             TH_MVNEZ(xFlags, scratch, reg); \
         } else {                            \
@@ -931,7 +932,7 @@
 
 #define SET_FLAGS_EQZ(reg, F, scratch)      \
     do {                                    \
-        if (rv64_xtheadcondmov) {           \
+        if (cpuext.xtheadcondmov) {         \
             ORI(scratch, xFlags, 1 << F);   \
             TH_MVEQZ(xFlags, scratch, reg); \
         } else {                            \
@@ -942,7 +943,7 @@
 
 #define SET_FLAGS_LTZ(reg, F, scratch1, scratch2) \
     do {                                          \
-        if (rv64_xtheadcondmov) {                 \
+        if (cpuext.xtheadcondmov) {               \
             SLT(scratch1, reg, xZR);              \
             ORI(scratch2, xFlags, 1 << F);        \
             TH_MVNEZ(xFlags, scratch2, scratch1); \
@@ -1047,7 +1048,7 @@
             j64 = (GETMARKF) - (dyn->native_size);  \
             BEQ(x3, xZR, j64);                      \
         }                                           \
-        CALL_(UpdateFlags, -1, 0, 0, 0);            \
+        CALL_(const_updateflags, -1, 0, 0, 0);      \
         MARKF;                                      \
         dyn->f.pending = SF_SET;                    \
         SET_DFOK();                                 \
@@ -1148,6 +1149,12 @@
 #ifndef FTABLE64
 #define FTABLE64(A, V)
 #endif
+#ifndef TABLE64C
+#define TABLE64C(A, V)
+#endif
+#ifndef TABLE64_
+#define TABLE64_(A, V)
+#endif
 
 #define ARCH_INIT() \
     SMSTART();      \
@@ -1164,7 +1171,11 @@
     do {                                                          \
         ssize_t _delta_ip = (ssize_t)(A) - (ssize_t)dyn->last_ip; \
         if (!dyn->last_ip) {                                      \
-            MOV64x(xRIP, A);                                      \
+            if (dyn->need_reloc) {                                \
+                TABLE64(xRIP, (A));                               \
+            } else {                                              \
+                MOV64x(xRIP, (A));                                \
+            }                                                     \
         } else if (_delta_ip == 0) {                              \
         } else if (_delta_ip >= -2048 && _delta_ip < 2048) {      \
             ADDI(xRIP, xRIP, _delta_ip);                          \
@@ -1175,7 +1186,11 @@
             MOV32w(scratch, _delta_ip);                           \
             ADD(xRIP, xRIP, scratch);                             \
         } else {                                                  \
-            MOV64x(xRIP, (A));                                    \
+            if (dyn->need_reloc) {                                \
+                TABLE64(xRIP, (A));                               \
+            } else {                                              \
+                MOV64x(xRIP, (A));                                \
+            }                                                     \
         }                                                         \
     } while (0)
 #define GETIP(A, scratch) \
@@ -1210,10 +1225,6 @@
         if (set) dyn->vector_sew = dyn->vector_eew;                                   \
     } while (0)
 #endif
-
-void rv64_epilog(void);
-void rv64_epilog_fast(void);
-void* rv64_next(void);
 
 #ifndef STEPNAME
 #define STEPNAME3(N, M) N##M
@@ -1445,7 +1456,7 @@ void jump_to_next(dynarec_rv64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
 void ret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, rex_t rex);
 void retn_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n);
 void iret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, int is64bits);
-void call_c(dynarec_rv64_t* dyn, int ninst, void* fnc, int reg, int ret, int saveflags, int savereg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6);
+void call_c(dynarec_rv64_t* dyn, int ninst, rv64_consts_t fnc, int reg, int ret, int saveflags, int savereg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6);
 void call_n(dynarec_rv64_t* dyn, int ninst, void* fnc, int w);
 void grab_segdata(dynarec_rv64_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg);
 void emit_cmp8(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
@@ -1894,7 +1905,7 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
     }                                                            \
     IFX (X_CF | X_PF | X_ZF | X_PEND) {                          \
         MOV32w(s2, 0b01000101);                                  \
-        if (rv64_zbb) {                                          \
+        if (cpuext.zbb) {                                        \
             ANDN(xFlags, xFlags, s2);                            \
         } else {                                                 \
             NOT(s3, s2);                                         \
@@ -1934,7 +1945,7 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
     ADDIW(reg, s, -1);
 
 #define FAST_8BIT_OPERATION(dst, src, s1, OP)                                        \
-    if (MODREG && (rv64_zbb || rv64_xtheadbb) && !dyn->insts[ninst].x64.gen_flags) { \
+    if (MODREG && (cpuext.zbb || cpuext.xtheadbb) && !dyn->insts[ninst].x64.gen_flags) { \
         if (rex.rex) {                                                               \
             wb = TO_NAT((nextop & 7) + (rex.b << 3));                                \
             wb2 = 0;                                                                 \
@@ -1950,13 +1961,13 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
         }                                                                            \
         if (src##2) { ANDI(s1, src, 0xf00); }                                        \
         SLLI(s1, (src##2 ? s1 : src), 64 - src##2 - 8);                              \
-        if (rv64_zbb) {                                                              \
+        if (cpuext.zbb) {                                                            \
             RORI(dst, dst, 8 + dst##2);                                              \
         } else {                                                                     \
             TH_SRRI(dst, dst, 8 + dst##2);                                           \
         }                                                                            \
         OP;                                                                          \
-        if (rv64_zbb) {                                                              \
+        if (cpuext.zbb) {                                                            \
             RORI(dst, dst, 64 - 8 - dst##2);                                         \
         } else {                                                                     \
             TH_SRRI(dst, dst, 64 - 8 - dst##2);                                      \
@@ -1969,17 +1980,17 @@ uintptr_t dynarec64_AVX_F3_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
     }
 
 #define FAST_16BIT_OPERATION(dst, src, s1, OP)                                       \
-    if (MODREG && (rv64_zbb || rv64_xtheadbb) && !dyn->insts[ninst].x64.gen_flags) { \
+    if (MODREG && (cpuext.zbb || cpuext.xtheadbb) && !dyn->insts[ninst].x64.gen_flags) { \
         gd = TO_NAT(((nextop & 0x38) >> 3) + (rex.r << 3));                          \
         ed = TO_NAT((nextop & 7) + (rex.b << 3));                                    \
         SLLI(s1, src, 64 - 16);                                                      \
-        if (rv64_zbb) {                                                              \
+        if (cpuext.zbb) {                                                            \
             RORI(dst, dst, 16);                                                      \
         } else {                                                                     \
             TH_SRRI(dst, dst, 16);                                                   \
         }                                                                            \
         OP;                                                                          \
-        if (rv64_zbb) {                                                              \
+        if (cpuext.zbb) {                                                            \
             RORI(dst, dst, 64 - 16);                                                 \
         } else {                                                                     \
             TH_SRRI(dst, dst, 64 - 16);                                              \

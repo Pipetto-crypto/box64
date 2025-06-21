@@ -17,6 +17,7 @@
 #include "debug.h"
 #include "arm64_emitter.h"
 #include "../emu/x64primop.h"
+#include "dynarec_arm64_consts.h"
 
 #define F8      *(uint8_t*)(addr++)
 #define F8S     *(int8_t*)(addr++)
@@ -942,7 +943,7 @@
 #define GEN_INVERTED_CARRY()
 #endif
 #ifndef INVERT_CARRY
-#define INVERT_CARRY(A)     if(dyn->insts[ninst].normal_carry) {if(arm64_flagm) CFINV(); else {MRS_nzcv(A); EORx_mask(A, A, 1, 35, 0); MSR_nzcv(A);}}
+#define INVERT_CARRY(A)     if(dyn->insts[ninst].normal_carry) {if(cpuext.flagm) CFINV(); else {MRS_nzcv(A); EORx_mask(A, A, 1, 35, 0); MSR_nzcv(A);}}
 #endif
 
 // Generate FCOM with s1 and s2 scratch regs (the VCMP is already done)
@@ -1134,7 +1135,7 @@
         MOVZw(S, (N));                                                                                                          \
         STRw_U12(S, xEmu, offsetof(x64emu_t, df));                                                                              \
         if (dyn->f.pending == SF_PENDING && dyn->insts[ninst].x64.need_after && !(dyn->insts[ninst].x64.need_after & X_PEND)) { \
-            CALL_I(UpdateFlags);                                                                                                \
+            CALL_I(const_updateflags);                                                                                          \
             dyn->f.pending = SF_SET;                                                                                            \
             SET_NODF();                                                                                                         \
         }                                                                                                                       \
@@ -1156,7 +1157,7 @@
             j64 = (GETMARKF)-(dyn->native_size);        \
             CBZw(x3, j64);                              \
         }                                               \
-        CALL_I(UpdateFlags);                            \
+        CALL_I(const_updateflags);                      \
         MARKF;                                          \
         dyn->f.pending = SF_SET;                        \
         SET_DFOK();                                     \
@@ -1207,8 +1208,14 @@
 #ifndef TABLE64
 #define TABLE64(A, V)
 #endif
+#ifndef TABLE64_
+#define TABLE64_(A, V)
+#endif
 #ifndef FTABLE64
 #define FTABLE64(A, V)
+#endif
+#ifndef TABLE64C
+#define TABLE64C(A, V)
 #endif
 
 #define ARCH_INIT()      \
@@ -1222,23 +1229,40 @@
 #define GETIP_(A) MOV64x(xRIP, A)
 #else
 // put value in the Table64 even if not using it for now to avoid difference between Step2 and Step3. Needs to be optimized later...
-#define GETIP(A)                                        \
-    if(dyn->last_ip && ((A)-dyn->last_ip)<0x1000) {     \
-        uint64_t _delta_ip = (A)-dyn->last_ip;          \
-        dyn->last_ip += _delta_ip;                      \
-        if(_delta_ip) {                                 \
-            ADDx_U12(xRIP, xRIP, _delta_ip);            \
-        }                                               \
-    } else {                                            \
-        dyn->last_ip = (A);                             \
-        MOV64x(xRIP, dyn->last_ip);                     \
+#define GETIP(A)                                            \
+    if(dyn->last_ip && ((A)-dyn->last_ip)<0x1000) {         \
+        uint64_t _delta_ip = (A)-dyn->last_ip;              \
+        dyn->last_ip += _delta_ip;                          \
+        if(_delta_ip) {                                     \
+            ADDx_U12(xRIP, xRIP, _delta_ip);                \
+        }                                                   \
+    } else if(dyn->last_ip && (dyn->last_ip-(A))<0x1000) {  \
+        uint64_t _delta_ip = dyn->last_ip-(A);              \
+        dyn->last_ip -= _delta_ip;                          \
+        if(_delta_ip) {                                     \
+            SUBx_U12(xRIP, xRIP, _delta_ip);                \
+        }                                                   \
+    } else {                                                \
+        dyn->last_ip = (A);                                 \
+        if(dyn->need_reloc) {                               \
+            TABLE64(xRIP, dyn->last_ip);                    \
+        } else {                                            \
+            MOV64x(xRIP, dyn->last_ip);                     \
+        }                                                   \
     }
-#define GETIP_(A)                                       \
-    if(dyn->last_ip && ((A)-dyn->last_ip)<0x1000) {     \
-        uint64_t _delta_ip = (A)-dyn->last_ip;          \
-        if(_delta_ip) {ADDx_U12(xRIP, xRIP, _delta_ip);}\
-    } else {                                            \
-        MOV64x(xRIP, (A));                              \
+#define GETIP_(A)                                           \
+    if(dyn->last_ip && ((A)-dyn->last_ip)<0x1000) {         \
+        uint64_t _delta_ip = (A)-dyn->last_ip;              \
+        if(_delta_ip) {ADDx_U12(xRIP, xRIP, _delta_ip);}    \
+    } else if(dyn->last_ip && (dyn->last_ip-(A))<0x1000) {  \
+        uint64_t _delta_ip = dyn->last_ip-(A);              \
+        if(_delta_ip) {SUBx_U12(xRIP, xRIP, _delta_ip);}    \
+    } else {                                                \
+        if(dyn->need_reloc) {                               \
+            TABLE64(xRIP, (A));                             \
+        } else {                                            \
+            MOV64x(xRIP, (A));                              \
+        }                                                   \
     }
 #endif
 #define CLEARIP()   dyn->last_ip=0
@@ -1254,9 +1278,6 @@
 #endif
 
 #define MODREG  ((nextop&0xC0)==0xC0)
-
-void arm64_epilog(void);
-void* arm64_next(x64emu_t* emu, uintptr_t addr);
 
 #ifndef STEPNAME
 #define STEPNAME3(N,M) N##M
@@ -1274,6 +1295,7 @@ void* arm64_next(x64emu_t* emu, uintptr_t addr);
 #define dynarec64_67       STEPNAME(dynarec64_67)
 #define dynarec64_67_32    STEPNAME(dynarec64_67_32)
 #define dynarec64_67_AVX   STEPNAME(dynarec64_67_AVX)
+#define dynarec64_6764     STEPNAME(dynarec64_6764)
 #define dynarec64_6764_32  STEPNAME(dynarec64_6764_32)
 #define dynarec64_D8       STEPNAME(dynarec64_D8)
 #define dynarec64_D9       STEPNAME(dynarec64_D9)
@@ -1482,8 +1504,8 @@ void jump_to_next(dynarec_arm_t* dyn, uintptr_t ip, int reg, int ninst, int is32
 void ret_to_epilog(dynarec_arm_t* dyn, uintptr_t ip, int ninst, rex_t rex);
 void retn_to_epilog(dynarec_arm_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n);
 void iret_to_epilog(dynarec_arm_t* dyn, uintptr_t ip, int ninst, int is32bits, int is64bits);
-void call_c(dynarec_arm_t* dyn, int ninst, void* fnc, int reg, int ret, int saveflags, int save_reg);
-void call_i(dynarec_arm_t* dyn, int ninst, void* fnc);
+void call_c(dynarec_arm_t* dyn, int ninst, arm64_consts_t fnc, int reg, int ret, int saveflags, int save_reg);
+void call_i(dynarec_arm_t* dyn, int ninst, arm64_consts_t fnc);
 void call_n(dynarec_arm_t* dyn, int ninst, void* fnc, int w);
 void grab_segdata(dynarec_arm_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg);
 void emit_cmp8(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
@@ -1722,6 +1744,7 @@ uintptr_t dynarec64_66(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
 uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_67_AVX(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_6764(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int seg, int* ok, int* need_epilog);
 uintptr_t dynarec64_6764_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int seg, int* ok, int* need_epilog);
 uintptr_t dynarec64_D8(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_D9(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
@@ -1950,7 +1973,7 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
 
 #define COMP_ZFSF(s1, A)                        \
     IFX(X_ZF|X_SF) {                            \
-        if(arm64_flagm) {                       \
+        if(cpuext.flagm) {                      \
             SETF##A(s1);                        \
             IFX(X_ZF) {                         \
                 IFNATIVE(NF_EQ) {} else {       \
