@@ -23,6 +23,8 @@
 #include "generated/wrappedsdl2defs.h"
 
 const char* sdl2Name = "libSDL2-2.0.so.0";
+#define ALTNAME "libSDL2-2.0.so"
+
 #define LIBNAME sdl2
 static void* my_glhandle = NULL;
 // DL functions from wrappedlibdl.c
