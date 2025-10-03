@@ -24,12 +24,14 @@ typedef int32_t (*iFppp_t)(void*, void*, void*);
 typedef void* (*pFpip_t)(void*, int32_t, void*);
 typedef void* (*pFpCL_t)(void*, uint8_t, uintptr_t);
 typedef int32_t (*iFpppp_t)(void*, void*, void*, void*);
+typedef void* (*pFpppp_t)(void*, void*, void*, void*);
 typedef int32_t (*iFppppp_t)(void*, void*, void*, void*, void*);
 typedef int32_t (*iFpppppp_t)(void*, void*, void*, void*, void*, void*);
 typedef void* (*pFpLiiuuLi_t)(void*, uintptr_t, int32_t, int32_t, uint32_t, uint32_t, uintptr_t, int32_t);
 typedef int32_t (*iFpLppiiiiuu_t)(void*, uintptr_t, void*, void*, int32_t, int32_t, int32_t, int32_t, uint32_t, uint32_t);
 typedef void* (*pFppuiipuuii_t)(void*, void*, uint32_t, int32_t, int32_t, void*, uint32_t, uint32_t, int32_t, int32_t);
 typedef void* (*pFpLiiuuLipii_t)(void*, uintptr_t, int32_t, int32_t, uint32_t, uint32_t, uintptr_t, int32_t, void*, int32_t, int32_t);
+typedef uintptr_t (*LFpLiiuuuiupLp_t)(void*, uintptr_t, int32_t, int32_t, uint32_t, uint32_t, uint32_t, int32_t, uint32_t, void*, uintptr_t, void*);
 
 #define SUPER() ADDED_FUNCTIONS() \
 	GO(XcmsFreeCCC, vFp_t) \
@@ -56,12 +58,14 @@ typedef void* (*pFpLiiuuLipii_t)(void*, uintptr_t, int32_t, int32_t, uint32_t, u
 	GO(XCheckIfEvent, iFpppp_t) \
 	GO(XIfEvent, iFpppp_t) \
 	GO(XPeekIfEvent, iFpppp_t) \
+	GO(XOpenIM, pFpppp_t) \
 	GO(XQueryExtension, iFppppp_t) \
 	GO(XRegisterIMInstantiateCallback, iFpppppp_t) \
 	GO(XUnregisterIMInstantiateCallback, iFpppppp_t) \
 	GO(XGetImage, pFpLiiuuLi_t) \
 	GO(XPutImage, iFpLppiiiiuu_t) \
 	GO(XCreateImage, pFppuiipuuii_t) \
-	GO(XGetSubImage, pFpLiiuuLipii_t)
+	GO(XGetSubImage, pFpLiiuuLipii_t) \
+	GO(XCreateWindow, LFpLiiuuuiupLp_t)
 
 #endif // __wrappedlibx11TYPES_H_

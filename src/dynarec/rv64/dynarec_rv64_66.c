@@ -630,7 +630,6 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             } else {
                 GETGD;
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
-                SMDMB();
 
                 ANDI(x3, ed, 1);
                 BNEZ_MARK(x3);
@@ -670,7 +669,6 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 SH(gd, ed, 0);
 
                 MARK2;
-                SMDMB();
                 INSHz(gd, x1, x3, x4, 1, 0);
             }
             break;
@@ -768,7 +766,6 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             break;
         case 0x9C:
             INST_NAME("PUSHF");
-            NOTEST(x1);
             READFLAGS(X_ALL);
             FLAGS_ADJUST_TO11(x3, xFlags, x2);
             PUSH1_16(x3);
@@ -781,7 +778,7 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             LUI(x2, 0xffff0);
             AND(xFlags, xFlags, x2);
             OR(xFlags, xFlags, x1);
-            MOV32w(x1, 0x3F7FD7);
+            MOV32w(x1, 0x3F7FF7);
             AND(xFlags, xFlags, x1);
             ORI(xFlags, xFlags, 0x2);
             SET_DFNONE();
@@ -1493,6 +1490,11 @@ uintptr_t dynarec64_66(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     GETEW(x1, 0);
                     emit_dec16(dyn, ninst, x1, x2, x4, x5, x6);
                     EWBACK;
+                    break;
+                case 6: // Push Ew
+                    INST_NAME("PUSH Ew");
+                    GETEW(x1, 0);
+                    PUSH1_16(ed);
                     break;
                 default:
                     DEFAULT;

@@ -5,148 +5,7 @@
 
 */
 
-/* 
-    ARM64 Linux Call Convention
-
-SP          The Stack Pointer.
-r30 LR      The Link Register.
-r29 FP      The Frame Pointer
-r19…r28     Callee-saved registers
-r18         The Platform Register, if needed; otherwise a temporary register. See notes.
-r17 IP1     The second intra-procedure-call temporary register (can be used by call veneers and PLT code); at other times may be used as a temporary register.
-r16 IP0     The first intra-procedure-call scratch register (can be used by call veneers and PLT code); at other times may be used as a temporary register.
-r9…r15      Temporary registers
-r8          Indirect result location register
-r0…r7       Parameter/result registers
-
-For SIMD:
-The first eight registers, v0-v7, are used to pass argument values into a subroutine and to return result values from a function. 
-    They may also be used to hold intermediate values within a routine (but, in general, only between subroutine calls).
-
-Registers v8-v15 must be preserved by a callee across subroutine calls; 
-    the remaining registers (v0-v7, v16-v31) do not need to be preserved (or should be preserved by the caller).
-    Additionally, only the bottom 64 bits of each value stored in v8-v15 need to be preserved [8];
-    it is the responsibility of the caller to preserve larger values.
-
-For SVE:
-z0-z7 are used to pass scalable vector arguments to a subroutine, and to return scalable vector results from a function.
-    If a subroutine takes at least one argument in scalable vector registers or scalable predicate registers,
-    or returns results in such regisers, the subroutine must ensure that the entire contents of z8-z23 are preserved across the call.
-    In other cases it need only preserve the low 64 bits of z8-z15, as described in SIMD and Floating-Point registers.
-p0-p3 are used to pass scalable predicate arguments to a subroutine and to return scalable predicate results from a function.
-    If a subroutine takes at least one argument in scalable vector registers or scalable predicate registers,
-    or returns results in such registers, the subroutine must ensure that p4-p15 are preserved across the call.
-    In other cases it need not preserve any scalable predicate register contents.
-
-*/
-
-// x86 Register mapping
-#define xRAX    10
-#define xRCX    11
-#define xRDX    12
-#define xRBX    13
-#define xRSP    14
-#define xRBP    15
-#define xRSI    16
-#define xRDI    17
-#define xR8     18
-#define xR9     19
-#define xR10    20
-#define xR11    21
-#define xR12    22
-#define xR13    23
-#define xR14    24
-#define xR15    25
-#define xFlags  26
-#define xRIP    27
-#define xSavedSP 28
-
-// convert a x86 register to native according to the register mapping
-#define TO_NAT(A) (xRAX + (A))
-
-// 32bits version
-#define wEAX    xRAX
-#define wECX    xRCX
-#define wEDX    xRDX
-#define wEBX    xRBX
-#define wESP    xRSP
-#define wEBP    xRBP
-#define wESI    xRSI
-#define wEDI    xRDI
-#define wR8     xR8
-#define wR9     xR9
-#define wR10    xR10
-#define wR11    xR11
-#define wR12    xR12
-#define wR13    xR13
-#define wR14    xR14
-#define wR15    xR15
-#define wFlags  xFlags
-// scratch registers
-#define x1      1
-#define x2      2
-#define x3      3
-#define x4      4
-#define x5      5
-#define x6      6
-#define x87pc   7
-// x87 can be a scratch, but check if it's used as x87 PC and restore if needed in that case
-// 32bits version of scratch
-#define w1      x1
-#define w2      x2
-#define w3      x3
-#define w4      x4
-#define w5      x5
-#define w6      x6
-#define w87pc   x87pc
-// emu is r0
-#define xEmu    0
-// ARM64 LR
-#define xLR     30
-// ARM64 SP is r31 but is a special register
-#define xSP     31      
-// xZR regs is 31
-#define xZR     31
-#define wZR     xZR
-
-// conditions
-// Z == 1
-#define cEQ 0b0000
-// Z != 1
-#define cNE 0b0001
-// C == 1
-#define cCS 0b0010
-// C == 1
-#define cHS cCS
-// C != 1
-#define cCC 0b0011
-// C != 1
-#define cLO cCC
-// N == 1
-#define cMI 0b0100
-// N != 1
-#define cPL 0b0101
-// V == 1
-#define cVS 0b0110
-// V != 1
-#define cVC 0b0111
-// C == 1 && Z == 0
-#define cHI 0b1000
-// C !=1 || Z == 1
-#define cLS 0b1001
-// N == V
-#define cGE 0b1010
-// N != V
-#define cLT 0b1011
-// N == V && Z == 0
-#define cGT 0b1100
-// N != V || Z == 1
-#define cLE 0b1101
-// always
-#define c__ 0b1110
-
-//FCMP type of opcode produce:
-// if any NAN: CV / v1 == v2: ZC / v1 < v2: N / v1 > v2: C
+#include "arm64_mapping.h"
 
 int convert_bitmask(uint64_t bitmask);
 #define convert_bitmask_w(A)    convert_bitmask(((uint64_t)(A) << 32) + (uint32_t)(A))
@@ -188,10 +47,12 @@ int convert_bitmask(uint64_t bitmask);
 #define ADDx_REG(Rd, Rn, Rm)                EMIT(ADDSUB_REG_gen(1, 0, 0, 0b00, Rm, 0, Rn, Rd))
 #define ADDSx_REG(Rd, Rn, Rm)              FEMIT(ADDSUB_REG_gen(1, 0, 1, 0b00, Rm, 0, Rn, Rd))
 #define ADDx_REG_LSL(Rd, Rn, Rm, lsl)       EMIT(ADDSUB_REG_gen(1, 0, 0, 0b00, Rm, lsl, Rn, Rd))
+#define ADDx_REG_LSR(Rd, Rn, Rm, lsr)       EMIT(ADDSUB_REG_gen(1, 0, 0, 0b01, Rm, lsr, Rn, Rd))
 #define ADDz_REG_LSL(Rd, Rn, Rm, lsl)       EMIT(ADDSUB_REG_gen(rex.is32bits?0:1, 0, 0, 0b00, Rm, lsl, Rn, Rd))
 #define ADDw_REG(Rd, Rn, Rm)                EMIT(ADDSUB_REG_gen(0, 0, 0, 0b00, Rm, 0, Rn, Rd))
 #define ADDSw_REG(Rd, Rn, Rm)              FEMIT(ADDSUB_REG_gen(0, 0, 1, 0b00, Rm, 0, Rn, Rd))
 #define ADDw_REG_LSL(Rd, Rn, Rm, lsl)       EMIT(ADDSUB_REG_gen(0, 0, 0, 0b00, Rm, lsl, Rn, Rd))
+#define ADDw_REG_LSR(Rd, Rn, Rm, lsr)       EMIT(ADDSUB_REG_gen(0, 0, 0, 0b01, Rm, lsr, Rn, Rd))
 #define ADDSw_REG_LSL(Rd, Rn, Rm, lsl)     FEMIT(ADDSUB_REG_gen(0, 0, 1, 0b00, Rm, lsl, Rn, Rd))
 #define ADDxw_REG(Rd, Rn, Rm)               EMIT(ADDSUB_REG_gen(rex.w, 0, 0, 0b00, Rm, 0, Rn, Rd))
 #define ADDz_REG(Rd, Rn, Rm)                EMIT(ADDSUB_REG_gen(rex.is32bits?0:1, 0, 0, 0b00, Rm, 0, Rn, Rd))
@@ -261,9 +122,11 @@ int convert_bitmask(uint64_t bitmask);
 #define SBCSw_REG(Rd, Rn, Rm)      FEMIT(ADDSUBC_gen(0, 1, 1, Rm, Rn, Rd))
 #define SBCSxw_REG(Rd, Rn, Rm)     FEMIT(ADDSUBC_gen(rex.w, 1, 1, Rm, Rn, Rd))
 
-#define SUB_ext(sf, op, S, Rm, option, imm3, Rn, Rd)    ((sf)<<31 | (op)<<30 | (S)<<29 | 0b01011<<24 | 1<<21 | (Rm)<<16 | (option)<<13 | (imm3)<<10 | (Rn)<<5 | (Rd))
-#define SUBxw_UXTB(Rd, Rn, Rm)      EMIT(SUB_ext(rex.w, 1, 0, Rm, 0b000, 0, Rn, Rd))
-#define SUBw_UXTB(Rd, Rn, Rm)       EMIT(SUB_ext(0, 1, 0, Rm, 0b000, 0, Rn, Rd))
+#define ADDSUB_ext(sf, op, S, Rm, option, imm3, Rn, Rd)    ((sf)<<31 | (op)<<30 | (S)<<29 | 0b01011<<24 | 1<<21 | (Rm)<<16 | (option)<<13 | (imm3)<<10 | (Rn)<<5 | (Rd))
+#define SUBxw_UXTB(Rd, Rn, Rm)      EMIT(ADDSUB_ext(rex.w, 1, 0, Rm, 0b000, 0, Rn, Rd))
+#define SUBw_UXTB(Rd, Rn, Rm)       EMIT(ADDSUB_ext(0, 1, 0, Rm, 0b000, 0, Rn, Rd))
+#define ADDw_UXTH(Rd, Rn, Rm)       EMIT(ADDSUB_ext(0, 0, 0, Rm, 0b001, 0, Rn, Rd))
+#define ADDx_UXTW(Rd, Rn, Rm)       EMIT(ADDSUB_ext(1, 0, 0, Rm, 0b010, 0, Rn, Rd))
 
 // CCMP compare if cond is true, set nzcv if false
 #define CCMP_reg(sf, Rm, cond, Rn, nzcv)    ((sf)<<31 | 1<<30 | 1<<29 | 0b11010010<<21 | (Rm)<<16 | (cond)<<12 | (Rn)<<5 | (nzcv))
@@ -301,6 +164,8 @@ int convert_bitmask(uint64_t bitmask);
 
 #define LDS_gen(size, op1, imm12, Rn, Rt)       ((size)<<30 | 0b111<<27 | (op1)<<24 | 0b10<<22 | (imm12)<<10 | (Rn)<<5 | (Rt))
 #define LDRSW_U12(Rt, Rn, imm12)          EMIT(LDS_gen(0b10, 0b01, ((uint32_t)((imm12)>>2))&0xfff, Rn, Rt))
+#define LDRSH_U12(Rt, Rn, imm12)          EMIT(LDS_gen(0b01, 0b01, ((uint32_t)((imm12)>>1))&0xfff, Rn, Rt))
+#define LDRSB_U12(Rt, Rn, imm12)          EMIT(LDS_gen(0b00, 0b01, ((uint32_t)(imm12))&0xfff, Rn, Rt))
 
 #define LDR_REG_gen(size, Rm, option, S, Rn, Rt)    ((size)<<30 | 0b111<<27 | 0b01<<22 | 1<<21 | (Rm)<<16 | (option)<<13 | (S)<<12 | (0b10)<<10 | (Rn)<<5 | (Rt))
 #define LDRx_REG(Rt, Rn, Rm)            EMIT(LDR_REG_gen(0b11, Rm, 0b011, 0, Rn, Rt))
@@ -2487,5 +2352,15 @@ int convert_bitmask(uint64_t bitmask);
 #define SHA256H2_gen(Rm, Rn, Rd)    (0b01011110<<24 | (Rm)<<16 | 0b101<<12 | (Rn)<<5 | (Rd))
 //SHA256 hash update (part 2)
 #define SHA256H2(Vd, Vn, Vm)        EMIT(SHA256H2_gen(Vm, Vn, Vd))
+
+// LRCPC extension
+
+#define LDAPR_gen(sz, Rn, Rt)   ((sz)<<30 | 0b111<<27 | 1<<23 | 1<<21 | 0b11111<<16 | 1<<15 | 0b100<<12 | (Rn)<<5 | (Rt))
+#define LDAPRx(Rt, Rn)      EMIT(LDAPR_gen(0b11, Rn, Rt))
+#define LDAPRw(Rt, Rn)      EMIT(LDAPR_gen(0b10, Rn, Rt))
+#define LDAPRxw(Rt, Rn)     EMIT(LDAPR_gen(0b10+rex.w, Rn, Rt))
+#define LDAPRz(Rt, Rn)      EMIT(LDAPR_gen(rex.is32bits?0b10:0b11, Rn, Rt))
+#define LDAPRH(Rt, Rn)      EMIT(LDAPR_gen(0b01, Rn, Rt))
+#define LDAPRB(Rt, Rn)      EMIT(LDAPR_gen(0b00, Rn, Rt))
 
 #endif  //__ARM64_EMITTER_H__

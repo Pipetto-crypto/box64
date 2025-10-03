@@ -44,6 +44,7 @@ typedef void (*vFpuuuupupup_t)(void*, uint32_t, uint32_t, uint32_t, uint32_t, vo
 	GO(vkDestroyCuModuleNVX, vFpUp_t) \
 	GO(vkDestroyCudaFunctionNV, vFpUp_t) \
 	GO(vkDestroyCudaModuleNV, vFpUp_t) \
+	GO(vkDestroyDataGraphPipelineSessionARM, vFpUp_t) \
 	GO(vkDestroyDeferredOperationKHR, vFpUp_t) \
 	GO(vkDestroyDescriptorPool, vFpUp_t) \
 	GO(vkDestroyDescriptorSetLayout, vFpUp_t) \
@@ -75,6 +76,8 @@ typedef void (*vFpuuuupupup_t)(void*, uint32_t, uint32_t, uint32_t, uint32_t, vo
 	GO(vkDestroyShaderModule, vFpUp_t) \
 	GO(vkDestroySurfaceKHR, vFpUp_t) \
 	GO(vkDestroySwapchainKHR, vFpUp_t) \
+	GO(vkDestroyTensorARM, vFpUp_t) \
+	GO(vkDestroyTensorViewARM, vFpUp_t) \
 	GO(vkDestroyValidationCacheEXT, vFpUp_t) \
 	GO(vkDestroyVideoSessionKHR, vFpUp_t) \
 	GO(vkDestroyVideoSessionParametersKHR, vFpUp_t) \
@@ -97,6 +100,7 @@ typedef void (*vFpuuuupupup_t)(void*, uint32_t, uint32_t, uint32_t, uint32_t, vo
 	GO(vkCreateCuModuleNVX, iFpppp_t) \
 	GO(vkCreateCudaFunctionNV, iFpppp_t) \
 	GO(vkCreateCudaModuleNV, iFpppp_t) \
+	GO(vkCreateDataGraphPipelineSessionARM, iFpppp_t) \
 	GO(vkCreateDebugReportCallbackEXT, iFpppp_t) \
 	GO(vkCreateDebugUtilsMessengerEXT, iFpppp_t) \
 	GO(vkCreateDescriptorPool, iFpppp_t) \
@@ -131,6 +135,8 @@ typedef void (*vFpuuuupupup_t)(void*, uint32_t, uint32_t, uint32_t, uint32_t, vo
 	GO(vkCreateSemaphore, iFpppp_t) \
 	GO(vkCreateShaderModule, iFpppp_t) \
 	GO(vkCreateSwapchainKHR, iFpppp_t) \
+	GO(vkCreateTensorARM, iFpppp_t) \
+	GO(vkCreateTensorViewARM, iFpppp_t) \
 	GO(vkCreateValidationCacheEXT, iFpppp_t) \
 	GO(vkCreateVideoSessionKHR, iFpppp_t) \
 	GO(vkCreateVideoSessionParametersKHR, iFpppp_t) \
@@ -147,6 +153,7 @@ typedef void (*vFpuuuupupup_t)(void*, uint32_t, uint32_t, uint32_t, uint32_t, vo
 	GO(vkCreateExecutionGraphPipelinesAMDX, iFpUuppp_t) \
 	GO(vkCreateGraphicsPipelines, iFpUuppp_t) \
 	GO(vkCreateRayTracingPipelinesNV, iFpUuppp_t) \
+	GO(vkCreateDataGraphPipelinesARM, iFpUUuppp_t) \
 	GO(vkCreateRayTracingPipelinesKHR, iFpUUuppp_t) \
 	GO(vkGetPhysicalDeviceSparseImageFormatProperties, vFpiiiuipp_t) \
 	GO(vkCmdPipelineBarrier, vFpuuuupupup_t)

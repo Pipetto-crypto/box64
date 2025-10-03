@@ -188,11 +188,11 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             GETGX(v0, 1);
             GETEXSS(v1, 0, 0);
             q0 = fpu_get_scratch(dyn);
-            q1 = fpu_get_scratch(dyn);
-            LU12I_W(x3, 0x3f800); // 1.0f
-            MOVGR2FR_W(q0, x3);
-            FSQRT_S(q1, v1);
-            FDIV_S(q0, q0, q1);
+            if (cpuext.frecipe) {
+                FRSQRTE_S(q0, v1);
+            } else {
+                FRSQRT_S(q0, v1);
+            }
             VEXTRINS_W(v0, q0, 0);
             break;
         case 0x53:
@@ -201,9 +201,7 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             GETGX(v0, 1);
             GETEXSS(v1, 0, 0);
             d1 = fpu_get_scratch(dyn);
-            LU12I_W(x3, 0x3f800); // 1.0f
-            MOVGR2FR_W(d1, x3);
-            FDIV_S(d1, d1, v1);
+            FRECIP_S(d1, v1);
             VEXTRINS_W(v0, d1, 0);
             break;
         case 0x58:
@@ -238,20 +236,25 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             GETEX(v1, 0, 0);
             GETGX_empty(v0);
-            VFTINTRZ_W_S(v0, v1);
-            if (!BOX64ENV(dynarec_fastround)) {
+            if (BOX64ENV(dynarec_fastround)) {
+                VFTINTRZ_W_S(v0, v1);
+            } else {
+                MOVGR2FCSR(FCSR2, xZR); // reset all bits
+                VFTINTRZ_W_S(v0, v1);
+                MOVFCSR2GR(x5, FCSR2); // get back FPSR to check
+                MOV32w(x3, (1 << FR_V) | (1 << FR_O));
+                AND(x5, x5, x3);
+                BEQZ_MARK(x5); // no fp exception, work done, fast path.
+
                 q0 = fpu_get_scratch(dyn);
-                q1 = fpu_get_scratch(dyn);
-                d1 = fpu_get_scratch(dyn);
-                VFCMP_S(q0, v1, v1, cEQ);
-                VLDI(q1, 0b1001110000000); // broadcast 0x80000000
-                VAND_V(v0, q0, v0);
-                VANDN_V(d1, q0, q1);
-                VOR_V(v0, v0, d1);
-                VSUBI_WU(d1, q1, 1);
-                VSEQ_W(q0, v0, d1);
-                VSRLI_W(q0, q0, 31);
-                VADD_W(v0, v0, q0);
+                q1 = fpu_get_scratch(dyn); // mask
+                d0 = fpu_get_scratch(dyn);
+                VLDI(q0, 0b1001110000000); // broadcast 0x80000000 to all
+                VLDI(d0, (0b10011 << 8) | 0x4f);
+                VFCMP_S(q1, d0, v1, cULE); // get Nan,+overflow mark
+                VBITSEL_V(v0, v0, q0, q1);
+
+                MARK;
             }
             break;
         case 0x5C:
@@ -268,15 +271,14 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             GETGX(d0, 1);
             GETEXSS(d1, 0, 0);
-            FCMP_S(fcc0, d0, d1, cUN);
-            BCNEZ_MARK(fcc0);
-            FCMP_S(fcc1, d1, d0, cLT);
-            BCEQZ_MARK2(fcc1);
-            MARK;
-            v1 = fpu_get_scratch(dyn);
-            FMOV_S(v1, d1);
-            VEXTRINS_W(d0, v1, 0);
-            MARK2;
+            q0 = fpu_get_scratch(dyn);
+            if (BOX64ENV(dynarec_fastnan)) {
+                FMIN_S(q0, d0, d1);
+            } else {
+                FCMP_S(fcc0, d1, d0, cULE);
+                FSEL(q0, d0, d1, fcc0);
+            }
+            VEXTRINS_W(d0, q0, 0);
             break;
         case 0x5E:
             INST_NAME("DIVSS Gx, Ex");
@@ -292,15 +294,14 @@ uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             GETGX(d0, 1);
             GETEXSS(d1, 0, 0);
-            FCMP_S(fcc0, d0, d1, cUN);
-            BCNEZ_MARK(fcc0);
-            FCMP_S(fcc1, d0, d1, cLT);
-            BCEQZ_MARK2(fcc1);
-            MARK;
-            v1 = fpu_get_scratch(dyn);
-            FMOV_S(v1, d1);
-            VEXTRINS_W(d0, v1, 0);
-            MARK2;
+            q0 = fpu_get_scratch(dyn);
+            if (BOX64ENV(dynarec_fastnan)) {
+                FMAX_S(q0, d0, d1);
+            } else {
+                FCMP_S(fcc0, d1, d0, cLT);
+                FSEL(q0, d1, d0, fcc0);
+            }
+            VEXTRINS_W(d0, q0, 0);
             break;
         case 0x6F:
             INST_NAME("MOVDQU Gx, Ex");

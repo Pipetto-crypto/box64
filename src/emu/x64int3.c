@@ -8,11 +8,11 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <pthread.h>
-#include <signal.h>
 #include <poll.h>
 #include <sys/wait.h>
 #include <elf.h>
 
+#include "x64_signals.h"
 #include "os.h"
 #include "debug.h"
 #include "box64stack.h"
@@ -113,6 +113,7 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
             int have_trace = 0;
             if(h && strstr(ElfName(h), "libMiles")) have_trace = 1;*/
             if(BOX64ENV(log)>=LOG_DEBUG || BOX64ENV(rolling_log)) {
+                int e = errno;
                 int tid = GetTID();
                 char t_buff[256] = "\0";
                 char buff2[64] = "\0";
@@ -121,8 +122,8 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 if(BOX64ENV(rolling_log)) {
                     my_context->current_line = (my_context->current_line+1)%BOX64ENV(rolling_log);
                 }
-                char* buff = BOX64ENV(rolling_log)?my_context->log_call[cycle_line]:t_buff;
-                char* buffret = BOX64ENV(rolling_log)?my_context->log_ret[cycle_line]:NULL;
+                char* buff = BOX64ENV(rolling_log)?(my_context->log_call+256*cycle_line):t_buff;
+                char* buffret = BOX64ENV(rolling_log)?(my_context->log_ret+128*cycle_line):NULL;
                 if(buffret) buffret[0] = '\0';
                 char *tmp;
                 int post = 0;
@@ -214,6 +215,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     perr = 1;
                 } else if (!strcmp(s, "fgetxattr")) {
                     snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\", %p, 0x%zx)", tid, *(void**)(R_RSP), s, R_EDI, (char*)R_RSI, (void*)R_RDX, R_RCX);
+                    perr = 1;
+                } else if (!strcmp(s, "connect")) {
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%d, %p, %d)", tid, *(void**)(R_RSP), s, R_EDI, (void*)R_RSI, R_EDX);
                     perr = 1;
                 } else if (strstr(s, "puts")==s) {
                     tmp = (char*)(R_RDI);
@@ -312,6 +316,14 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 } else if (!strcmp(s, "__isoc99_fscanf")) {
                     tmp = (char*)(R_RSI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(%p, \"%s\" (,%p))", tid, *(void**)(R_RSP), s, (void*)R_RDI, (tmp)?tmp:"(nil)", (void*)(R_RDX));
+                } else if (!strcmp(s, "inotify_add_watch")) {
+                    tmp = (char*)(R_RSI);
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\" , 0x%x)", tid, *(void**)(R_RSP), s, R_EDI, (tmp)?tmp:"(nil)", R_EDX);
+                    perr = 1;
+                } else if (!strcmp(s, "__xstat64")) {
+                    tmp = (char*)(R_RSI);
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\" , %p)", tid, *(void**)(R_RSP), s, R_EDI, (tmp)?tmp:"(nil)", (void*)R_RDX);
+                    perr = 1;
                 } else if (!strcmp(s, "XCreateWindow")) {
                     tmp = (char*)(R_RSI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(%p, %p, %d, %d, %u, %u, %u, %d, %u, %p, 0x%lx, %p)", tid, *(void**)(R_RSP), s, 
@@ -323,6 +335,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     pu32 = (uint32_t*)(R_RDI);
                     post = 7;
                     snprintf(buff, 256, "%04d|%p: Calling %s(%p, 0x%X)", tid, *(void**)(R_RSP), s, (void*)R_RDI, R_ESI);
+                } else  if(!strcmp(s, "__errno_location")) {
+                    snprintf(buff, 255, "%04d|%p: Calling %s()", tid, *(void**)(R_RSP), s);
+                    perr = 4;
                 } else {
                     x64Print(emu, buff, 256, s, tid, w);
                 }
@@ -331,7 +346,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     printf_log_prefix(0, LOG_NONE, "%s =>", buff);
                     mutex_unlock(&emu->context->mutex_trace);
                 }
+                errno = e;
                 w(emu, a);   // some function never come back, so unlock the mutex first!
+                e = errno;
                 if(post)
                     switch(post) { // Only ever 2 for now...
                     case 1: snprintf(buff2, 64, " [%llu sec %llu nsec]", pu64?pu64[0]:~0ull, pu64?pu64[1]:~0ull);
@@ -372,19 +389,22 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     break;
                 }
                 if(perr==1 && (S_EAX)<0)
-                    snprintf(buff3, 64, " (errno=%d:\"%s\")", errno, strerror(errno));
+                    snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
                 else if(perr==2 && R_EAX==0)
-                    snprintf(buff3, 64, " (errno=%d:\"%s\")", errno, strerror(errno));
+                    snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
                 else if(perr==3 && (S_RAX)==-1)
-                    snprintf(buff3, 64, " (errno=%d:\"%s\")", errno, strerror(errno));
+                    snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
+                else if(perr==4)
+                    snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
 
                 if(BOX64ENV(rolling_log))
-                    snprintf(buffret, 128, "0x%lX%s%s", R_RAX, buff2, buff3);
+                    snprintf(buffret, 127, "0x%lX%s%s", R_RAX, buff2, buff3);
                 else {
                     mutex_lock(&emu->context->mutex_trace);
                     printf_log_prefix(0, LOG_NONE, " return 0x%lX%s%s\n", R_RAX, buff2, buff3);
                     mutex_unlock(&emu->context->mutex_trace);
                 }
+                errno = e;
             } else
                 w(emu, a);
         }
@@ -395,9 +415,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
         printf_log(LOG_DEBUG, "%04d|Warning, x64int3 with no CC opcode at %p?\n", GetTID(), (void*)R_RIP);
         return;
     }
-    if(!BOX64ENV(ignoreint3) && my_context->signals[SIGTRAP]) {
+    if(!BOX64ENV(ignoreint3) && my_context->signals[X64_SIGTRAP]) {
         R_RIP = *addr;  // update RIP
-        EmitSignal(emu, SIGTRAP, NULL, 3);
+        EmitSignal(emu, X64_SIGTRAP, NULL, 3);
     } else {
         printf_log(LOG_DEBUG, "%04d|Warning, ignoring unsupported Int 3 call @%p\n", GetTID(), (void*)R_RIP);
         R_RIP = *addr;
@@ -411,8 +431,8 @@ void print_rolling_log(int loglevel) {
         int j = (my_context->current_line+1)%BOX64ENV(rolling_log);
         for (int i=0; i<BOX64ENV(rolling_log); ++i) {
             int k = (i+j)%BOX64ENV(rolling_log);
-            if(my_context->log_call[k][0]) {
-                printf_log(loglevel, "%s => return %s\n", my_context->log_call[k], my_context->log_ret[k]);
+            if(my_context->log_call[256*k+0]) {
+                printf_log(loglevel, "%s => return %s\n", my_context->log_call+256*k, my_context->log_ret+128*k);
             }
         }
     }

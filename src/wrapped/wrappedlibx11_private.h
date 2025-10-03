@@ -221,7 +221,7 @@ GO(XCreatePixmapCursor, LFpLLppuu)
 GO(XCreatePixmapFromBitmapData, LFpLpuuLLu)
 GO(XCreateRegion, pFv)
 GO(XCreateSimpleWindow, LFpLiiuuuLL)
-GO(XCreateWindow, LFpLiiuuuiupLp)
+GOM(XCreateWindow, LFEpLiiuuuiupLp)
 DATAB(_Xdebug, sizeof(void*))
 GO(XDefaultColormap, LFpi)
 GO(XDefaultColormapOfScreen, LFp)
@@ -933,7 +933,7 @@ GO(XOffsetRegion, iFpii)
 //GO(_XomInitConverter, 
 GO(XOMOfOC, pFp)
 GOM(XOpenDisplay, pFEp)
-GO(XOpenIM, pFpppp)
+GOM(XOpenIM, pFEpppp)
 //GO(_XOpenLC, 
 GO(XOpenOM, pFpppp)
 //GO(_XParseBaseFontNameList, 

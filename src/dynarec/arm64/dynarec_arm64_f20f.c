@@ -430,7 +430,7 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             INST_NAME("HSUBPS Gx, Ex");
             nextop = F8;
             GETGX(v0, 1);
-            GETEX(v1, 0, 1);
+            GETEX(v1, 0, 0);
             d0 = fpu_get_scratch(dyn, ninst);
             VUZP1Q_32(d0, v0, v1);
             VUZP2Q_32(v0, v0, v1);
@@ -456,7 +456,6 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 j64 = (uint32_t)(addr+i32_);                            \
             else                                                        \
                 j64 = addr+i32_;                                        \
-            BARRIER(BARRIER_MAYBE);                                     \
             JUMP(j64, 1);                                               \
             GETFLAGS;                                                   \
             if(dyn->insts[ninst].x64.jmp_insts==-1 ||                   \
@@ -469,7 +468,7 @@ uintptr_t dynarec64_F20F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         fpu_purgecache(dyn, ninst, 1, x1, x2, x3);      \
                     jump_to_next(dyn, j64, 0, ninst, rex.is32bits);     \
                 } else {                                                \
-                    CacheTransform(dyn, ninst, cacheupd, x1, x2, x3);   \
+                    CacheTransform(dyn, ninst, cacheupd);               \
                     i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);    \
                     SKIP_SEVL(i32);                                     \
                     B(i32);                                             \

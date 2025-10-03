@@ -8,14 +8,19 @@ The script `box64-bundle-x86-libs.sh` is provided to download, extract, and re-b
 
 Install required dependencies for the bundle script.
 
+- Arch Linux
+    ```
+    sudo pacman -S -y -u
+    sudo pacman -S binutils coreutils curl rpm-tools tar zstd
+    ```
 - Debian
     ```
     sudo apt-get update
-    sudo apt-get install coreutils curl binutils rpm2cpio tar zstd
+    sudo apt-get install binutils coreutils curl rpm2cpio tar zstd
     ```
 - Fedora
     ```
-    sudo dnf install coreutils curl binutils tar zstd
+    sudo dnf install binutils coreutils curl tar zstd
     ```
 
 Run `box64-bundle-x86-libs.sh`. This will create two archives:
@@ -45,9 +50,9 @@ Preference of operating system packages that provide a library:
 4. XBPS from Void Linux provide updated variants of obscure 32-bit libraries.
 5. Other (whereever a library is packaged)
 
-Some essential library files will never be emulated (only wrapped) and should not be bundled. This includes glibc, OpenGL, Vulkan, and X11/Xorg libraries. The full list can be found [here](https://github.com/ptitSeb/box64/blob/v0.3.2/src/librarian/library.c#L427). Other libraries with lots of dependencies, such as GTK, require all dependencies to be installed for emulation to work. This becomes dependency hell and should be avoided.
+Some essential library files will never be emulated (only wrapped) and should not be bundled. This includes glibc, OpenGL, Vulkan, and X11/Xorg libraries. The full list can be found [in the library source code](https://github.com/ptitSeb/box64/blob/v0.3.6/src/librarian/library.c#L433). Other libraries with lots of dependencies, such as GTK, require all dependencies to be installed for emulation to work. This becomes dependency hell and should be avoided.
 
-For finding package names that contian a specific library file, use the [pkgs.org](https://pkgs.org/) website. Otherwise, use one of these package manager commands on a x86_64 Linux distribution:
+For finding package names that contian a specific library file, use the [pkgs.org website](https://pkgs.org/). Otherwise, use one of these package manager commands on a x86_64 Linux distribution:
 - DEB
     - `apt-file <LIBRARY_FILE>`
 - EOPKG
@@ -70,4 +75,4 @@ Once the package name is found, find the exact URL for downloading it.
 
 Download the package and then find the checksum with the `sha256sum` command.
 
-Major Linux distributions such as AlmaLinux and Debian provide archives of packages. Rolling distributions such as Solus and Void Linux do not. In those cases, use the [Internet Archive](https://web.archive.org/) to archive any rolling release package used by Box by using the "Save Page Now" feature. If the error "Save Page Now browser crashed" appears, it can be safely ignored. The archive will still have been saved.
+Major Linux distributions such as AlmaLinux and Debian provide archives of packages. Most rolling distributions such as Solus and Void Linux do not (one exception is Arch Linux which has the [Arch Linux Archive (ALA)](https://wiki.archlinux.org/title/Arch_Linux_Archive)). In those cases, use the [Internet Archive](https://web.archive.org/) to archive any rolling release package used by Box by using the "Save Page Now" feature. If the error "Save Page Now browser crashed" appears, it can be safely ignored. The archive will still have been saved.

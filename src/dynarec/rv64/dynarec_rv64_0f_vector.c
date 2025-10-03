@@ -520,6 +520,7 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             }
             break;
         case 0x51:
+            if (!BOX64ENV(dynarec_fastround)) return 0;
             INST_NAME("SQRTPS Gx, Ex");
             nextop = F8;
             SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
@@ -540,6 +541,7 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             VFRDIV_VF(v1, v1, v0, VECTOR_UNMASKED);
             break;
         case 0x53:
+            if (!BOX64ENV(dynarec_fastround)) return 0;
             INST_NAME("RCPPS Gx, Ex");
             nextop = F8;
             SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
@@ -891,8 +893,9 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             switch ((nextop >> 3) & 7) {
                 case 2:
                     INST_NAME("PSRLW Em, Ib");
-                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW16, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
                     GETEM_vector(q0, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW16, 1);
                     u8 = F8;
                     if (u8 > 15) {
                         VXOR_VV(q0, q0, q0, VECTOR_UNMASKED);
@@ -905,8 +908,9 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     break;
                 case 4:
                     INST_NAME("PSRAW Em, Ib");
-                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW16, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
                     GETEM_vector(q0, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW16, 1);
                     u8 = F8;
                     if (u8 > 15) u8 = 15;
                     if (u8) {
@@ -917,8 +921,9 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     break;
                 case 6:
                     INST_NAME("PSLLW Em, Ib");
-                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW16, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
                     GETEM_vector(q0, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW16, 1);
                     u8 = F8;
                     if (u8 > 15) {
                         VXOR_VV(q0, q0, q0, VECTOR_UNMASKED);
@@ -937,8 +942,9 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             switch ((nextop >> 3) & 7) {
                 case 2:
                     INST_NAME("PSRLD Em, Ib");
-                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
                     GETEM_vector(q0, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
                     u8 = F8;
                     if (u8 > 31) {
                         VXOR_VV(q0, q0, q0, VECTOR_UNMASKED);
@@ -951,8 +957,9 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     break;
                 case 4:
                     INST_NAME("PSRAD Em, Ib");
-                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
                     GETEM_vector(q0, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
                     u8 = F8;
                     if (u8 > 31) u8 = 31;
                     if (u8) {
@@ -963,8 +970,9 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     break;
                 case 6:
                     INST_NAME("PSLLD Em, Ib");
-                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
                     GETEM_vector(q0, 1);
+                    SET_ELEMENT_WIDTH(x1, VECTOR_SEW32, 1);
                     u8 = F8;
                     if (u8 > 31) {
                         VXOR_VV(q0, q0, q0, VECTOR_UNMASKED);
@@ -1306,11 +1314,11 @@ uintptr_t dynarec64_0F_vector(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETGM_vector(v0);
             SET_ELEMENT_WIDTH(x1, VECTOR_SEW64, 1);
             GETEM_vector(v1, 0);
-            SET_ELEMENT_WIDTH(x1, u8, 1);
             MOV32w(x5, i32 - 1);
             q0 = fpu_get_scratch(dyn);
             VMINU_VX(q0, v1, x5, VECTOR_UNMASKED);
             VMV_X_S(x4, q0);
+            SET_ELEMENT_WIDTH(x1, u8, 1);
             VSRA_VX(v0, v0, x4, VECTOR_UNMASKED);
             break;
         case 0xE5:

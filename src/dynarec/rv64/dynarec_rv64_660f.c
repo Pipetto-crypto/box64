@@ -305,7 +305,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             nextop = F8;
             GETGD;
             GETEX(x1, 0, 8);
-            MV(gd, xZR);
+            XOR(gd, gd, gd);
             for (int i = 0; i < 2; ++i) {
                 // GD->dword[0] |= ((EX->q[i]>>63)&1)<<i;
                 LD(x2, wback, fixedaddress + 8 * i);
@@ -414,11 +414,11 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             // GX->f[0] = EX->d[0];
             FLD(d0, wback, fixedaddress + 0);
             FCVTSD(d0, d0);
-            FSD(d0, gback, gdoffset + 0);
+            FSW(d0, gback, gdoffset + 0);
             // GX->f[1] = EX->d[1];
             FLD(d0, wback, fixedaddress + 8);
             FCVTSD(d0, d0);
-            FSD(d0, gback, gdoffset + 4);
+            FSW(d0, gback, gdoffset + 4);
             // GX->q[1] = 0;
             SD(xZR, gback, gdoffset + 8);
             break;
@@ -833,7 +833,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             GETEX(x2, 0, 8);
             SSE_LOOP_MV_Q(x3);
             break;
-        case 0x70: // TODO: Optimize this!
+        case 0x70:
             INST_NAME("PSHUFD Gx,Ex,Ib");
             nextop = F8;
             GETGX();

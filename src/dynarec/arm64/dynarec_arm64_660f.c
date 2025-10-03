@@ -305,7 +305,9 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             nextop = F8;
             GETGX(v0, 0);
             GETEXSD(q0, 0, 0);
-            FCMPD(v0, q0);
+            IFX(X_CF|X_PF|X_ZF) {
+                FCMPD(v0, q0);
+            }
             FCOMI(x1, x2);
             break;
 
@@ -627,7 +629,7 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                     } else {
                         GETGX_empty(v0);
                         SMREAD();
-                        addr = geted32(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff << 4, 15, rex, NULL, 0, 0);
+                        addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff << 4, 15, rex, NULL, 0, 0);
                         VLD128(v0, ed, fixedaddress);
                     }
                     break;
@@ -903,10 +905,10 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         REV16x(x1, gd);
                         BFIx(ed, x1, 0, 16);
                     } else {
-                        SMREAD();
                         addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, &unscaled, 0xfff<<1, (1<<1)-1, rex, NULL, 0, 0);
                         REV16x(x1, gd);
                         STH(x1, ed, fixedaddress);
+                        SMWRITE();
                     }
                     break;
 
@@ -1386,10 +1388,10 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         CMPSw_REG(x3, x4);
                         CSELw(x3, x3, x4, cLT); // x3 is lmem
                         CMPSw_REG(x2, x4);
-                        CSELw(x2, x2, x4, cLT); // x2 is lreg
-                        CMPSw_REG(x2, x3);
-                        CSELw(x5, x3, x2, cLT); // x5 is max(lmem, lreg)
-                        CSELw(x2, x2, x3, cLT); // x2 is min(lmem, lreg)
+                        CSELw(x6, x2, x4, cLT); // x6 is lreg
+                        CMPSw_REG(x6, x3);
+                        CSELw(x5, x3, x6, cLT); // x5 is max(lmem, lreg)
+                        CSELw(x2, x6, x3, cLT); // x2 is min(lmem, lreg)
                         // x2 is min length 0-n_packed
                         MVNw_REG(x4, xZR);
                         LSLw_REG(x87pc, x4, x2);
@@ -1425,7 +1427,7 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                                     BFIw(xFlags, x5, F_ZF, 1);
                                 }
                                 IFX(X_SF) {
-                                    CMPSw_REG(x2, x4);
+                                    CMPSw_REG(x6, x4);
                                     CSETw(x5, cLT);
                                     BFIw(xFlags, x5, F_SF, 1);
                                 }
@@ -1803,13 +1805,9 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETEX(v1, 0, 0);
             // FMIN/FMAX wll not copy the value if v0[x] is NaN
             // but x86 will copy if either v0[x] or v1[x] is NaN, so lets force a copy if source is NaN
-            if(BOX64ENV(dynarec_fastnan)) {
-                VFMINQD(v0, v0, v1);
-            } else {
-                q0 = fpu_get_scratch(dyn, ninst);
-                VFCMGTQD(q0, v1, v0);   // 0 is NaN or v1 GT v0, so invert mask for copy
-                VBIFQ(v0, v1, q0);
-            }
+            q0 = fpu_get_scratch(dyn, ninst);
+            VFCMGTQD(q0, v1, v0);   // 0 is NaN or v1 GT v0, so invert mask for copy
+            VBIFQ(v0, v1, q0);
             break;
         case 0x5E:
             INST_NAME("DIVPD Gx, Ex");
@@ -1838,13 +1836,9 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             GETEX(v1, 0, 0);
             // FMIN/FMAX wll not copy the value if v0[x] is NaN
             // but x86 will copy if either v0[x] or v1[x] is NaN, or if values are equals, so lets force a copy if source is NaN
-            if(BOX64ENV(dynarec_fastnan)) {
-                VFMAXQD(v0, v0, v1);
-            } else {
-                q0 = fpu_get_scratch(dyn, ninst);
-                VFCMGTQD(q0, v0, v1);   // 0 is NaN or v0 GT v1, so invert mask for copy
-                VBIFQ(v0, v1, q0);
-            }
+            q0 = fpu_get_scratch(dyn, ninst);
+            VFCMGTQD(q0, v0, v1);   // 0 is NaN or v0 GT v1, so invert mask for copy
+            VBIFQ(v0, v1, q0);
             break;
         case 0x60:
             INST_NAME("PUNPCKLBW Gx, Ex");
@@ -2753,8 +2747,9 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             }
             RBITw(x1, x1);   // reverse
             CLZw(x1, x1);    // x2 gets leading 0 == BSF
-            MARK;
+            if(!MODREG) MARK;   // value gets written on 0 input only if input is a memory it seems
             BFIx(gd, x1, 0, 16);
+            if(MODREG) MARK;
             IFX(X_ZF) {
                 IFNATIVE(NF_EQ) {} else {
                     CSETw(x2, cEQ);    //ZF not set
@@ -2790,8 +2785,9 @@ uintptr_t dynarec64_660F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             CLZw(x2, x1);       // x2 gets leading 0
             SUBw_U12(x2, x2, 15);
             NEGw_REG(x1, x2);   // complement
-            MARK;
+            if(!MODREG) MARK;
             BFIx(gd, x1, 0, 16);
+            if(MODREG) MARK;
             IFX(X_ZF) {
                 IFNATIVE(NF_EQ) {} else {
                     CSETw(x2, cEQ);    //ZF not set

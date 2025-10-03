@@ -13,6 +13,7 @@
 
 NTSTATUS WINAPI NtYieldExecution(void);
 
+int box64_isAddressSpace32 = 0;
 
 int GetTID(void)
 {
@@ -191,6 +192,11 @@ void free(void* ptr)
 }
 
 int VolatileRangesContains(uintptr_t addr)
+{
+    return 0;
+}
+
+int VolatileOpcodesHas(uintptr_t addr)
 {
     return 0;
 }

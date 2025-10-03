@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "x64_signals.h"
 #include "os.h"
 #include "debug.h"
 #include "box64context.h"
@@ -37,7 +38,7 @@ void native_fstp(x64emu_t* emu, void* p)
 void native_print_armreg(x64emu_t* emu, uintptr_t reg, uintptr_t n)
 {
     (void)emu;
-    dynarec_log(LOG_DEBUG, "R%lu=0x%lx (%lu)\n", n, reg, reg);
+    dynarec_log(LOG_INFO, "Debug Register R%lu=0x%lx (%lu)\n", n, reg, reg);
 }
 
 void native_f2xm1(x64emu_t* emu)
@@ -186,20 +187,26 @@ void native_ud(x64emu_t* emu)
 {
     if(BOX64ENV(dynarec_test))
         emu->test.test = 0;
-    EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
+    EmitSignal(emu, X64_SIGILL, (void*)R_RIP, 0);
 }
 
 void native_br(x64emu_t* emu)
 {
     if(BOX64ENV(dynarec_test))
         emu->test.test = 0;
-    EmitSignal(emu, SIGSEGV, (void*)R_RIP, 0xb09d);
+    EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xb09d);
 }
 
 void native_priv(x64emu_t* emu)
 {
     emu->test.test = 0;
-    EmitSignal(emu, SIGSEGV, (void*)R_RIP, 0xbad0);
+    EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0);
+}
+
+void native_gpf(x64emu_t* emu)
+{
+    emu->test.test = 0;
+    EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // same effect has private opcode?
 }
 
 void native_int(x64emu_t* emu, int num)
@@ -216,7 +223,7 @@ void native_wineint(x64emu_t* emu, int num)
 #endif
 void native_int3(x64emu_t* emu)
 {
-    EmitSignal(emu, SIGTRAP, NULL, 3);
+    EmitSignal(emu, X64_SIGTRAP, NULL, 3);
 }
 
 void native_div0(x64emu_t* emu)
@@ -618,34 +625,6 @@ uint8_t geted_ib(dynarec_native_t* dyn, uintptr_t addr, int ninst, uint8_t nexto
     return F8;
 }
 #undef F8
-
-// AVX
-void avx_mark_zero(dynarec_native_t* dyn, int ninst, int reg)
-{
-    dyn->ymm_zero |= (1<<reg);
-}
-
-int is_avx_zero(dynarec_native_t* dyn, int ninst, int reg)
-{
-    return (dyn->ymm_zero>>reg)&1;
-}
-int is_avx_zero_unset(dynarec_native_t* dyn, int ninst, int reg)
-{
-    if((dyn->ymm_zero>>reg)&1) {
-        dyn->ymm_zero &= ~(1<<reg);
-        return 1;
-    }
-    return 0;
-}
-void avx_mark_zero_reset(dynarec_native_t* dyn, int ninst)
-{
-    dyn->ymm_zero = 0;
-}
-
-void avx_unmark_zero(dynarec_native_t* dyn, int ninst, int reg)
-{
-    dyn->ymm_zero &= ~(1<<reg);
-}
 
 void propagate_nodf(dynarec_native_t* dyn, int ninst)
 {

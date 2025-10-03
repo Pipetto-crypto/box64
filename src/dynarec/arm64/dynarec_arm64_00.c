@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <errno.h>
 
+#include "x64_signals.h"
 #include "os.h"
 #include "debug.h"
 #include "box64context.h"
@@ -109,7 +110,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 LDRH_U12(x1, xEmu, offsetof(x64emu_t, segs[_ES]));
                 PUSH1_32(x1);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 06");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x07:
@@ -119,7 +130,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 STRH_U12(x1, xEmu, offsetof(x64emu_t, segs[_ES]));
                 STRw_U12(xZR, xEmu, offsetof(x64emu_t, segs_serial[_ES]));
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 07");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x08:
@@ -207,7 +228,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 PUSH1_32(x1);
                 SMWRITE();
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 0E");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x0F:
@@ -285,7 +316,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 PUSH1_32(x1);
                 SMWRITE();
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 16");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x17:
@@ -296,7 +337,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 STRH_U12(x1, xEmu, offsetof(x64emu_t, segs[_SS]));
                 STRw_U12(xZR, xEmu, offsetof(x64emu_t, segs_serial[_SS]));
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 17");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x18:
@@ -362,7 +413,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 PUSH1_32(x1);
                 SMWRITE();
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 1E");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x1F:
@@ -373,7 +434,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 STRH_U12(x1, xEmu, offsetof(x64emu_t, segs[_DS]));
                 STRw_U12(xZR, xEmu, offsetof(x64emu_t, segs_serial[_DS]));
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 1F");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x20:
@@ -446,7 +517,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CALL_(const_daa8, x1, 0);
                 BFIz(xRAX, x1, 0, 8);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 27");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x28:
@@ -511,7 +592,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CALL_(const_das8, x1, 0);
                 BFIz(xRAX, x1, 0, 8);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 2F");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x30:
@@ -605,7 +696,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CALL_(const_aaa16, x1, 0);
                 BFIz(xRAX, x1, 0, 16);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 37");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x38:
@@ -673,7 +774,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CALL_(const_aas16, x1, 0);
                 BFIx(xRAX, x1, 0, 16);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 3F");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x40:
@@ -805,7 +916,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 PUSH2_32(xRSI, xRDI);
                 SMWRITE();
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 60");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x61:
@@ -817,7 +938,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 POP2_32(xRBX, xRDX);
                 POP2_32(xRCX, xRAX);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal 61");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0x62:
@@ -1072,7 +1203,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         #define GO(GETFLAGS, NO, YES, F)                                \
             READFLAGS(F);                                               \
             i8 = F8S;                                                   \
-            BARRIER(BARRIER_MAYBE);                                     \
             JUMP(addr+i8, 1);                                           \
             GETFLAGS;                                                   \
             if(dyn->insts[ninst].x64.jmp_insts==-1 ||                   \
@@ -1086,7 +1216,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     jump_to_next(dyn, addr+i8, 0, ninst, rex.is32bits); \
                 } else {                                                \
                     /* inside the block, cache transform */             \
-                    CacheTransform(dyn, ninst, cacheupd, x1, x2, x3);   \
+                    CacheTransform(dyn, ninst, cacheupd);               \
                     i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);\
                     SKIP_SEVL(i32);                                     \
                     B(i32);                                             \
@@ -1346,7 +1476,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     STLXRB(x3, x4, ed);
                     CBNZx_MARKLOCK(x3);
                 }
-                SMDMB();
             }
             BFIx(gb1, x1, gb2, 8);
             break;
@@ -1395,7 +1524,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     STRxw_U12(gd, ed, 0);
                     MARK2;
                 }
-                SMDMB();
                 if(!ALIGNED_ATOMICxw || !cpuext.atomics) {
                     MOVxw_REG(gd, x1);
                 }
@@ -1610,7 +1738,23 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             INST_NAME("CDQ");
             SBFXxw(xRDX, xRAX, rex.w?63:31, 1);
             break;
-
+        case 0x9A:
+            if(rex.is32bits) {
+                DEFAULT;
+            } else {
+                INST_NAME("Illegal 9A");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
+            }
+            break;
         case 0x9B:
             INST_NAME("FWAIT");
             break;
@@ -2385,7 +2529,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             if(BOX64DRENV(dynarec_safeflags)) {
                 READFLAGS(X_PEND);  // lets play safe here too
             }
-            fpu_purgecache(dyn, ninst, 1, x1, x2, x3);  // using next, even if there no next
+            BARRIER(BARRIER_FLOAT);
             i32 = F16;
             retn_to_epilog(dyn, ip, ninst, rex, i32);
             *need_epilog = 0;
@@ -2397,7 +2541,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             if(BOX64DRENV(dynarec_safeflags)) {
                 READFLAGS(X_PEND);  // so instead, force the deferred flags, so it's not too slow, and flags are not lost
             }
-            fpu_purgecache(dyn, ninst, 1, x1, x2, x3);  // using next, even if there no next
+            BARRIER(BARRIER_FLOAT);
             ret_to_epilog(dyn, ip, ninst, rex);
             *need_epilog = 0;
             *ok = 0;
@@ -2603,6 +2747,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     if ((BOX64ENV(log)<2 && !BOX64ENV(rolling_log) && !BOX64ENV(dynarec_test)) && tmp) {
                         //GETIP(ip+3+8+8); // read the 0xCC
                         call_n(dyn, ninst, (void*)(addr+8), tmp);
+                        SMWRITE2();
                         addr+=8+8;
                     } else {
                         GETIP(ip+1); // read the 0xCC
@@ -2627,9 +2772,9 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 if(!BOX64ENV(ignoreint3)) {
                     // check if TRAP signal is handled
                     TABLE64C(x1, const_context);
-                    MOV32w(x2, offsetof(box64context_t, signals[SIGTRAP]));
+                    MOV32w(x2, offsetof(box64context_t, signals[X64_SIGTRAP]));
                     LDRx_REG(x3, x1, x2);
-                    //LDRx_U12(x3, x1, offsetof(box64context_t, signals[SIGTRAP]));
+                    //LDRx_U12(x3, x1, offsetof(box64context_t, signals[X64_SIGTRAP]));
                     CMPSx_U12(x3, 0);
                     B_MARK(cEQ);
                     GETIP(addr);  // update RIP
@@ -3234,7 +3379,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CALL_(const_aam16, x1, 0);
                 BFIz(xRAX, x1, 0, 16);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal D4");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
         case 0xD5:
@@ -3247,7 +3402,17 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 CALL_(const_aad16, x1, 0);
                 BFIz(xRAX, x1, 0, 16);
             } else {
-                DEFAULT;
+                INST_NAME("Illegal D5");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
             }
             break;
 
@@ -3282,7 +3447,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             addr = dynarec64_DF(dyn, addr, ip, ninst, rex, rep, ok, need_epilog);
             break;
         #define GO(Z)                                                   \
-            BARRIER(BARRIER_MAYBE);                                     \
             JUMP(addr+i8, 1);                                           \
             if(dyn->insts[ninst].x64.jmp_insts==-1 ||                   \
                 CHECK_CACHE()) {                                        \
@@ -3294,7 +3458,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         fpu_purgecache(dyn, ninst, 1, x1, x2, x3);      \
                     jump_to_next(dyn, addr+i8, 0, ninst, rex.is32bits); \
                 } else {                                                \
-                    CacheTransform(dyn, ninst, cacheupd, x1, x2, x3);   \
+                    CacheTransform(dyn, ninst, cacheupd);               \
                     i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);    \
                     SKIP_SEVL(i32);                                     \
                     Bcond(c__, i32);                                    \
@@ -3308,6 +3472,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xE0:
             INST_NAME("LOOPNZ");
             READFLAGS(X_ZF);
+            SMEND();
             i8 = F8S;
             SUBz_U12(xRCX, xRCX, 1);
             TBNZ_NEXT(xFlags, F_ZF);
@@ -3316,6 +3481,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xE1:
             INST_NAME("LOOPZ");
             READFLAGS(X_ZF);
+            SMEND();
             i8 = F8S;
             SUBz_U12(xRCX, xRCX, 1);
             TBZ_NEXT(xFlags, F_ZF);
@@ -3328,7 +3494,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             GO(0);
             break;
         case 0xE3:
-            INST_NAME("JECXZ");
+            INST_NAME("JRCXZ");
             i8 = F8S;
             GO(1);
             break;
@@ -3450,7 +3616,8 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     } else {
                         MOV64x(x2, addr);
                     }
-                    fpu_purgecache(dyn, ninst, 1, x1, x3, x4);
+                    BARRIER(BARRIER_FLOAT);
+                    //fpu_purgecache(dyn, ninst, 0, x1, x3, x4);
                     PUSH1z(x2);
                     if (BOX64DRENV(dynarec_callret)) {
                         SET_HASCALLRET();
@@ -3495,12 +3662,13 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         LDRx_U12(x4, x4, 0);
                         BR(x4);
                     }
+                    CLEARIP();
                     break;
             }
             break;
         case 0xE9:
         case 0xEB:
-            BARRIER(BARRIER_MAYBE);
+            BARRIER(BARRIER_MAYBE); // there will be a barrier if there is a jump out
             if(opcode==0xEB && PK(0)==0xFF) {
                 INST_NAME("JMP ib");
                 MESSAGE(LOG_DEBUG, "Hack for EB FF opcode");
@@ -3522,11 +3690,11 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 if(dyn->insts[ninst].x64.jmp_insts==-1) {
                     // out of the block
                     SET_NODF();
-                    fpu_purgecache(dyn, ninst, 1, x1, x2, x3);
+                    BARRIER(BARRIER_FLOAT);
                     jump_to_next(dyn, j64, 0, ninst, rex.is32bits);
                 } else {
                     // inside the block
-                    CacheTransform(dyn, ninst, CHECK_CACHE(), x1, x2, x3);
+                    CacheTransform(dyn, ninst, CHECK_CACHE());
                     tmp = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);
                     SKIP_SEVL(tmp);
                     if(tmp==4) {
@@ -3539,7 +3707,23 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 *ok = 0;
             }
             break;
-
+        case 0xEA:
+            if(rex.is32bits) {
+                DEFAULT;
+            } else {
+                INST_NAME("Illegal EA");
+                if(BOX64DRENV(dynarec_safeflags)>1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF);    // Hack to set flags in "don't care" state
+                }
+                GETIP(ip);
+                BARRIER(BARRIER_FLOAT);
+                UDF(0);
+                *need_epilog = 1;
+                *ok = 0;
+            }
+            break;
         case 0xEC:                      /* IN AL, DX */
         case 0xED:                      /* IN EAX, DX */
         case 0xEE:                      /* OUT DX, AL */
@@ -3561,7 +3745,6 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 *ok = 0;
             }
             break;
-
         case 0xF0:
             addr = dynarec64_F0(dyn, addr, ip, ninst, rex, rep, ok, need_epilog);
             break;
@@ -3676,8 +3859,9 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     BFIx(xRAX, x1, 0, 16);
                     SET_DFNONE();
                     IFX(X_CF|X_OF) {
-                        ASRxw(x2, x1, 8);
-                        CMPSw_REG_ASR(x2, x1, 16);
+                        SXTHw(x1, xRAX);
+                        SXTBw(x2, x1);
+                        CMPSw_REG(x2, x1);
                         CSETw(x3, cNE);
                         IFX(X_CF) {
                             BFIw(xFlags, x3, F_CF, 1);
@@ -4154,6 +4338,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         LDRx_U12(x4, x4, 0);
                         BR(x4);
                     }
+                    CLEARIP();
                     break;
                 case 3: // CALL FAR Ed
                     if(MODREG) {

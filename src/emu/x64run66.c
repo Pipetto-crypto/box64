@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "x64_signals.h"
 #include "debug.h"
 #include "box64stack.h"
 #include "box64cpu_util.h"
@@ -19,6 +20,7 @@
 #include "x87emu_private.h"
 #include "box64context.h"
 #include "alternate.h"
+#include "emit_signals.h"
 #ifdef DYNAREC
 #include "../dynarec/native_lock.h"
 #endif
@@ -26,9 +28,9 @@
 #include "modrm.h"
 
 #ifdef TEST_INTERPRETER
-uintptr_t Test66(x64test_t *test, rex_t rex, int rep, uintptr_t addr)
+uintptr_t Test66(x64test_t *test, rex_t rex, uintptr_t addr)
 #else
-uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
+uintptr_t Run66(x64emu_t *emu, rex_t rex, uintptr_t addr)
 #endif
 {
     uint8_t opcode;
@@ -46,21 +48,6 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
     #endif
 
     opcode = F8;
-
-    while((opcode==0x2E) || (opcode==0x36) || (opcode==0x26) || (opcode==0x66))   // ignoring CS:, SS:, ES: or multiple 0x66
-        opcode = F8;
-
-    while((opcode==0xF2) || (opcode==0xF3)) {
-        rep = opcode-0xF1;
-        opcode = F8;
-    }
-
-    rex.rex = 0;
-    if(!rex.is32bits)
-        while(opcode>=0x40 && opcode<=0x4f) {
-            rex.rex = opcode;
-            opcode = F8;
-        }
 
     switch(opcode) {
     #define GO(B, OP)                                               \
@@ -127,7 +114,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
         break;
 
     case 0x0F:                              /* more opcdes */
-        switch(rep) {
+        switch(rex.rep) {
             case 0:
                 #ifdef TEST_INTERPRETER
                 return Test660F(test, rex, addr);
@@ -262,19 +249,6 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
         }
         break;
 
-    case 0x64:                              /* FS: */
-        #ifdef TEST_INTERPRETER
-        return Test6664(test, rex, _FS, addr);
-        #else
-        return Run6664(emu, rex, _FS, addr);
-        #endif
-    case 0x65:                              /* GS: */
-        #ifdef TEST_INTERPRETER
-        return Test6664(test, rex, _GS, addr);
-        #else
-        return Run6664(emu, rex, _GS, addr);
-        #endif
-
     case 0x68:                       /* PUSH u16 */
         tmp16u = F16;
         Push16(emu, tmp16u);
@@ -307,6 +281,18 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
             GW->word[0] = imul16(emu, EW->word[0], (uint16_t)tmp16s);
         }
         break;
+        case 0x6C:                      /* INSB DX */
+        case 0x6D:                      /* INSW DX */
+        case 0x6E:                      /* OUTSB DX */
+        case 0x6F:                      /* OUTSW DX */
+#ifndef TEST_INTERPRETER
+            if(rex.is32bits && BOX64ENV(ignoreint3))
+            {
+            } else {
+                EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0);
+            }
+            #endif
+            break;
     
     case 0x70:
     case 0x71:
@@ -461,28 +447,28 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
 
     case 0xA1:                      /* MOV EAX,Od */
         if(rex.is32bits) {
-            R_AX = *(uint16_t*)(uintptr_t)F32;
+            R_AX = *(uint16_t*)(uintptr_t)(ptr_t)(F32+rex.offset);
         } else {
             if(rex.w)
-                R_RAX = *(uint64_t*)F64;
+                R_RAX = *(uint64_t*)(F64+rex.offset);
             else
-                R_AX = *(uint16_t*)F64;
+                R_AX = *(uint16_t*)(F64+rex.offset);
         }
         break;
 
     case 0xA3:                      /* MOV Od,EAX */
         if(rex.is32bits) {
-            *(uint16_t*)(uintptr_t)F32 = R_AX;
+            *(uint16_t*)(uintptr_t)(ptr_t)(F32+rex.offset) = R_AX;
         } else {
             if(rex.w)
-                *(uint64_t*)F64 = R_RAX;
+                *(uint64_t*)(F64+rex.offset) = R_RAX;
             else
-                *(uint16_t*)F64 = R_AX;
+                *(uint16_t*)(F64+rex.offset) = R_AX;
         }
         break;
     case 0xA4:                      /* (REP) MOVSB */
         tmp8s = ACCESS_FLAG(F_DF)?-1:+1;
-        tmp64u = (rep)?R_RCX:1L;
+        tmp64u = (rex.rep)?R_RCX:1L;
         while(tmp64u) {
             #ifndef TEST_INTERPRETER
             *(uint8_t*)R_RDI = *(uint8_t*)R_RSI;
@@ -491,12 +477,12 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
             R_RSI += tmp8s;
             --tmp64u;
         }
-        if(rep)
+        if(rex.rep)
             R_RCX = tmp64u;
         break;
     case 0xA5:              /* (REP) MOVSW */
         tmp8s = ACCESS_FLAG(F_DF)?-1:+1;
-        tmp64u = (rep)?R_RCX:1L;
+        tmp64u = (rex.rep)?R_RCX:1L;
         if(rex.w) {
             tmp8s *= 8;
             while(tmp64u) {
@@ -514,7 +500,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
                 R_RSI += tmp8s;
             }
         }
-        if(rep)
+        if(rex.rep)
             R_RCX = tmp64u;
         break;
 
@@ -523,7 +509,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
             tmp8s = ACCESS_FLAG(F_DF)?-8:+8;
         else
             tmp8s = ACCESS_FLAG(F_DF)?-2:+2;
-        switch(rep) {
+        switch(rex.rep) {
             case 1:
                 if(R_RCX) {
                     if(rex.w) {
@@ -607,7 +593,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
             tmp8s = ACCESS_FLAG(F_DF)?-8:+8;
         else
             tmp8s = ACCESS_FLAG(F_DF)?-2:+2;
-        tmp64u = (rep)?R_RCX:1L;
+        tmp64u = (rex.rep)?R_RCX:1L;
         if((rex.w))
             while(tmp64u) {
                 #ifndef TEST_INTERPRETER
@@ -624,7 +610,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
                 R_RDI += tmp8s;
                 --tmp64u;
             }
-        if(rep)
+        if(rex.rep)
             R_RCX = tmp64u;
         break;
     case 0xAD:                      /* (REP) LODSW */
@@ -632,7 +618,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
             tmp8s = ACCESS_FLAG(F_DF)?-8:+8;
         else
             tmp8s = ACCESS_FLAG(F_DF)?-2:+2;
-        tmp64u = (rep)?R_RCX:1L;
+        tmp64u = (rex.rep)?R_RCX:1L;
         if((rex.w))
             while(tmp64u) {
                 R_RAX = *(uint64_t*)R_RSI;
@@ -645,7 +631,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
                 R_RSI += tmp8s;
                 --tmp64u;
             }
-        if(rep)
+        if(rex.rep)
             R_RCX = tmp64u;
         break;
 
@@ -654,7 +640,7 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
             tmp8s = ACCESS_FLAG(F_DF)?-8:+8;
         else
             tmp8s = ACCESS_FLAG(F_DF)?-2:+2;
-        switch(rep) {
+        switch(rex.rep) {
             case 1:
                 if(R_RCX) {
                     if(rex.w) {
@@ -809,6 +795,18 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
         return Run66DD(emu, rex, addr);
         #endif
 
+        case 0xE4:                      /* IN AL, XX */
+        case 0xE5:                      /* IN AX, XX */
+        case 0xE6:                      /* OUT XX, AL */
+        case 0xE7:                      /* OUT XX, AX */
+            // this is a privilege opcode...
+            #ifndef TEST_INTERPRETER
+            F8;
+            if(rex.is32bits && BOX64ENV(ignoreint3))
+            {} else
+            EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0);
+            #endif
+            break;
     case 0xE8:                              /* CALL Id */
         tmp32s = F32S; // call is relative
         if(rex.is32bits)
@@ -818,6 +816,17 @@ uintptr_t Run66(x64emu_t *emu, rex_t rex, int rep, uintptr_t addr)
         addr += tmp32s;
         break;
 
+    case 0xEC:                      /* IN AL, DX */
+    case 0xED:                      /* IN AX, DX */
+    case 0xEE:                      /* OUT DX, AL */
+    case 0xEF:                      /* OUT DX, AX */
+        // this is a privilege opcode...
+        #ifndef TEST_INTERPRETER
+        if(rex.is32bits && BOX64ENV(ignoreint3))
+        {} else
+        EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0);
+        #endif
+        break;
     case 0xF0:                              /* LOCK: */
         #ifdef TEST_INTERPRETER
         return Test66F0(test, rex, addr);

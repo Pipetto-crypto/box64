@@ -89,7 +89,6 @@ uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
 
         #define GO(NO, YES)                                             \
-            BARRIER(BARRIER_MAYBE);                                     \
             JUMP(addr+i8, 1);                                           \
             if(dyn->insts[ninst].x64.jmp_insts==-1 ||                   \
                 CHECK_CACHE()) {                                        \
@@ -101,7 +100,7 @@ uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         fpu_purgecache(dyn, ninst, 1, x1, x2, x3);      \
                     jump_to_next(dyn, addr+i8, 0, ninst, rex.is32bits); \
                 } else {                                                \
-                    CacheTransform(dyn, ninst, cacheupd, x1, x2, x3);   \
+                    CacheTransform(dyn, ninst, cacheupd);               \
                     i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);\
                     SKIP_SEVL(i32);                                     \
                     B(i32);                                             \
@@ -116,6 +115,7 @@ uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int 
             INST_NAME("LOOPNZ (16bits)");
             READFLAGS(X_ZF);
             i8 = F8S;
+            SMEND();
             UXTHw(x1, xRCX);
             SUBw_U12(x1, x1, 1);
             BFIx(xRCX, x1, 0, 16);
@@ -126,6 +126,7 @@ uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int 
         case 0xE1:
             INST_NAME("LOOPZ (16bits)");
             READFLAGS(X_ZF);
+            SMEND();
             i8 = F8S;
             UXTHw(x1, xRCX);
             SUBw_U12(x1, x1, 1);
@@ -137,6 +138,7 @@ uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int 
         case 0xE2:
             INST_NAME("LOOP (16bits)");
             i8 = F8S;
+            SMEND();
             UXTHw(x1, xRCX);
             SUBSw_U12(x1, x1, 1);
             BFIx(xRCX, x1, 0, 16);
@@ -145,6 +147,7 @@ uintptr_t dynarec64_67_32(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int 
         case 0xE3:
             INST_NAME("JCXZ");
             i8 = F8S;
+            SMEND();
             TSTw_mask(xRCX, 0, 15); //mask=0xffff
             GO(cNE, cEQ);
             break;

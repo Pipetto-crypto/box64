@@ -22,6 +22,7 @@
 #include <poll.h>
 #include <sys/epoll.h>
 
+#include "x64_signals.h"
 #include "os.h"
 #include "debug.h"
 #include "box64stack.h"
@@ -447,9 +448,9 @@ void EXPORT x64Syscall(x64emu_t *emu)
     if(box64_wine && !box64_is32bits) {
         //64bits only here...
         uintptr_t ret_addr = R_RIP-2;
-        if(/*ret_addr<0x700000000000LL &&*/ (my_context->signals[SIGSYS]>2) && !FindElfAddress(my_context, ret_addr)) {
+        if(/*ret_addr<0x700000000000LL &&*/ (my_context->signals[X64_SIGSYS]>2) && !FindElfAddress(my_context, ret_addr)) {
             // not a linux elf, not a syscall to setup x86_64 arch. Signal SIGSYS
-            EmitSignal(emu, SIGSYS, (void*)ret_addr, R_EAX&0xffff);  // what are the parameters?
+            EmitSignal(emu, X64_SIGSYS, (void*)ret_addr, R_EAX&0xffff);  // what are the parameters?
             return;
         }
     }
@@ -461,8 +462,8 @@ void EXPORT x64Syscall(x64emu_t *emu)
     char* buffret = NULL;
     if(BOX64ENV(log) >= LOG_DEBUG || BOX64ENV(rolling_log)) {
         log = 1;
-        buff = BOX64ENV(rolling_log)?my_context->log_call[my_context->current_line]:t_buff;
-        buffret = BOX64ENV(rolling_log)?my_context->log_ret[my_context->current_line]:t_buffret;
+        buff = BOX64ENV(rolling_log)?(my_context->log_call+256*my_context->current_line):t_buff;
+        buffret = BOX64ENV(rolling_log)?(my_context->log_ret+128*my_context->current_line):t_buffret;
         if(BOX64ENV(rolling_log))
             my_context->current_line = (my_context->current_line+1)%BOX64ENV(rolling_log);
         snprintf(buff, 255, "%04d|%p: Calling syscall 0x%02X (%d) %p %p %p %p %p %p", GetTID(), (void*)R_RIP, s, s, (void*)R_RDI, (void*)R_RSI, (void*)R_RDX, (void*)R_R10, (void*)R_R8, (void*)R_R9);
@@ -825,6 +826,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
         case 282:   // sys_signalfd
             // need to mask SIGSEGV
             {
+                //TODO: convert the sigset from x64!
                 sigset_t * set = (sigset_t *)R_RSI;
                 if(sigismember(set, SIGSEGV)) {
                     sigdelset(set, SIGSEGV);
@@ -1132,6 +1134,7 @@ long EXPORT my_syscall(x64emu_t *emu)
         case 282:   // sys_signalfd
             // need to mask SIGSEGV
             {
+                //TODO: convert sigset from x64
                 sigset_t * set = (sigset_t *)R_RDX;
                 if(sigismember(set, SIGSEGV)) {
                     sigdelset(set, SIGSEGV);

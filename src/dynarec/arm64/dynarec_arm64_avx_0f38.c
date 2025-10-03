@@ -132,9 +132,14 @@ uintptr_t dynarec64_AVX_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, i
                     IFX(X_OF) {
                         IFNATIVE(NF_VF) {} else { BFCw(xFlags, F_OF, 1); }
                     }
-                    if (BOX64ENV(dynarec_test)) {
+                    if (BOX64ENV(dynarec_safeflags)) {
+                        // those are UD flags
                         IFX(X_AF) BFCw(xFlags, F_AF, 1);
-                        IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                        if(BOX64ENV(cputype)) {
+                            IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                        } else {
+                            IFX(X_PF) emit_pf(dyn, ninst, vd, x3);
+                        }
                     }
                     break;
 
@@ -171,9 +176,14 @@ uintptr_t dynarec64_AVX_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, i
                     IFX(X_OF) {
                         IFNATIVE(NF_VF) {} else { BFCw(xFlags, F_OF, 1); }
                     }
-                    if (BOX64ENV(dynarec_test)) {
+                    if (BOX64ENV(dynarec_safeflags)) {
+                        // those are UD flags
                         IFX(X_AF) BFCw(xFlags, F_AF, 1);
-                        IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                        if(BOX64ENV(cputype)) {
+                            IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                        } else {
+                            IFX(X_PF) emit_pf(dyn, ninst, vd, x3);
+                        }
                     }
                     break;
 
@@ -184,7 +194,7 @@ uintptr_t dynarec64_AVX_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, i
                     GETVD;
                     IFX(X_CF) {
                         TSTxw_REG(ed, ed);
-                        CSETMw(x3, cEQ);
+                        CSETMw(x3, cNE);
                         BFIw(xFlags, x3, F_CF, 1);
                     }
                     NEGxw_REG(x3, ed);
@@ -211,9 +221,14 @@ uintptr_t dynarec64_AVX_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, i
                     IFX(X_OF) {
                         IFNATIVE(NF_VF) {} else { BFCw(xFlags, F_OF, 1); }
                     }
-                    if (BOX64ENV(dynarec_test)) {
+                    if (BOX64ENV(dynarec_safeflags)) {
+                        // those are UD flags
                         IFX(X_AF) BFCw(xFlags, F_AF, 1);
-                        IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                        if(BOX64ENV(cputype)) {
+                            IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                        } else {
+                            IFX(X_PF) emit_pf(dyn, ninst, vd, x3);
+                        }
                     }
                     break;
 
@@ -259,10 +274,17 @@ uintptr_t dynarec64_AVX_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, i
                     BFIw(xFlags, x3, F_SF, 1);
                 }
             }
-            IFX(X_AF) BFCw(xFlags, F_AF, 1);
-            IFX(X_PF) BFCw(xFlags, F_PF, 1);
             IFX(X_OF) {
                 IFNATIVE(NF_VF) {} else { BFCw(xFlags, F_OF, 1); }
+            }
+            if (BOX64ENV(dynarec_safeflags)) {
+                // those are UD flags
+                IFX(X_AF) BFCw(xFlags, F_AF, 1);
+                if(BOX64ENV(cputype)) {
+                    IFX(X_PF) BFCw(xFlags, F_PF, 1);
+                } else {
+                    IFX(X_PF) emit_pf(dyn, ninst, vd, x3);
+                }
             }
             break;
 
@@ -273,22 +295,24 @@ uintptr_t dynarec64_AVX_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, i
             GETGD;
             GETED(0);
             GETVD;
-            MOV64xw(x1, 0);
-            UXTBw(x2, vd);          // start
-            BFXILw(x3, vd, 8, 8);   // length
+            MOV64xw(x5, 0);
+            UXTBw(x4, vd);          // start
+            UBFXw(x3, vd, 8, 8);   // length
             TSTw_REG(x3, x3);
             B_MARK(cEQ);
-            LSRxw_REG(x1, ed, x2);
-            CMPSw_U12(x3, rex.w?64:32);
+            CMPSw_U12(x4, rex.w?64:32);
             B_MARK(cGE);
-            MOV32w(x2, rex.w?64:32);
-            SUBw_REG(x2, x2, x3);
-            LSLxw_REG(x1, x1, x2);
-            LSRxw_REG(x1, x1, x2);
-            TSTxw_REG(x1, x1);
+            LSRxw_REG(x5, ed, x4);
+            CMPSw_U12(x3, rex.w?64:32);
+            B_MARK(cGT);
+            MOV32w(x4, rex.w?64:32);
+            SUBw_REG(x4, x4, x3);
+            LSLxw_REG(x5, x5, x4);
+            LSRxw_REG(x5, x5, x4);
             MARK;
-            MOVxw_REG(gd, x1);
+            MOVxw_REG(gd, x5);
             IFX(X_ZF) {
+                TSTxw_REG(x5, x5);
                 IFNATIVE(NF_EQ) {} else {
                     CSETw(x3, cEQ);
                     BFIw(xFlags, x3, F_ZF, 1);

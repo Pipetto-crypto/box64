@@ -24,7 +24,7 @@
 #define MAXBLOCK_SIZE ((1<<20)-200)
 
 #define RAZ_SPECIFIC(A, N)      rasNativeState(A, N)
-#define UPDATE_SPECIFICS(A)     updateNativeFlags(A)
+#define UPDATE_SPECIFICS(A)     updateYmm0s(dyn, 0, 0); updateNativeFlags(A); propagateFpuBarrier(A)
 #define PREUPDATE_SPECIFICS(A)
 #define POSTUPDATE_SPECIFICS(A) updateUneeded(A)
 #define ARCH_SIZE(A)    get_size_arch(A)
@@ -34,6 +34,8 @@
 #define ARCH_UNALIGNED(A, B) arch_unaligned(A, B)
 extern uint32_t arm64_crc(void* p, uint32_t len);
 #define ARCH_CRC(A, B)  if(cpuext.crc32) return arm64_crc(A, B)
+extern void* create_updateflags();
+#define ARCH_UPDATEFLAGS()      create_updateflags()
 
 #define ARCH_NOP    0b11010101000000110010000000011111
 #define ARCH_UDF    0xcafe

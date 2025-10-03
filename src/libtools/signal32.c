@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
-#include <signal.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -17,6 +16,7 @@
 #include <execinfo.h>
 #endif
 
+#include "x64_signals.h"
 #include "os.h"
 #include "box32context.h"
 #include "debug.h"
@@ -36,6 +36,21 @@
 #include "dynablock.h"
 #include "../dynarec/dynablock_private.h"
 #include "dynarec_native.h"
+#if defined(ARM64)
+#include "dynarec/arm64/arm64_mapping.h"
+#define CONTEXT_REG(P, X)   P->uc_mcontext.regs[X]
+#define CONTEXT_PC(P)       P->uc_mcontext.pc
+#elif defined(LA64)
+#include "dynarec/la64/la64_mapping.h"
+#define CONTEXT_REG(P, X)   P->uc_mcontext.__gregs[X]
+#define CONTEXT_PC(P)       P->uc_mcontext.__pc;
+#elif defined(RV64)
+#include "dynarec/rv64/rv64_mapping.h"
+#define CONTEXT_REG(P, X)   P->uc_mcontext.__gregs[X]
+#define CONTEXT_PC(P)       P->uc_mcontext.__gregs[REG_PC]
+#else
+#error Unsupported Architecture
+#endif //arch
 #endif
 
 
@@ -385,8 +400,6 @@ uint32_t RunFunctionHandler32(int* exit, int dynarec, i386_ucontext_t* sigcontex
     int old_cs = R_CS;
     R_CS = 0x23;
 
-    emu->eflags.x64 &= ~(1<<F_TF); // this one needs to cleared
-
     if(dynarec)
         DynaCall(emu, fnc);
     else
@@ -451,9 +464,9 @@ void convert_siginfo_to_32(void* d, void* s, int sig)
     siginfo_t* src = s;
 
     memcpy(dst, src, sizeof(my_siginfo32_t));
-    if(sig==SIGILL || sig==SIGFPE || sig==SIGSEGV || sig==SIGBUS)
-        dst->_sifields._sigfault.__si_addr = to_ptrv(src->si_addr);
-    if(sig==SIGCHLD) {
+    if(sig==X64_SIGILL || sig==X64_SIGFPE || sig==X64_SIGSEGV || sig==X64_SIGBUS)
+        dst->_sifields._sigfault.__si_addr = to_ptr(((uintptr_t)src->si_addr)&0xffffffff);  // in case addr is not a 32bits value...
+    if(sig==X64_SIGCHLD) {
         dst->_sifields._sigchld.__si_pid = src->si_pid;
         dst->_sifields._sigchld.__si_uid = src->si_uid;
         dst->_sifields._sigchld.__si_status = src->si_status;
@@ -471,7 +484,7 @@ int write_opcode(uintptr_t rip, uintptr_t native_ip, int is32bits);
 void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, siginfo_t* info, void * ucntx, int* old_code, void* cur_db)
 {
     int Locks = unlockMutex();
-    int log_minimum = (BOX64ENV(showsegv))?LOG_NONE:((sig==SIGSEGV && my_context->is_sigaction[sig])?LOG_DEBUG:LOG_INFO);
+    int log_minimum = (BOX64ENV(showsegv))?LOG_NONE:((sig==X64_SIGSEGV && my_context->is_sigaction[sig])?LOG_DEBUG:LOG_INFO);
 
     printf_log(LOG_DEBUG, "Sigactionhanlder32 for signal #%d called (jump to %p/%s)\n", sig, (void*)my_context->signals[sig], GetNativeName((void*)my_context->signals[sig]));
 
@@ -479,38 +492,16 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     // get that actual ESP first!
     if(!emu)
         emu = thread_get_emu();
-    uintptr_t frame = R_RSP;
+    uintptr_t frame = R_ESP;
 #if defined(DYNAREC)
-#if defined(ARM64)
     dynablock_t* db = (dynablock_t*)cur_db;//FindDynablockFromNativeAddress(pc);
     ucontext_t *p = (ucontext_t *)ucntx;
     void* pc = NULL;
     if(p) {
-        pc = (void*)p->uc_mcontext.pc;
+        pc = (void*)CONTEXT_PC(p);
         if(db)
-            frame = from_ptr((ptr_t)p->uc_mcontext.regs[10+_SP]);
+            frame = from_ptr((ptr_t)CONTEXT_REG(p, xRSP));
     }
-#elif defined(LA64)
-    dynablock_t* db = (dynablock_t*)cur_db;//FindDynablockFromNativeAddress(pc);
-    ucontext_t *p = (ucontext_t *)ucntx;
-    void* pc = NULL;
-    if(p) {
-        pc = (void*)p->uc_mcontext.__pc;
-        if(db)
-            frame = from_ptr((ptr_t)p->uc_mcontext.__gregs[12+_SP]);
-    }
-#elif defined(RV64)
-    dynablock_t* db = (dynablock_t*)cur_db;//FindDynablockFromNativeAddress(pc);
-    ucontext_t *p = (ucontext_t *)ucntx;
-    void* pc = NULL;
-    if(p) {
-        pc = (void*)p->uc_mcontext.__gregs[0];
-        if(db)
-            frame = from_ptr((ptr_t)p->uc_mcontext.__gregs[9]);
-    }
-#else
-#error Unsupported architecture
-#endif
 #else
     (void)ucntx; (void)cur_db;
     void* pc = NULL;
@@ -555,6 +546,7 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     sigcontext->uc_mcontext.gregs[I386_EIP] = R_EIP;//emu->old_ip;   // old_ip should be more accurate as the "current" IP, but it's not always up-to-date
     // flags
     sigcontext->uc_mcontext.gregs[I386_EFL] = emu->eflags.x64;
+    CLEAR_FLAG(F_TF);   // now clear TF flags inside the signal handler
     // get segments
     sigcontext->uc_mcontext.gregs[I386_CS] = R_CS;
     sigcontext->uc_mcontext.gregs[I386_DS] = R_DS;
@@ -601,15 +593,16 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     uint32_t mmapped = memExist((uintptr_t)info->si_addr);
     uint32_t sysmapped = (info->si_addr<(void*)box64_pagesize)?1:mmapped;
     uint32_t real_prot = 0;
+    int skip = 1;   // in case sigjump is used to restore exectuion, 1 will switch to interpreter, 3 will switch to dynarec
     if(prot&PROT_READ) real_prot|=PROT_READ;
     if(prot&PROT_WRITE) real_prot|=PROT_WRITE;
     if(prot&PROT_EXEC) real_prot|=PROT_WRITE;
     if(prot&PROT_DYNAREC) real_prot|=PROT_WRITE;
     sigcontext->uc_mcontext.gregs[I386_ERR] = 0;
     sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 0;
-    if(sig==SIGBUS)
+    if(sig==X64_SIGBUS)
         sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 17;
-    else if(sig==SIGSEGV) {
+    else if(sig==X64_SIGSEGV) {
         if((uintptr_t)info->si_addr == sigcontext->uc_mcontext.gregs[I386_EIP]) {
             if(info->si_errno==0xbad0) {
                 //bad opcode
@@ -646,10 +639,10 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             info2->si_code = 128;
             info2->_sifields._sigfault.__si_addr = 0;
             sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 13;
-
+            skip = 3;   // can resume in dynarec
             // some special cases...
             if(int_n==3) {
-                info2->si_signo = SIGTRAP;
+                info2->si_signo = X64_SIGTRAP;
                 sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 3;
                 sigcontext->uc_mcontext.gregs[I386_ERR] = 0;
             } else if(int_n==0x04) {
@@ -665,17 +658,19 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             info2->si_errno = 0;
             sigcontext->uc_mcontext.gregs[I386_ERR] = 0;
             sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 0;
-            info2->si_signo = SIGFPE;
+            info2->si_signo = X64_SIGFPE;
+            skip = 3; // can resume in dynarec
         }
-    } else if(sig==SIGFPE) {
+    } else if(sig==X64_SIGFPE) {
         if (info->si_code == FPE_INTOVF)
             sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 4;
         else
             sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 19;
-    } else if(sig==SIGILL) {
+        skip = 3;
+    } else if(sig==X64_SIGILL) {
         info2->si_code = 2;
         sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 6;
-    } else if(sig==SIGTRAP) {
+    } else if(sig==X64_SIGTRAP) {
         if(info->si_code==1) {  //single step
             info2->si_code = 2;
             info2->_sifields._sigfault.__si_addr = sigcontext->uc_mcontext.gregs[I386_EIP];
@@ -683,6 +678,8 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             info2->si_code = 128;
         sigcontext->uc_mcontext.gregs[I386_TRAPNO] = info->si_code;
         sigcontext->uc_mcontext.gregs[I386_ERR] = 0;
+    } else {
+        skip = 3;   // other signal can resume in interpretor
     }
     //TODO: SIGABRT generate what?
     printf_log((sig==10)?LOG_DEBUG:log_minimum, "Signal32 %d: si_addr=%p, TRAPNO=%d, ERR=%d, RIP=%p, prot:%x, mmaped:%d\n", sig, from_ptrv(info2->_sifields._sigfault.__si_addr), sigcontext->uc_mcontext.gregs[I386_TRAPNO], sigcontext->uc_mcontext.gregs[I386_ERR],from_ptrv(sigcontext->uc_mcontext.gregs[I386_EIP]), prot, mmapped);
@@ -706,7 +703,7 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     int ret;
     int dynarec = 0;
     #ifdef DYNAREC
-    if(sig!=SIGSEGV && !(Locks&is_dyndump_locked) && !(Locks&is_memprot_locked))
+    if(sig!=X64_SIGSEGV && !(Locks&is_dyndump_locked) && !(Locks&is_memprot_locked))
         dynarec = 1;
     #endif
     ret = RunFunctionHandler32(&exits, dynarec, sigcontext, my_context->signals[info2->si_signo], 3, info2->si_signo, info2, sigcontext);
@@ -734,6 +731,8 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             GO(SP);
             GO(BX);
             #undef GO
+            if((skip==1) && (emu->ip.q[0]!=sigcontext->uc_mcontext.gregs[I386_EIP]))
+                skip = 3;   // if it jumps elsewhere, it can resume with dynarec...
             emu->ip.q[0]=sigcontext->uc_mcontext.gregs[I386_EIP];
             // flags
             emu->eflags.x64=sigcontext->uc_mcontext.gregs[I386_EFL];
@@ -748,7 +747,7 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             #undef GO
             for(int i=0; i<6; ++i)
                 emu->segs_serial[i] = 0;
-            printf_log((sig==10)?LOG_DEBUG:log_minimum, "Context has been changed in Sigactionhanlder, doing siglongjmp to resume emu at %p, RSP=%p\n", (void*)R_RIP, (void*)R_RSP);
+            printf_log((sig==10)?LOG_DEBUG:log_minimum, "Context has been changed in Sigactionhanlder, doing siglongjmp to resume emu at %p, RSP=%p (resume with %s)\n", (void*)R_RIP, (void*)R_RSP, (skip==3)?"Dynarec":"Interp");
             if(old_code)
                 *old_code = -1;    // re-init the value to allow another segfault at the same place
             //relockMutex(Locks);   // do not relock mutex, because of the siglongjmp, whatever was running is canceled
@@ -760,9 +759,9 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             emu->xSPSave = emu->old_savedsp;
             #endif
             #ifdef ANDROID
-            siglongjmp(*emu->jmpbuf, 1);
+            siglongjmp(*emu->jmpbuf, skip);
             #else
-            siglongjmp(emu->jmpbuf, 1);
+            siglongjmp(emu->jmpbuf, skip);
             #endif
         }
         printf_log(LOG_INFO, "Warning, context has been changed in Sigactionhanlder%s\n", (sigcontext->uc_mcontext.gregs[I386_EIP]!=sigcontext_copy.uc_mcontext.gregs[I386_EIP])?" (EIP changed)":"");
@@ -832,10 +831,10 @@ EXPORT int my32_sigaction(x64emu_t* emu, int signum, const i386_sigaction_t *act
         return -1;
     }
 
-    if(signum==SIGSEGV && emu->context->no_sigsegv)
+    if(signum==X64_SIGSEGV && emu->context->no_sigsegv)
         return 0;
 
-    if(signum==SIGILL && emu->context->no_sigill)
+    if(signum==X64_SIGILL && emu->context->no_sigill)
         return 0;
     struct sigaction newact = {0};
     struct sigaction old = {0};
@@ -863,8 +862,8 @@ EXPORT int my32_sigaction(x64emu_t* emu, int signum, const i386_sigaction_t *act
         my_context->onstack[signum] = (act->sa_flags&SA_ONSTACK)?1:0;
     }
     int ret = 0;
-    if(signum!=SIGSEGV && signum!=SIGBUS && signum!=SIGILL && signum!=SIGABRT)
-        ret = sigaction(signum, act?&newact:NULL, oldact?&old:NULL);
+    if(signum!=X64_SIGSEGV && signum!=X64_SIGBUS && signum!=X64_SIGILL && signum!=X64_SIGABRT)
+        ret = sigaction(signal_from_x64(signum), act?&newact:NULL, oldact?&old:NULL);
     if(oldact) {
         oldact->sa_flags = old.sa_flags;
         oldact->sa_mask = old.sa_mask;

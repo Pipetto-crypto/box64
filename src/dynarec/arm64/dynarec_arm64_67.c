@@ -230,7 +230,9 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                                 addr = geted32(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, &unscaled, 0xfff<<2, 3, rex, NULL, 0, 0);
                                 VLD32(s0, ed, fixedaddress);
                             }
-                            FCMPS(v0, s0);
+                            IFX(X_CF|X_PF|X_ZF) {
+                                FCMPS(v0, s0);
+                            }
                             FCOMI(x1, x2);
                             break;
                         default:
@@ -1246,6 +1248,12 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             }
             break;
 
+        case 0x9C:
+            INST_NAME("PUSHF");
+            READFLAGS(X_ALL);
+            PUSH1z(xFlags);
+            break;
+
         case 0xA1:
             INST_NAME("MOV EAX,Od");
             u64 = F32;
@@ -1424,66 +1432,57 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
 
 
-        #define GO(NO, YES)                                             \
-            BARRIER(BARRIER_MAYBE);                                     \
+        #define GO(Z)                                                   \
             JUMP(addr+i8, 1);                                           \
             if(dyn->insts[ninst].x64.jmp_insts==-1 ||                   \
                 CHECK_CACHE()) {                                        \
                 /* out of the block */                                  \
                 i32 = dyn->insts[ninst].epilog-(dyn->native_size);      \
-                Bcond(NO, i32);                                         \
+                if(Z) {CBNZw(xRCX, i32);} else {CBZw(xRCX, i32);};      \
                 if(dyn->insts[ninst].x64.jmp_insts==-1) {               \
                     if(!(dyn->insts[ninst].x64.barrier&BARRIER_FLOAT))  \
                         fpu_purgecache(dyn, ninst, 1, x1, x2, x3);      \
                     jump_to_next(dyn, addr+i8, 0, ninst, rex.is32bits); \
                 } else {                                                \
-                    CacheTransform(dyn, ninst, cacheupd, x1, x2, x3);   \
-                    i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);\
+                    CacheTransform(dyn, ninst, cacheupd);               \
+                    i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);    \
                     SKIP_SEVL(i32);                                     \
-                    B(i32);                                             \
+                    Bcond(c__, i32);                                    \
                 }                                                       \
             } else {                                                    \
                 /* inside the block */                                  \
                 i32 = dyn->insts[dyn->insts[ninst].x64.jmp_insts].address-(dyn->native_size);    \
                 SKIP_SEVL(i32);                                         \
-                Bcond(YES, i32);                                        \
+                if(Z) {CBZw(xRCX, i32);} else {CBNZw(xRCX, i32);};      \
             }
         case 0xE0:
             INST_NAME("LOOPNZ (32bits)");
             READFLAGS(X_ZF);
+            SMEND();
             i8 = F8S;
-            MOVw_REG(x1, xRCX);
-            SUBw_U12(x1, x1, 1);
-            BFIx(xRCX, x1, 0, 32);
-            CBZw_NEXT(x1);    // ECX is 0, no LOOP
-            TSTw_mask(xFlags, 0b011010, 0); //mask=0x40
-            GO(cNE, cEQ);
+            SUBw_U12(xRCX, xRCX, 1);
+            TBNZ_NEXT(xFlags, F_ZF);
+            GO(0);
             break;
         case 0xE1:
             INST_NAME("LOOPZ (32bits)");
             READFLAGS(X_ZF);
+            SMEND();
             i8 = F8S;
-            MOVw_REG(x1, xRCX);
-            SUBw_U12(x1, x1, 1);
-            BFIx(xRCX, x1, 0, 32);
-            CBZw_NEXT(x1);    // ECX is 0, no LOOP
-            TSTw_mask(xFlags, 0b011010, 0); //mask=0x40
-            GO(cEQ, cNE);
+            SUBw_U12(xRCX, xRCX, 1);
+            TBZ_NEXT(xFlags, F_ZF);
+            GO(0);
             break;
         case 0xE2:
             INST_NAME("LOOP (32bits)");
             i8 = F8S;
-            MOVw_REG(x1, xRCX);
-            SUBSw_U12(x1, x1, 1);
-            BFIx(xRCX, x1, 0, 32);
-            GO(cEQ, cNE);
+            SUBw_U12(xRCX, xRCX, 1);
+            GO(0);
             break;
         case 0xE3:
             INST_NAME("JECXZ");
             i8 = F8S;
-            MOVw_REG(x1, xRCX);
-            TSTw_REG(x1, x1);
-            GO(cNE, cEQ);
+            GO(1);
             break;
         #undef GO
 
@@ -1753,6 +1752,7 @@ uintptr_t dynarec64_67(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                         LDRx_U12(x4, x4, 0);
                         BR(x4);
                     }
+                    CLEARIP();
                     break;
                 default:
                     DEFAULT;

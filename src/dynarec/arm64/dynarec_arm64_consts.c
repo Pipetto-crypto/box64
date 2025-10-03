@@ -49,6 +49,7 @@ uintptr_t getConst(arm64_consts_t which)
         case const_native_br: return (uintptr_t)native_br;
         case const_native_ud: return (uintptr_t)native_ud;
         case const_native_priv: return (uintptr_t)native_priv;
+        case const_native_gpf: return (uintptr_t)native_gpf;
         case const_native_int3: return (uintptr_t)native_int3;
         case const_native_int: return (uintptr_t)native_int;
         case const_native_div0: return (uintptr_t)native_div0;
@@ -100,7 +101,7 @@ uintptr_t getConst(arm64_consts_t which)
         case const_helper_getcpu: return (uintptr_t)helper_getcpu;
         case const_cpuid: return (uintptr_t)my_cpuid;
         case const_getsegmentbase: return (uintptr_t)GetSegmentBaseEmu;
-        case const_updateflags: return (uintptr_t)UpdateFlags;
+        case const_updateflags_arm64: return (uintptr_t)create_updateflags();
         case const_reset_fpu: return (uintptr_t)reset_fpu;
         case const_sha1msg2: return (uintptr_t)sha1msg2;
         case const_sha1rnds4: return (uintptr_t)sha1rnds4;

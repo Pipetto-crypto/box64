@@ -43,10 +43,10 @@ void* LinkNext(x64emu_t* emu, uintptr_t addr, void* x2, uintptr_t* x3)
     } else if(emu->segs[_CS]==0x23 && addr>0x100000000LL) {
         dynablock_t* db = FindDynablockFromNativeAddress(x2-4);
         printf_log(LOG_INFO, "Warning, jumping to high address %p from %p (db=%p, x64addr=%p/%s)\n", (void*)addr, x2-4, db, db?(void*)getX64Address(db, (uintptr_t)x2-4):NULL, db?getAddrFunctionName(getX64Address(db, (uintptr_t)x2-4)):"(nil)");
+    #endif
     } else if(!memExist(new_addr)) {
         dynablock_t* db = FindDynablockFromNativeAddress(x2-4);
         printf_log(LOG_INFO, "Warning, jumping to an unmapped address %p->%p from %p (db=%p, x64addr=%p/%s)\n", (void*)new_addr, (void*)addr, x2-4, db, db?(void*)getX64Address(db, (uintptr_t)x2-4):NULL, db?getAddrFunctionName(getX64Address(db, (uintptr_t)x2-4)):"(nil)");
-    #endif
     }
     #endif
     void * jblock;
@@ -166,7 +166,7 @@ void DynaRun(x64emu_t* emu)
             if ((skip = SigSetJmp(emu->jmpbuf, 1)))
             #endif
             {
-                printf_log(LOG_DEBUG, "Setjmp DynaRun, fs=0x%x\n", emu->segs[_FS]);
+                dynarec_log(LOG_DEBUG, "Setjmp DynaRun, fs=0x%x will %sskip dynarec next\n", emu->segs[_FS], (skip==3)?"not ":"");
                 #ifdef DYNAREC
                 if(BOX64ENV(dynarec_test)) {
                     if(emu->test.clean)

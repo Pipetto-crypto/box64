@@ -6,6 +6,7 @@
 typedef struct x64emu_s x64emu_t;
 typedef struct dynablock_s dynablock_t;
 typedef struct instsize_s instsize_t;
+typedef struct box64env_s box64env_t;
 
 #define BARRIER_MAYBE   8
 
@@ -72,7 +73,6 @@ typedef struct neoncache_s {
     int8_t              x87stack;       // cache stack counter
     int8_t              mmxcount;       // number of mmx register used (not both mmx and x87 at the same time)
     int8_t              fpu_scratch;    // scratch counter
-    int8_t              fpu_reg;        // x87/sse/mmx reg counter
     uint16_t            xmm_write;      // 1bit of xmmXX removed write
     uint16_t            xmm_removed;    // 1bit if xmmXX was removed
     uint16_t            xmm_used;       // mask of the xmm regs used in this opcode
@@ -87,7 +87,6 @@ typedef struct neoncache_s {
 typedef struct flagcache_s {
     int                 pending;    // is there a pending flags here, or to check?
     uint8_t             dfnone;     // if deferred flags is already set to df_none
-    uint8_t             dfnone_here;// defered flags is cleared in this opcode
 } flagcache_t;
 
 typedef struct instruction_arm64_s {
@@ -116,7 +115,6 @@ typedef struct instruction_arm64_s {
     uint8_t             will_read:1;     // [strongmem] will read from memory
     uint8_t             last_write:1;    // [strongmem] the last write in a SEQ
     uint8_t             lock:1;          // [strongmem] lock semantic
-    uint8_t             lock_prefixed:1; // [strongmem] the opcode is lock prefixed
     uint8_t             wfe:1;        // opcode uses sevl + wfe
     uint8_t             set_nat_flags;  // 0 or combinaison of native flags define
     uint8_t             use_nat_flags;  // 0 or combinaison of native flags define
@@ -132,6 +130,10 @@ typedef struct instruction_arm64_s {
     unsigned            df_notneeded:1;
     unsigned            unaligned:1;    // this opcode can be re-generated for unaligned special case
     unsigned            x87precision:1; // this opcode can handle x87pc
+    unsigned            mmx_used:1; // no fine tracking, just a global "any reg used"
+    unsigned            x87_used:1; // no fine tracking, just a global "any reg used"
+    unsigned            fpu_used:1; // any xmm/ymm/x87/mmx reg used
+    unsigned            fpupurge:1;   // this opcode will purge all fpu regs
     flagcache_t         f_exit;     // flags status at end of instruction
     neoncache_t         n;          // neoncache at end of instruction (but before poping)
     flagcache_t         f_entry;    // flags status before the instruction begin
@@ -183,6 +185,7 @@ typedef struct dynarec_arm_s {
     int                 need_reloc; // does the dynablock need relocations
     int                 reloc_size;
     uint32_t*           relocs;
+    box64env_t*         env;
 } dynarec_arm_t;
 
 void add_next(dynarec_arm_t *dyn, uintptr_t addr);

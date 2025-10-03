@@ -4,7 +4,6 @@
 #include <errno.h>
 #include <string.h>
 #include <math.h>
-#include <signal.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -182,7 +181,6 @@ int is_ymm_to_keep(dynarec_arm_t* dyn, int reg, int k1, int k2, int k3)
 // Reset fpu regs counter
 static void fpu_reset_reg_neoncache(neoncache_t* n)
 {
-    n->fpu_reg = 0;
     for (int i=0; i<32; ++i) {
         n->fpuused[i]=0;
         n->neoncache[i].v = 0;
@@ -563,7 +561,6 @@ void neoncacheUnwind(neoncache_t* cache)
     // And now, rebuild the x87cache info with neoncache
     cache->mmxcount = 0;
     cache->fpu_scratch = 0;
-    cache->fpu_reg = 0;
     for(int i=0; i<8; ++i) {
         cache->x87cache[i] = -1;
         cache->mmxcache[i] = -1;
@@ -579,13 +576,11 @@ void neoncacheUnwind(neoncache_t* cache)
                 case NEON_CACHE_MM:
                     cache->mmxcache[cache->neoncache[i].n] = i;
                     ++cache->mmxcount;
-                    ++cache->fpu_reg;
                     break;
                 case NEON_CACHE_XMMR:
                 case NEON_CACHE_XMMW:
                     cache->ssecache[cache->neoncache[i].n].reg = i;
                     cache->ssecache[cache->neoncache[i].n].write = (cache->neoncache[i].t==NEON_CACHE_XMMW)?1:0;
-                    ++cache->fpu_reg;
                     break;
                 case NEON_CACHE_YMMR:
                 case NEON_CACHE_YMMW:
@@ -597,7 +592,6 @@ void neoncacheUnwind(neoncache_t* cache)
                     cache->x87cache[x87reg] = cache->neoncache[i].n;
                     cache->x87reg[x87reg] = i;
                     ++x87reg;
-                    ++cache->fpu_reg;
                     break;
                 case NEON_CACHE_SCR:
                     cache->fpuused[i] = 0;
@@ -617,7 +611,6 @@ void neoncacheUnwind(neoncache_t* cache)
                 cache->neoncache[reg].n = i;
                 cache->ssecache[i].reg = reg;
                 cache->ssecache[i].write = (cache->xmm_write&(1<<i))?1:0;
-                ++cache->fpu_reg;
             }
         cache->xmm_write = cache->xmm_removed = 0;
     }
@@ -777,10 +770,17 @@ static register_mapping_t register_mappings[] = {
 void printf_x64_instruction(dynarec_native_t* dyn, zydis_dec_t* dec, instruction_x64_t* inst, const char* name);
 void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t rex)
 {
-    if (!dyn->need_dump && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
+    if (!dyn->need_dump && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) {
+        /*zydis_dec_t* dec = rex.is32bits ? my_context->dec32 : my_context->dec;
+        if(dec && !OpcodeOK(dec, dyn->insts[ninst].x64.addr) && !strstr(name, "Illegal")) {
+            uint8_t* p = (uint8_t*)dyn->insts[ninst].x64.addr;
+            printf_log(LOG_INFO, "Warning: %p invalid opcode %02x %02x %02x %02x %02x %02x treated as valid\n", p, p[0], p[1], p[2], p[3], p[4], p[5]);
+        }*/
+        return;
+    }
 
     static char buf[4096];
-    int length = sprintf(buf, "barrier=%d state=%d/%d/%d(%d:%d->%d:%d), %s=%X/%X, use=%X, need=%X/%X, sm=%d(%d/%d)",
+    int length = sprintf(buf, "barrier=%d state=%d/%d/%d(%d:%d->%d:%d), %s=%X/%X, use=%X, need=%X/%X, sm=%d(%d/%d/%d)",
         dyn->insts[ninst].x64.barrier,
         dyn->insts[ninst].x64.state_flags,
         dyn->f.pending,
@@ -795,7 +795,7 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
         dyn->insts[ninst].x64.use_flags,
         dyn->insts[ninst].x64.need_before,
         dyn->insts[ninst].x64.need_after,
-        dyn->smwrite, dyn->insts[ninst].will_write, dyn->insts[ninst].last_write);
+        dyn->smwrite, dyn->insts[ninst].will_write, dyn->insts[ninst].last_write, dyn->insts[ninst].lock);
     if (dyn->insts[ninst].nat_flags_op) {
         if (dyn->insts[ninst].nat_flags_op == NAT_FLAG_OP_TOUCH && dyn->insts[ninst].before_nat_flags)
             length += sprintf(buf + length, " NF:%d/read:%x", dyn->insts[ninst].nat_flags_op, dyn->insts[ninst].before_nat_flags);
@@ -1155,6 +1155,7 @@ void updateNativeFlags(dynarec_native_t* dyn)
 void rasNativeState(dynarec_arm_t* dyn, int ninst)
 {
     dyn->insts[ninst].nat_flags_op = dyn->insts[ninst].set_nat_flags = dyn->insts[ninst].use_nat_flags = dyn->insts[ninst].need_nat_flags = 0;
+    dyn->insts[ninst].ymm0_in = dyn->insts[ninst].ymm0_sub = dyn->insts[ninst].ymm0_add = dyn->insts[ninst].ymm0_out = dyn->insts[ninst].purge_ymm = 0;
 }
 
 int nativeFlagsNeedsTransform(dynarec_arm_t* dyn, int ninst)
@@ -1196,30 +1197,21 @@ void fpu_unwind_restore(dynarec_arm_t* dyn, int ninst, neoncache_t* cache)
     memcpy(&dyn->insts[ninst].n, cache, sizeof(neoncache_t));
 }
 
-static void propagateXMMUneeded(dynarec_arm_t* dyn, int ninst, int a)
+static void propagateXYMMUneeded(dynarec_arm_t* dyn, int ninst, uint16_t mask_x, uint16_t mask_y)
 {
     if(!ninst) return;
     ninst = getNominalPred(dyn, ninst);
     while(ninst>=0) {
-        if(dyn->insts[ninst].n.xmm_used&(1<<a)) return; // used, value is needed
+        mask_x &= ~dyn->insts[ninst].n.xmm_used;
+        mask_y &= ~dyn->insts[ninst].n.ymm_used;
+        if(!mask_x && !mask_y) return; // used, value is needed
         if(dyn->insts[ninst].x64.barrier&BARRIER_FLOAT) return; // barrier, value is needed
-        if(dyn->insts[ninst].n.xmm_unneeded&(1<<a)) return; // already handled
+        mask_x &= ~dyn->insts[ninst].n.xmm_unneeded;
+        mask_y &= ~dyn->insts[ninst].n.ymm_unneeded;
+        if(!mask_x && !mask_y) return; // already handled
         if(dyn->insts[ninst].x64.jmp) return;   // stop when a jump is detected, that gets too complicated
-        dyn->insts[ninst].n.xmm_unneeded |= (1<<a); // flags
-        ninst = getNominalPred(dyn, ninst); // continue
-    }
-}
-
-static void propagateYMMUneeded(dynarec_arm_t* dyn, int ninst, int a)
-{
-    if(!ninst) return;
-    ninst = getNominalPred(dyn, ninst);
-    while(ninst>=0) {
-        if(dyn->insts[ninst].n.ymm_used&(1<<a)) return; // used, value is needed
-        if(dyn->insts[ninst].x64.barrier&BARRIER_FLOAT) return; // barrier, value is needed
-        if(dyn->insts[ninst].n.ymm_unneeded&(1<<a)) return; // already handled
-        if(dyn->insts[ninst].x64.jmp) return;   // stop when a jump is detected, that gets too complicated
-        dyn->insts[ninst].n.ymm_unneeded |= (1<<a); // flags
+        dyn->insts[ninst].n.xmm_unneeded |= mask_x; // flags
+        dyn->insts[ninst].n.ymm_unneeded |= mask_y; // flags
         ninst = getNominalPred(dyn, ninst); // continue
     }
 }
@@ -1227,13 +1219,178 @@ static void propagateYMMUneeded(dynarec_arm_t* dyn, int ninst, int a)
 void updateUneeded(dynarec_arm_t* dyn)
 {
     for(int ninst=0; ninst<dyn->size; ++ninst) {
-        if(dyn->insts[ninst].n.xmm_unneeded)
-            for(int i=0; i<16; ++i)
-                if(dyn->insts[ninst].n.xmm_unneeded&(1<<i))
-                    propagateXMMUneeded(dyn, ninst, i);
-        if(dyn->insts[ninst].n.ymm_unneeded)
-            for(int i=0; i<16; ++i)
-                if(dyn->insts[ninst].n.ymm_unneeded&(1<<i))
-                    propagateYMMUneeded(dyn, ninst, i);
+        if(dyn->insts[ninst].n.xmm_unneeded || dyn->insts[ninst].n.ymm_unneeded)
+            propagateXYMMUneeded(dyn, ninst, dyn->insts[ninst].n.xmm_unneeded, dyn->insts[ninst].n.ymm_unneeded);
     }
+}
+
+void tryEarlyFpuBarrier(dynarec_arm_t* dyn, int last_fpu_used, int ninst)
+{
+    // there is a barrier at ninst
+    // check if, up to last fpu_used, if there is some suspicious jump that would prevent the barrier to be put earlier
+    int usefull = 0;
+    for(int i=ninst-1; i>last_fpu_used; --i)
+    {
+        if(!dyn->insts[i].x64.has_next)
+            return; // break of chain, don't try to be smart for now
+        if(dyn->insts[i].x64.barrier&BARRIER_FLOAT)
+            return; // already done?
+        if(dyn->insts[i].x64.jmp && dyn->insts[i].x64.jmp_insts==-1)
+            usefull = 1;
+        if(dyn->insts[i].x64.jmp && dyn->insts[i].x64.jmp_insts!=-1) {
+            int i2 = dyn->insts[i].x64.jmp_insts;
+            if(i2<last_fpu_used || i2>ninst) {
+                // check if some xmm/ymm/x87 stack are used in landing point
+                if(i2>ninst) {
+                    if(dyn->insts[i2].n.xmm_used || dyn->insts[i2].n.ymm_used || dyn->insts[i2].n.stack)
+                        return;
+                }
+                // we will stop there, not trying to guess too much thing
+                if((usefull && (i+1)!=ninst)) {
+                    if(BOX64ENV(dynarec_dump) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", i+1, ninst);
+                    dyn->insts[i+1].x64.barrier|=BARRIER_FLOAT;
+                }
+                return;
+            }
+            usefull = 1;
+        }
+        for(int pred=0; pred<dyn->insts[i].pred_sz; ++pred) {
+            if(dyn->insts[i].pred[pred]<=last_fpu_used) {
+                if(usefull && ((i+1)!=ninst)) {
+                    if(BOX64ENV(dynarec_dump) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", i+1, ninst);
+                    dyn->insts[i+1].x64.barrier|=BARRIER_FLOAT;
+                }
+                return;
+            }
+        }
+        if(dyn->insts[i].pred_sz>1)
+            usefull = 1;
+    }
+    if(usefull) {
+        if(BOX64ENV(dynarec_dump) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", last_fpu_used, ninst);
+        dyn->insts[last_fpu_used+1].x64.barrier|=BARRIER_FLOAT;
+    }
+}
+
+void propagateFpuBarrier(dynarec_arm_t* dyn)
+{
+    int last_fpu_used = -1;
+    for(int ninst=0; ninst<dyn->size; ++ninst) {
+        int fpu_used = dyn->insts[ninst].n.xmm_used || dyn->insts[ninst].n.ymm_used || dyn->insts[ninst].mmx_used || dyn->insts[ninst].x87_used;
+        if(fpu_used) last_fpu_used = ninst;
+        dyn->insts[ninst].fpu_used = fpu_used;
+        if(dyn->insts[ninst].fpupurge && (last_fpu_used!=-1) && (last_fpu_used!=(ninst-1))) {
+            tryEarlyFpuBarrier(dyn, last_fpu_used, ninst);
+            last_fpu_used = -1;  // reset the last_fpu_used...
+        }
+    }
+}
+
+
+void updateYmm0s(dynarec_arm_t* dyn, int ninst, int max_ninst_reached)
+{
+    int can_incr = ninst == max_ninst_reached; // Are we the top-level call?
+    int ok = 1;
+    while ((can_incr || ok) && ninst < dyn->size) {
+        // if(dyn->need_dump) dynarec_log(LOG_NONE, "update ninst=%d (%d): can_incr=%d\n", ninst, max_ninst_reached, can_incr);
+        uint16_t new_purge_ymm, new_ymm0_in, new_ymm0_out;
+
+        if (dyn->insts[ninst].pred_sz && dyn->insts[ninst].x64.alive) {
+            // The union of the empty set is empty (0), the intersection is the universe (-1)
+            // The first instruction is the entry point, which has a virtual pred with ymm0_out = 0
+            // Similarly, float barriers reset ymm0s
+            uint16_t ymm0_union = 0;
+            uint16_t ymm0_inter = (ninst && !(dyn->insts[ninst].x64.barrier & BARRIER_FLOAT)) ? ((uint16_t)-1) : (uint16_t)0;
+            for (int i = 0; i < dyn->insts[ninst].pred_sz; ++i) {
+                int pred = dyn->insts[ninst].pred[i];
+                // if(dyn->need_dump) dynarec_log(LOG_NONE, "\twith pred[%d] = %d", i, pred);
+                if (pred >= max_ninst_reached) {
+                    // if(dyn->need_dump) dynarec_log(LOG_NONE, " (skipped)\n");
+                    continue;
+                }
+
+                int pred_out = dyn->insts[pred].x64.has_callret ? 0 : dyn->insts[pred].ymm0_out;
+                // if(dyn->need_dump) dynarec_log(LOG_NONE, " ~> %04X\n", pred_out);
+                ymm0_union |= pred_out;
+                ymm0_inter &= pred_out;
+            }
+            // if(dyn->need_dump) dynarec_log(LOG_NONE, "\t=> %04X,%04X\n", ymm0_union, ymm0_inter);
+            //  Notice the default values yield something coherent here (if all pred are after ninst)
+            new_purge_ymm = ymm0_union & ~ymm0_inter;
+            new_ymm0_in = ymm0_inter;
+            new_ymm0_out = (ymm0_inter | dyn->insts[ninst].ymm0_add) & ~dyn->insts[ninst].ymm0_sub;
+
+            if ((dyn->insts[ninst].purge_ymm != new_purge_ymm) || (dyn->insts[ninst].ymm0_in != new_ymm0_in) || (dyn->insts[ninst].ymm0_out != new_ymm0_out)) {
+                // Need to update self and next(s)
+                dyn->insts[ninst].purge_ymm = new_purge_ymm;
+                dyn->insts[ninst].ymm0_in = new_ymm0_in;
+                dyn->insts[ninst].ymm0_out = new_ymm0_out;
+
+                if (can_incr) {
+                    // We always have ninst == max_ninst_reached when can_incr == 1
+                    ++max_ninst_reached;
+                } else {
+                    // We need to stop here if the opcode has no "real" next or if we reached the ninst of the toplevel
+                    ok = (max_ninst_reached - 1 != ninst) && dyn->insts[ninst].x64.has_next && !dyn->insts[ninst].x64.has_callret;
+                }
+
+                int jmp = (dyn->insts[ninst].x64.jmp) ? dyn->insts[ninst].x64.jmp_insts : -1;
+                if ((jmp != -1) && (jmp < max_ninst_reached)) {
+                    // if(dyn->need_dump) dynarec_log(LOG_NONE, "\t! jump to %d\n", jmp);
+                    //  The jump goes before the last instruction reached, update the destination
+                    //  If this is the top level call, this means the jump goes backward (jmp != ninst)
+                    //  Otherwise, since we don't update all instructions, we may miss the update (don't use jmp < ninst)
+                    updateYmm0s(dyn, jmp, max_ninst_reached);
+                }
+            } else {
+                if (can_incr) {
+                    // We always have ninst == max_ninst_reached when can_incr == 1
+                    ++max_ninst_reached;
+
+                    // Also update jumps to before (they are skipped otherwise)
+                    int jmp = (dyn->insts[ninst].x64.jmp) ? dyn->insts[ninst].x64.jmp_insts : -1;
+                    if ((jmp != -1) && (jmp < max_ninst_reached)) {
+                        // if(dyn->need_dump) dynarec_log(LOG_NONE, "\t! jump to %d\n", jmp);
+                        updateYmm0s(dyn, jmp, max_ninst_reached);
+                    }
+                } else {
+                    // We didn't update anything, we can leave
+                    ok = 0;
+                }
+            }
+        } else if (can_incr) {
+            // We always have ninst == max_ninst_reached when can_incr == 1
+            ++max_ninst_reached;
+        } else {
+            // We didn't update anything, we can leave
+            ok = 0;
+        }
+        ++ninst;
+    }
+}
+
+
+// AVX helpers
+void avx_mark_zero(dynarec_arm_t* dyn, int ninst, int reg)
+{
+    dyn->ymm_zero |= (1<<reg);
+}
+
+int is_avx_zero(dynarec_arm_t* dyn, int ninst, int reg)
+{
+    return (dyn->ymm_zero>>reg)&1;
+}
+
+int is_avx_zero_unset(dynarec_arm_t* dyn, int ninst, int reg)
+{
+    if((dyn->ymm_zero>>reg)&1) {
+        dyn->ymm_zero &= ~(1<<reg);
+        return 1;
+    }
+    return 0;
+}
+
+void avx_mark_zero_reset(dynarec_arm_t* dyn, int ninst)
+{
+    dyn->ymm_zero = 0;
 }

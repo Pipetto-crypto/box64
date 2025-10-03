@@ -352,9 +352,8 @@ static void recurse_mark_alive(dynarec_native_t* dyn, int i)
         recurse_mark_alive(dyn, i+1);
 }
 
-static int sizePredecessors(dynarec_native_t* dyn)
+static void sizePredecessors(dynarec_native_t* dyn)
 {
-    int pred_sz = 1;    // to be safe
     // compute total size of predecessor to allocate the array
     // mark alive...
     recurse_mark_alive(dyn, 0);
@@ -362,7 +361,6 @@ static int sizePredecessors(dynarec_native_t* dyn)
     int jmpto;
     for(int i=0; i<dyn->size; ++i) {
         if(dyn->insts[i].x64.alive && dyn->insts[i].x64.jmp && ((jmpto=dyn->insts[i].x64.jmp_insts)!=-1)) {
-            pred_sz++;
             dyn->insts[jmpto].pred_sz++;
         }
     }
@@ -374,11 +372,9 @@ static int sizePredecessors(dynarec_native_t* dyn)
     // second the "has_next"
     for(int i=0; i<dyn->size-1; ++i) {
         if(dyn->insts[i].x64.has_next) {
-            pred_sz++;
             dyn->insts[i+1].pred_sz++;
         }
     }
-    return pred_sz;
 }
 static void fillPredecessors(dynarec_native_t* dyn)
 {
@@ -444,92 +440,13 @@ static int updateNeed(dynarec_native_t* dyn, int ninst, uint8_t need) {
     return ninst;
 }
 
-static void updateYmm0s(dynarec_native_t* dyn, int ninst, int max_ninst_reached) {
-    int can_incr = ninst == max_ninst_reached; // Are we the top-level call?
-    int ok = 1;
-    while ((can_incr || ok) && ninst<dyn->size) {
-        //if(dyn->need_dump) dynarec_log(LOG_NONE, "update ninst=%d (%d): can_incr=%d\n", ninst, max_ninst_reached, can_incr);
-        uint16_t new_purge_ymm, new_ymm0_in, new_ymm0_out;
-
-        if (dyn->insts[ninst].pred_sz && dyn->insts[ninst].x64.alive) {
-            // The union of the empty set is empty (0), the intersection is the universe (-1)
-            // The first instruction is the entry point, which has a virtual pred with ymm0_out = 0
-            // Similarly, float barriers reset ymm0s
-            uint16_t ymm0_union = 0;
-            uint16_t ymm0_inter = (ninst && !(dyn->insts[ninst].x64.barrier & BARRIER_FLOAT)) ? ((uint16_t)-1) : (uint16_t)0;
-            for (int i = 0; i < dyn->insts[ninst].pred_sz; ++i) {
-                int pred = dyn->insts[ninst].pred[i];
-                //if(dyn->need_dump) dynarec_log(LOG_NONE, "\twith pred[%d] = %d", i, pred);
-                if (pred >= max_ninst_reached) {
-                    //if(dyn->need_dump) dynarec_log(LOG_NONE, " (skipped)\n");
-                    continue;
-                }
-
-                int pred_out = dyn->insts[pred].x64.has_callret ? 0 : dyn->insts[pred].ymm0_out;
-                //if(dyn->need_dump) dynarec_log(LOG_NONE, " ~> %04X\n", pred_out);
-                ymm0_union |= pred_out;
-                ymm0_inter &= pred_out;
-            }
-            //if(dyn->need_dump) dynarec_log(LOG_NONE, "\t=> %04X,%04X\n", ymm0_union, ymm0_inter);
-            // Notice the default values yield something coherent here (if all pred are after ninst)
-            new_purge_ymm = ymm0_union & ~ymm0_inter;
-            new_ymm0_in = ymm0_inter;
-            new_ymm0_out = (ymm0_inter | dyn->insts[ninst].ymm0_add) & ~dyn->insts[ninst].ymm0_sub;
-
-            if ((dyn->insts[ninst].purge_ymm != new_purge_ymm) || (dyn->insts[ninst].ymm0_in != new_ymm0_in) || (dyn->insts[ninst].ymm0_out != new_ymm0_out)) {
-                // Need to update self and next(s)
-                dyn->insts[ninst].purge_ymm = new_purge_ymm;
-                dyn->insts[ninst].ymm0_in = new_ymm0_in;
-                dyn->insts[ninst].ymm0_out = new_ymm0_out;
-
-                if (can_incr) {
-                    // We always have ninst == max_ninst_reached when can_incr == 1
-                    ++max_ninst_reached;
-                } else {
-                    // We need to stop here if the opcode has no "real" next or if we reached the ninst of the toplevel
-                    ok = (max_ninst_reached - 1 != ninst) && dyn->insts[ninst].x64.has_next && !dyn->insts[ninst].x64.has_callret;
-                }
-
-                int jmp = (dyn->insts[ninst].x64.jmp)?dyn->insts[ninst].x64.jmp_insts:-1;
-                if((jmp!=-1) && (jmp < max_ninst_reached)) {
-                    //if(dyn->need_dump) dynarec_log(LOG_NONE, "\t! jump to %d\n", jmp);
-                    // The jump goes before the last instruction reached, update the destination
-                    // If this is the top level call, this means the jump goes backward (jmp != ninst)
-                    // Otherwise, since we don't update all instructions, we may miss the update (don't use jmp < ninst)
-                    updateYmm0s(dyn, jmp, max_ninst_reached);
-                }
-            } else {
-                if (can_incr) {
-                    // We always have ninst == max_ninst_reached when can_incr == 1
-                    ++max_ninst_reached;
-
-                    // Also update jumps to before (they are skipped otherwise)
-                    int jmp = (dyn->insts[ninst].x64.jmp)?dyn->insts[ninst].x64.jmp_insts:-1;
-                    if((jmp!=-1) && (jmp < max_ninst_reached)) {
-                        //if(dyn->need_dump) dynarec_log(LOG_NONE, "\t! jump to %d\n", jmp);
-                        updateYmm0s(dyn, jmp, max_ninst_reached);
-                    }
-                } else {
-                    // We didn't update anything, we can leave
-                    ok = 0;
-                }
-            }
-        } else if (can_incr) {
-            // We always have ninst == max_ninst_reached when can_incr == 1
-            ++max_ninst_reached;
-        } else {
-            // We didn't update anything, we can leave
-            ok = 0;
-        }
-        ++ninst;
-    }
-}
-
 void* current_helper = NULL;
 static int static_jmps[MAX_INSTS+2];
 static uintptr_t static_next[MAX_INSTS+2];
 static instruction_native_t static_insts[MAX_INSTS+2] = {0};
 static callret_t static_callrets[MAX_INSTS+2] = {0};
+static int static_preds[MAX_INSTS*2+2]; // for the worst case scenario were all instructions are conditional jumps
+void* redundant_helper = NULL;
 // TODO: ninst could be a uint16_t instead of an int, that could same some temp. memory
 
 void ClearCache(void* start, size_t len)
@@ -575,6 +492,7 @@ void CancelBlock64(int need_lock)
         }
     }
     current_helper = NULL;
+    redundant_helper = NULL;
     if(need_lock)
         mutex_unlock(&my_context->mutex_dyndump);
 }
@@ -631,13 +549,16 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
         dynarec_log(LOG_INFO, "Create empty block in no-dynarec zone\n");
         return CreateEmptyBlock(addr, is32bits, is_new);
     }
-    if(current_helper) {
-        dynarec_log(LOG_DEBUG, "Canceling dynarec FillBlock at %p as another one is going on\n", (void*)addr);
-        return NULL;
-    }
     if(checkInHotPage(addr)) {
         dynarec_log(LOG_DEBUG, "Not creating dynablock at %p as in a HotPage\n", (void*)addr);
         return NULL;
+    }
+    if(current_helper) {
+        if(current_helper==redundant_helper) {
+            dynarec_log(LOG_INFO, "%04d|Warning: previous FillBlock did not cleaned up correctly (helper=%p, x64addr=%p, db=%p)\n", GetTID(), current_helper, (void*)((dynarec_native_t*)current_helper)->start, ((dynarec_native_t*)current_helper)->dynablock);
+            return NULL;
+        }
+        dynarec_log(LOG_INFO, "Warning: some static area curruption appeared (current=%p, redundant=%p)\n", current_helper, redundant_helper);
     }
     // protect the 1st page
     protectDB(addr, 1);
@@ -647,7 +568,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
 #ifdef GDBJIT
     helper.gdbjit_block = box_calloc(1, sizeof(gdbjit_block_t));
 #endif
-    current_helper = &helper;
+    redundant_helper = current_helper = &helper;
     helper.dynablock = NULL;
     helper.start = addr;
     uintptr_t start = addr;
@@ -658,6 +579,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
     helper.next = static_next;
     helper.next_cap = MAX_INSTS;
     helper.table64 = NULL;
+    helper.env = GetCurEnvByAddr(addr);
     ResetTable64(&helper);
     helper.table64cap = 0;
     helper.end = addr + SizeFileMapped(addr);
@@ -702,6 +624,10 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
         #endif
         {
             helper.insts[i].x64.need_after |= X_PEND;
+            if(helper.insts[i].barrier_maybe) {
+                helper.insts[i].x64.barrier|=BARRIER_FLOAT;
+                helper.insts[i].barrier_maybe = 0;
+            }
         } else {
             // find jump address instruction
             int k=-1;
@@ -734,8 +660,6 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
                     k=i2;
             }*/
             if(k!=-1) {
-                if(!helper.insts[i].barrier_maybe)
-                    helper.insts[k].x64.barrier |= BARRIER_FULL;
                 // special case, loop on itself with some nop in between
                 if(k<i && !helper.insts[i].x64.has_next && is_nops(&helper, helper.insts[k].x64.addr, helper.insts[i].x64.addr-helper.insts[k].x64.addr)) {
                     #ifndef ARCH_NOP
@@ -746,12 +670,18 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
                     #endif
                 }
                 helper.insts[i].x64.jmp_insts = k;
+                helper.insts[i].barrier_maybe = 0;
+            } else {
+                if(helper.insts[i].barrier_maybe) {
+                    helper.insts[i].x64.barrier|=BARRIER_FLOAT;
+                    helper.insts[i].barrier_maybe = 0;
+                }
             }
         }
     }
     // fill predecessors with the jump address
-    int alloc_size = sizePredecessors(&helper);
-    helper.predecessor = (int*)alloca(alloc_size*sizeof(int));
+    sizePredecessors(&helper);
+    helper.predecessor = static_preds;
     fillPredecessors(&helper);
 
     PREUPDATE_SPECIFICS(&helper);
@@ -765,7 +695,6 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
             int ii = i;
             while(ii<helper.size && !helper.insts[ii].pred_sz) {
                 fpu_reset_ninst(&helper, ii);
-                helper.insts[ii].ymm0_in = helper.insts[ii].ymm0_sub = helper.insts[ii].ymm0_add = helper.insts[ii].ymm0_out = helper.insts[ii].purge_ymm = 0;
                 RAZ_SPECIFIC(&helper, ii);
                 ++ii;
             }
@@ -782,7 +711,6 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
         CancelBlock64(0);
         return CreateEmptyBlock(addr, is32bits, is_new);
     }
-    updateYmm0s(&helper, 0, 0);
     UPDATE_SPECIFICS(&helper);
     // check for still valid close loop
     for(int ii=0; ii<helper.jmp_sz && !helper.always_test; ++ii) {
@@ -984,7 +912,6 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
         //protectDB(addr, end-addr);
     }
     if(getProtection(addr)&PROT_NEVERCLEAN) {
-        block->dirty = 1;
         block->always_test = 1;
     }
     if(block->always_test) {
@@ -996,7 +923,7 @@ dynablock_t* FillBlock64(uintptr_t addr, int alternate, int is32bits, int inst_m
                 *(uint32_t*)(block->block+block->callrets[i].offs) = ARCH_UDF;
         #endif
     }
-    current_helper = NULL;
+    redundant_helper = current_helper = NULL;
     //block->done = 1;
     return block;
 }

@@ -167,12 +167,12 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             u8 = F8;
             GETVX(v2, 0);
             GETGX_empty(v0);
-            if((v0==v2) && ((u8&0xf0)==0)) {
+            if((v0==v2) && ((u8&0b10110000)==0)) {
                 q0 = fpu_get_scratch(dyn, ninst);
                 VMOVQ(q0, v2);
                 v2 = q0;
             }
-            if((v0==v1) && ((u8&0xf0)==0x20)) {
+            if((v0==v1) && ((u8&0b10110000)==0x20)) {
                 q1 = fpu_get_scratch(dyn, ninst);
                 VMOVQ(q1, v1);
                 v1 = q1;
@@ -184,8 +184,8 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
                 case 3: if(MODREG) { d1 = ymm_get_reg(dyn, ninst, x1, s0, 0, gd, vex.v, -1); VMOVQ(v0, d1); } else { VLDR128_U12(v0, ed, fixedaddress+16); } break;
                 default: VEORQ(v0, v0, v0);
             }
-            if((u8&0xf0)==0x10) { if((u8&0x0f)!=1) d2 = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, s0, -1); }
-            if(MODREG && ((u8&0xf0)==0x30)) { if((u8&0x0f)!=3) d1 = ymm_get_reg(dyn, ninst, x1, s0, 0, gd, vex.v, -1); }
+            if((u8&0b10110000)==0x10) { if((u8&0b1011)!=1) d2 = ymm_get_reg(dyn, ninst, x1, vex.v, 0, gd, s0, -1); }
+            if(MODREG && ((u8&0b10110000)==0x30)) { if((u8&0b1011)!=3) d1 = ymm_get_reg(dyn, ninst, x1, s0, 0, gd, vex.v, -1); }
             v0 = ymm_get_reg_empty(dyn, ninst, x1, gd, vex.v, s0, -1);
             switch((u8>>4)&0b1011) {
                 case 0: VMOVQ(v0, v2); break;
@@ -378,7 +378,6 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             if(MODREG) {
                 ed = TO_NAT((nextop & 7) + (rex.b << 3));
             } else {
-                SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff, 0, rex, NULL, 0, 1);
                 ed = x1;
             }
@@ -396,7 +395,6 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             if(MODREG) {
                 ed = TO_NAT((nextop & 7) + (rex.b << 3));
             } else {
-                SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff<<1, 1, rex, NULL, 0, 1);
                 ed = x1;
             }
@@ -414,7 +412,6 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             if(MODREG) {
                 ed = TO_NAT((nextop & 7) + (rex.b << 3));
             } else {
-                SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff<<(2+rex.w), (1<<(2+rex.w))-1, rex, NULL, 0, 1);
                 ed = x1;
             }
@@ -436,7 +433,6 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             if(MODREG) {
                 ed = TO_NAT((nextop & 7) + (rex.b << 3));
             } else {
-                SMREAD();
                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff<<2, 3, rex, NULL, 0, 1);
                 ed = x1;
             }
@@ -497,7 +493,7 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             break;
 
         case 0x1D:
-            INST_NAME("VCVTPS2PH Ex, Gx");
+            INST_NAME("VCVTPS2PH Ex, Gx, Ib");
             nextop = F8;
             GETGX(v0, 0);
             if(MODREG) {
@@ -586,7 +582,11 @@ uintptr_t dynarec64_AVX_66_0F3A(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
             YMM0(gd);
             break;
         case 0x22:
-            INST_NAME("VINSERTD Gx, Vx, Ex, Ib");
+            if (rex.w) {
+                INST_NAME("VPINSRQ Gx, Vx, ED, Ib");
+            } else {
+                INST_NAME("VPINSRD Gx, Vx, ED, Ib");
+            }
             nextop = F8;
             GETGX_empty_VX(v0, v2);
             GETED(1);

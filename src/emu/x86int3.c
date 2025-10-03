@@ -9,9 +9,9 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <pthread.h>
-#include <signal.h>
 #include <inttypes.h>
 
+#include "x64_signals.h"
 #include "os.h"
 #include "debug.h"
 #include "box64stack.h"
@@ -73,8 +73,8 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
                 if(BOX64ENV(rolling_log)) {
                     my_context->current_line = (my_context->current_line+1)%BOX64ENV(rolling_log);
                 }
-                char* buff = BOX64ENV(rolling_log)?my_context->log_call[cycle_line]:t_buff;
-                char* buffret = BOX64ENV(rolling_log)?my_context->log_ret[cycle_line]:NULL;
+                char* buff = BOX64ENV(rolling_log)?(my_context->log_call+256*cycle_line):t_buff;
+                char* buffret = BOX64ENV(rolling_log)?(my_context->log_ret+128*cycle_line):NULL;
                 if(buffret) buffret[0] = '\0';
                 char *tmp;
                 int post = 0;
@@ -144,7 +144,7 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
                     perr = 2;
                 } else  if(!strcmp(s, "chdir")) {
                     pu32=(uint32_t*)from_ptrv(R_ESP+4);
-                    snprintf(buff, 255, "%04d|%p: Calling %s(\"%s\")", tid, from_ptriv(R_ESP), (char *)s, pu32?((pu32==(uint32_t*)1)?"/1/":(char*)pu32):"/0/");
+                    snprintf(buff, 255, "%04d|%p: Calling %s(\"%s\")", tid, from_ptriv(R_ESP), (char *)s, pu32?((pu32==(uint32_t*)1)?"/1/":(char*)(uintptr_t)(*pu32)):"/0/");
                 } else  if(!strcmp(s, "poll")) {
                     pu32=from_ptrv(*(ptr_t*)from_ptrv(R_ESP+4));
                     char tmp[50];
@@ -400,6 +400,12 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
                     post = 2;
                 } else  if(!strcmp(s, "getaddrinfo")) {
                     snprintf(buff, 255, "%04d|%p: Calling %s(\"%s\", \"%s\", %p, %p)", tid, from_ptriv(R_ESP), (char *)s, (char *)from_ptriv(R_ESP+4), (char *)from_ptriv(R_ESP+8), from_ptriv(R_ESP+12), from_ptriv(R_ESP+16));
+                } else  if(!strcmp(s, "__errno_location")) {
+                    snprintf(buff, 255, "%04d|%p: Calling %s()", tid, from_ptriv(R_ESP), (char *)s);
+                    perr = 4;
+                } else if (!strcmp(s, "nanosleep")) {
+                    pu32 = *(uint32_t**)from_ptrv(R_ESP+4);
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%p[%d, %d], %p)", tid, from_ptriv(R_ESP), (char *)s, (void*)from_ptriv(R_ESP+4), pu32?pu32[0]:0, pu32?pu32[1]:0, (void*)from_ptriv(R_ESP+8));
                 } else {
                     snprintf(buff, 255, "%04d|%p: Calling %s (%08X, %08X, %08X...)", tid, from_ptriv(R_ESP), (char *)s, from_ptri(uint32_t, R_ESP+4), from_ptri(uint32_t, R_ESP+8), from_ptri(uint32_t, R_ESP+12));
                 }
@@ -466,11 +472,13 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
                     snprintf(buff3, 63, " (errno=%d:\"%s\")", errno, strerror(errno));
                 else if(perr==3 && (S_EAX)==-1)
                     snprintf(buff3, 63, " (errno=%d:\"%s\")", errno, strerror(errno));
+                else if(perr==4)
+                    snprintf(buff3, 63, " (errno=%d:\"%s\")", errno, strerror(errno));
                 if(BOX64ENV(rolling_log)) {
                     if(ret_fmt==1)
-                        snprintf(buffret, 128, "%d%s%s", S_EAX, buff2, buff3);
+                        snprintf(buffret, 127, "%d%s%s", S_EAX, buff2, buff3);
                     else
-                        snprintf(buffret, 128, "0x%X%s%s", R_EAX, buff2, buff3);
+                        snprintf(buffret, 127, "0x%X%s%s", R_EAX, buff2, buff3);
                 } else {
                     mutex_lock(&emu->context->mutex_trace);
                     if(ret_fmt==1)
@@ -484,9 +492,9 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
         }
         return;
     }
-    if(!BOX64ENV(ignoreint3) && my_context->signals[SIGTRAP]) {
+    if(!BOX64ENV(ignoreint3) && my_context->signals[X64_SIGTRAP]) {
         R_RIP = *addr;  // update RIP
-        EmitSignal(emu, SIGTRAP, NULL, 3);
+        EmitSignal(emu, X64_SIGTRAP, NULL, 3);
     } else {
         printf_log(LOG_DEBUG, "%04d|Warning, ignoring unsupported Int 3 call @%p\n", GetTID(), (void*)R_RIP);
         R_RIP = *addr;

@@ -6,6 +6,7 @@
 typedef struct x64emu_s x64emu_t;
 typedef struct dynablock_s dynablock_t;
 typedef struct instsize_s instsize_t;
+typedef struct box64env_s box64env_t;
 
 #define BARRIER_MAYBE   8
 
@@ -16,7 +17,12 @@ typedef struct instsize_s instsize_t;
 #define LSX_CACHE_MM     4
 #define LSX_CACHE_XMMW   5
 #define LSX_CACHE_XMMR   6
-#define LSX_CACHE_SCR    7
+#define LSX_CACHE_YMMW   7
+#define LSX_CACHE_YMMR   8
+#define LSX_CACHE_SCR    9
+
+#define LSX_AVX_WIDTH_128 0
+#define LSX_AVX_WIDTH_256 1
 
 typedef union lsx_cache_s {
     int8_t v;
@@ -33,6 +39,16 @@ typedef union sse_cache_s {
         uint8_t write : 1;
     };
 } sse_cache_t;
+
+typedef union avx_cache_s {
+    int8_t v;
+    struct {
+        uint8_t reg : 5;
+        uint8_t width : 1;
+        uint8_t zero_upper : 1;        
+        uint8_t write : 1;
+    };
+} avx_cache_t;
 
 typedef struct lsxcache_s {
     // LSX cache
@@ -54,18 +70,16 @@ typedef struct lsxcache_s {
     int16_t         tags;           // similar to fpu_tags
     int8_t          mmxcache[8];    // cache status for the 8 MMX registers
     sse_cache_t     ssecache[16];   // cache status for the 16 SSE(2) registers
+    avx_cache_t     avxcache[16];   // cache status for the 16 SSE(2) registers
     int8_t          fpuused[24];    // all 0..24 double reg from fpu, used by x87, sse and mmx
     int8_t          x87stack;       // cache stack counter
     int8_t          mmxcount;       // number of mmx register used (not both mmx and x87 at the same time)
     int8_t          fpu_scratch;    // scratch counter
-    int8_t          fpu_extra_qscratch; // some opcode need an extra quad scratch register
-    int8_t          fpu_reg;        // x87/sse/mmx reg counter
 } lsxcache_t;
 
 typedef struct flagcache_s {
     int                 pending;    // is there a pending flags here, or to check?
     uint8_t             dfnone;     // if deferred flags is already set to df_none
-    uint8_t             dfnone_here;// defered flags is cleared in this opcode
 } flagcache_t;
 
 typedef struct callret_s callret_t;
@@ -86,18 +100,12 @@ typedef struct instruction_la64_s {
     int                 pass2choice;// value for choices that are fixed on pass2 for pass3
     uintptr_t           natcall;
     uint16_t            retn;
-    uint16_t            purge_ymm;  // need to purge some ymm
-    uint16_t            ymm0_in;    // bitmap of ymm to zero at purge
-    uint16_t            ymm0_add;   // the ymm0 added by the opcode
-    uint16_t            ymm0_sub;   // the ymm0 removed by the opcode
-    uint16_t            ymm0_out;   // the ymm0 at th end of the opcode
     uint16_t            ymm0_pass2, ymm0_pass3;
     uint8_t             barrier_maybe;
     uint8_t             will_write:2;    // [strongmem] will write to memory
     uint8_t             will_read:1;     // [strongmem] will read from memory
     uint8_t             last_write:1;    // [strongmem] the last write in a SEQ
     uint8_t             lock:1;          // [strongmem] lock semantic
-    uint8_t             lock_prefixed:1; // [strongmem] the opcode is lock prefixed
     uint8_t             df_notneeded;
     uint8_t             nat_flags_fusion:1;
     uint8_t             nat_flags_nofusion:1;
@@ -155,6 +163,7 @@ typedef struct dynarec_la64_s {
     int                 need_reloc; // does the dynablock need relocations
     int                 reloc_size;
     uint32_t*           relocs;
+    box64env_t*         env;
 } dynarec_la64_t;
 
 void add_next(dynarec_la64_t *dyn, uintptr_t addr);
@@ -170,12 +179,12 @@ int Table64(dynarec_la64_t *dyn, uint64_t val, int pass);  // add a value to tab
 
 void CreateJmpNext(void* addr, void* next);
 
-#define GO_TRACE(A, B, s0) \
-    GETIP(addr);           \
-    MV(A1, xRIP);          \
-    STORE_XEMU_CALL();     \
-    MOV64x(A2, B);         \
-    CALL(A, -1);           \
+#define GO_TRACE(A, B, s0)         \
+    GETIP(addr, s0);               \
+    MV(x1, xRIP);                  \
+    STORE_XEMU_CALL();             \
+    MOV64x(x2, B);                 \
+    CALL(const_##A, -1, x1, x2);   \
     LOAD_XEMU_CALL()
 
 #endif //__DYNAREC_ARM_PRIVATE_H_

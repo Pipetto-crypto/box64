@@ -5,10 +5,10 @@
 #include <math.h>
 #include <fenv.h>
 #include <string.h>
-#include <signal.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "x64_signals.h"
 #include "os.h"
 #include "debug.h"
 #include "box64stack.h"
@@ -720,7 +720,7 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 GETED(0);
                 // this is a privilege opcode...
                 #ifndef TEST_INTERPRETER
-                EmitSignal(emu, SIGSEGV, (void*)R_RIP, 0);
+                EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0);
                 #endif
                 break;
 
@@ -1700,7 +1700,7 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         if(!BOX64ENV(cputype) || (nextop&0xC0)>>3) {
             #ifndef TEST_INTERPRETER
-            EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
+            EmitSignal(emu, X64_SIGILL, (void*)R_RIP, 0);
             #endif
         } else {
             //TODO: test /0
@@ -1716,7 +1716,7 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
         nextop = F8;
         if(!BOX64ENV(cputype) || !(MODREG)) {
             #ifndef TEST_INTERPRETER
-            EmitSignal(emu, SIGILL, (void*)R_RIP, 0);
+            EmitSignal(emu, X64_SIGILL, (void*)R_RIP, 0);
             #endif
         } else {
             //TODO: test/r
@@ -2110,7 +2110,8 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             } else {
                 SET_FLAG(F_ZF);
             }
-            GW->q[0] = tmp8u;
+            if(tmp64u || !MODREG)
+                GW->q[0] = tmp8u;
         } else {
             tmp16u = EW->word[0];
             if(tmp16u) {
@@ -2119,7 +2120,8 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             } else {
                 SET_FLAG(F_ZF);
             }
-            GW->word[0] = tmp8u;
+            if(tmp16u || !MODREG)
+                GW->word[0] = tmp8u;
         }
         if(!BOX64ENV(cputype)) {
             CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);
@@ -2144,7 +2146,8 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             } else {
                 SET_FLAG(F_ZF);
             }
-            GW->q[0] = tmp8u;
+            if(tmp64u || !MODREG)
+                GW->q[0] = tmp8u;
         } else {
             tmp16u = EW->word[0];
             if(tmp16u) {
@@ -2154,7 +2157,8 @@ uintptr_t Run660F(x64emu_t *emu, rex_t rex, uintptr_t addr)
             } else {
                 SET_FLAG(F_ZF);
             }
-            GW->word[0] = tmp8u;
+            if(tmp16u || !MODREG)
+                GW->word[0] = tmp8u;
         }
         if(!BOX64ENV(cputype)) {
             CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);

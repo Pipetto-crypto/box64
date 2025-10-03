@@ -12,6 +12,7 @@
 
 #include "os.h"
 #include "env.h"
+#include "custommem.h"
 #include "khash.h"
 #include "debug.h"
 #include "fileutils.h"
@@ -39,6 +40,9 @@ int MmaplistAddBlock(mmaplist_t* list, int fd, off_t offset, void* orig, size_t 
 int nLockAddressRange(uintptr_t start, size_t size);
 void getLockAddressRange(uintptr_t start, size_t size, uintptr_t addrs[]);
 void addLockAddress(uintptr_t addr);
+int nUnalignedRange(uintptr_t start, size_t size);
+void getUnalignedRange(uintptr_t start, size_t size, uintptr_t addrs[]);
+void add_unaligned_address(uintptr_t addr);
 #endif
 
 static rbtree_t* envmap = NULL;
@@ -291,7 +295,7 @@ static void pushNewEntry(const char* name, box64env_t* env, int gen)
     k = kh_get(box64env_entry, khp, name);
     if (k == kh_end(khp)) {
         int ret;
-        k = kh_put(box64env_entry, khp, strdup(name), &ret);
+        k = kh_put(box64env_entry, khp, box_strdup(name), &ret);
     } else {
         freeEnv(&kh_value(khp, k));
     }
@@ -472,11 +476,6 @@ void InitializeEnvFiles()
     }
 }
 
-static char old_entryname[256] = "";
-const char* GetLastApplyEntryName()
-{
-    return old_entryname;
-}
 static void internalApplyEnvFileEntry(const char* entryname, const box64env_t* env)
 {
 #define INTEGER(NAME, name, default, min, max, wine) \
@@ -517,6 +516,7 @@ static void internalApplyEnvFileEntry(const char* entryname, const box64env_t* e
 #undef STRING
 }
 
+static char old_entryname[256] = "";
 void ApplyEnvFileEntry(const char* entryname)
 {
     if (!entryname || !box64env_entries) return;
@@ -800,19 +800,19 @@ done:
     `box64 --dynacache-clean` can be used from command line to purge obsolete DyaCache files
 */
 
-#define FILE_VERSION               1
+#define FILE_VERSION               2
 #define HEADER_SIGN "DynaCache"
 #define SET_VERSION(MAJ, MIN, REV) (((MAJ)<<24)|((MIN)<<16)|(REV))
 #ifdef ARM64
-#define ARCH_VERSION SET_VERSION(0, 0, 1)
+#define ARCH_VERSION SET_VERSION(0, 0, 6)
 #elif defined(RV64)
-#define ARCH_VERSION SET_VERSION(0, 0, 1)
+#define ARCH_VERSION SET_VERSION(0, 0, 3)
 #elif defined(LA64)
-#define ARCH_VERSION SET_VERSION(0, 0, 0)
+#define ARCH_VERSION SET_VERSION(0, 0, 3)
 #else
 #error meh!
 #endif
-#define DYNAREC_VERSION SET_VERSION(0, 0, 1)
+#define DYNAREC_VERSION SET_VERSION(0, 0, 4)
 
 typedef struct DynaCacheHeader_s {
     char sign[10];  //"DynaCache\0"
@@ -829,6 +829,7 @@ typedef struct DynaCacheHeader_s {
     uint32_t    filename_length;
     uint32_t    nblocks;
     uint32_t    nLockAddresses;
+    uint32_t    nUnalignedAddresses;
     char        filename[];
 } DynaCacheHeader_t;
 
@@ -924,6 +925,11 @@ void SerializeMmaplist(mapping_t* mapping)
         return;
     if((!mapping->env || !mapping->env->is_dynacache_overridden) && box64env.dynacache!=1)
         return;
+    // don't do serialize for program that needs dirty=1
+    if(mapping->env && mapping->env->is_dynarec_dirty_overridden && mapping->env->dynarec_dirty)
+        return;
+    if((!mapping->env || !mapping->env->is_dynarec_dirty_overridden) && box64env.dynarec_dirty)
+        return;
     const char* folder = GetDynacacheFolder(mapping);
     if(!folder) return; // no folder, no serialize...
     const char* name = GetMmaplistName(mapping);
@@ -944,7 +950,8 @@ void SerializeMmaplist(mapping_t* mapping)
     }
     size_t map_len = SizeFileMapped(mapping->start);
     size_t nLockAddresses = nLockAddressRange(mapping->start, map_len);
-    size_t total = sizeof(DynaCacheHeader_t) + strlen(mapping->fullname) + 1 + nblocks*sizeof(DynaCacheBlock_t) + nLockAddresses*sizeof(uintptr_t);
+    size_t nUnaligned = nUnalignedRange(mapping->start, map_len);
+    size_t total = sizeof(DynaCacheHeader_t) + strlen(mapping->fullname) + 1 + nblocks*sizeof(DynaCacheBlock_t) + nLockAddresses*sizeof(uintptr_t) + nUnaligned*sizeof(uintptr_t);;
     total = (total + box64_pagesize-1)&~(box64_pagesize-1); // align on pagesize
     uint8_t all_header[total];
     memset(all_header, 0, total);
@@ -964,6 +971,7 @@ void SerializeMmaplist(mapping_t* mapping)
     header->nblocks = MmaplistNBlocks(mapping->mmaplist);
     header->map_len = map_len;
     header->nLockAddresses = nLockAddresses;
+    header->nUnalignedAddresses = nUnaligned;
     size_t dynacache_min = box64env.dynacache_min;
     if(mapping->env && mapping->env->is_dynacache_min_overridden)
         dynacache_min = mapping->env->dynacache_min;
@@ -978,7 +986,12 @@ void SerializeMmaplist(mapping_t* mapping)
     MmaplistFillBlocks(mapping->mmaplist, blocks);
     p += nblocks*sizeof(DynaCacheBlock_t);
     uintptr_t* lockAddresses = p;
-    getLockAddressRange(mapping->start, map_len, lockAddresses);
+    p += nLockAddresses*sizeof(uintptr_t);
+    uintptr_t* unalignedAddresses = p;
+    if(nLockAddresses)
+        getLockAddressRange(mapping->start, map_len, lockAddresses);
+    if(nUnaligned)
+        getUnalignedRange(mapping->start, map_len, unalignedAddresses);
     // all done, now just create the file and write all this down...
     #ifndef WIN32
     unlink(mapname);
@@ -1102,6 +1115,12 @@ int ReadDynaCache(const char* folder, const char* name, mapping_t* mapping, int 
         fclose(f);
         return DCERR_FERROR;
     }
+    uintptr_t unalignedAddresses[header.nUnalignedAddresses];
+    if(fread(unalignedAddresses, sizeof(uintptr_t), header.nUnalignedAddresses, f)!=header.nUnalignedAddresses) {
+        if(verbose) printf_log_prefix(0, LOG_NONE, "Cannot read unalignedAddresses\n");
+        fclose(f);
+        return DCERR_FERROR;
+    }
     off_t p = ftell(f);
     p = (p+box64_pagesize-1)&~(box64_pagesize-1);
     if(fseek(f, p, SEEK_SET)<0) {
@@ -1145,7 +1164,7 @@ int ReadDynaCache(const char* folder, const char* name, mapping_t* mapping, int 
             }
             printf_log_prefix(0, LOG_NONE, "\tHas %d blocks for a total of %s", header.nblocks, NicePrintSize(total_blocks));
             printf_log_prefix(0, LOG_NONE, " with %s still free", NicePrintSize(total_free));
-            printf_log_prefix(0, LOG_NONE, " and %s non-canceled blocks (mapped at %p-%p, with %zu lock addresses)\n", NicePrintSize(total_code), (void*)header.map_addr, (void*)header.map_addr+header.map_len, header.nLockAddresses);
+            printf_log_prefix(0, LOG_NONE, " and %s non-canceled blocks (mapped at %p-%p, with %zu lock and %zu unaligned addresses)\n", NicePrintSize(total_code), (void*)header.map_addr, (void*)header.map_addr+header.map_len, header.nLockAddresses, header.nUnalignedAddresses);
         }
     } else {
         // actually reading!
@@ -1165,6 +1184,8 @@ int ReadDynaCache(const char* folder, const char* name, mapping_t* mapping, int 
         }
         for(size_t i=0; i<header.nLockAddresses; ++i)
             addLockAddress(lockAddresses[i]+delta_map);
+        for(size_t i=0; i<header.nUnalignedAddresses; ++i)
+            add_unaligned_address(lockAddresses[i]+delta_map);
         dynarec_log(LOG_INFO, "Loaded DynaCache for %s, with %d blocks\n", mapping->fullname, header.nblocks);
     }
     fclose(f);
@@ -1376,7 +1397,12 @@ int IsAddrNeedReloc(uintptr_t addr)
     uintptr_t start = env->nodynarec_start?env->nodynarec_start:box64env.nodynarec_start;
     if(end && addr>=start && addr<end)
         return 0;
-    #ifdef HAVE_TRACE
+     // don't do serialize for program that needs dirty=1 or 2 (maybe 1 is ok?)
+    if(env && env->is_dynarec_dirty_overridden && env->dynarec_dirty)
+        return 0;
+    if((!env || !env->is_dynarec_dirty_overridden) && box64env.dynarec_dirty)
+        return 0;
+   #ifdef HAVE_TRACE
     end = env->dynarec_test_end?env->dynarec_test_end:box64env.dynarec_test_end;
     start = env->dynarec_test_start?env->dynarec_test_start:box64env.dynarec_test_start;
     if(end && addr>=start && addr<end)

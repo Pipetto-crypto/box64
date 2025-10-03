@@ -212,7 +212,7 @@ GOW(dgettext, pEpp)
 GO(__dgettext, pEpp)
 GO(difftime, dEll)
 GO(dirfd, iEp)
-GO(dirname, pEp)
+GO(dirname, tEp)
 GOS(div, pEpii) //%%,noE
 // _dl_addr
 GOW2(dl_iterate_phdr, iEEpp, my_dl_iterate_phdr) //%%
@@ -418,7 +418,7 @@ GO(fseek, iESli)
 GO(fseeko, iESli)
 GO(fseeko64, iESIi)
 GO(__fsetlocking, iESi)
-//GO(fsetpos, iEpp)
+GO(fsetpos, iEpBlii_)
 //GO(fsetpos64, iEpp)
 GO(fsetxattr, iEippLi)
 GOM(fstat, iFip)    //%%,noE
@@ -442,7 +442,7 @@ GOW(ftruncate64, iEiI)
 //GOM(fts_open, pEEpip)    //%%
 //GOM(fts_read, pEEp)      //%%
 // fts_set
-//GOM(ftw, iEEppi)         //%%
+GOM(ftw, iEEppi)         //%%
 GOM(ftw64, iEEppi)       //%%
 GOW(funlockfile, vFS)
 GOM(futimens, iEEip)
@@ -2193,7 +2193,7 @@ GOM(reallocarray, pEpLL)     //%%,noE
 GO2(__close_nocancel, iEi, close)
 
 //GOM(mkstemps64, iEEpi)   //%% not always implemented
-//GOM(getentropy, iEEpL)   //%% starting from glibc 2.25
+GO(getentropy, iEpL)
 
 // not found (libitm???), but it seems OK to declare dummies:
 

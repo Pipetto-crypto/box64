@@ -1956,6 +1956,19 @@ EXPORT int32_t my_open(x64emu_t* emu, void* pathname, int32_t flags, uint32_t mo
         return -1;
     }
     #endif
+
+    if (!strcmp((const char*)pathname, "box64-custom-bashrc-file")) {
+        int tmp = shm_open("box64-custom-bashrc-file", O_RDWR | O_CREAT, S_IRWXU);
+        if (tmp < 0) return open(pathname, flags, mode); // error fallback
+        shm_unlink("box64-custom-bashrc-file");
+        const char* content = "if [ -f ~/.bashrc ]\nthen\n. ~/.bashrc\nfi\nexport PS1=\"(box64) \"$PS1\nexport BOX64_NOBANNER=1\nexport BOX64_LOG=0\n";
+        size_t dummy;
+        dummy = write(tmp, content, strlen(content));
+        (void)dummy;
+        lseek(tmp, 0, SEEK_SET);
+        return tmp;
+    }
+
     int ret = open(pathname, flags, mode);
     return ret;
 }
@@ -2171,17 +2184,6 @@ EXPORT int32_t my_ftw(x64emu_t* emu, void* pathname, void* B, int32_t nopenfd)
     return f(pathname, findftwFct(B), nopenfd);
 }
 
-EXPORT int32_t my_nftw(x64emu_t* emu, void* pathname, void* B, int32_t nopenfd, int32_t flags)
-{
-    static iFppii_t f = NULL;
-    if(!f) {
-        library_t* lib = my_lib;
-        if(!lib) return 0;
-        f = (iFppii_t)dlsym(lib->w.lib, "nftw");
-    }
-
-    return f(pathname, findnftwFct(B), nopenfd, flags);
-}
 #endif
 
 #ifndef NOALIGN
@@ -2266,6 +2268,7 @@ EXPORT int32_t my_nftw64(x64emu_t* emu, void* pathname, void* B, int32_t nopenfd
     (void)emu;
     return nftw64(pathname, findnftw64Fct(B), nopenfd, flags);
 }
+EXPORT int my_nftw(x64emu_t* emu, void* pathname, void* B, int32_t nopenfd, int32_t flags) __attribute__((alias("my_nftw64")));
 
 EXPORT char** my_environ = NULL;
 EXPORT char** my__environ = NULL;
@@ -3079,7 +3082,7 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int f
         if(emu)
             setProtection_mmap((uintptr_t)ret, length, prot);
         else
-            setProtection((uintptr_t)ret, length, prot);
+            setProtection_box((uintptr_t)ret, length, prot);
         if(addr && ret!=addr)
             e = EEXIST;
     }
@@ -3197,6 +3200,35 @@ EXPORT void* my_mallinfo(x64emu_t* emu, void* p)
         *(struct mallinfo*)p=f();
     else
         memset(p, 0, sizeof(struct mallinfo));
+    return p;
+}
+
+struct my_mallinfo2_s {
+    size_t arena;
+    size_t ordblks;
+    size_t smblks;
+    size_t hblks;
+    size_t hblkhd;
+    size_t usmblks;
+    size_t fsmblks;
+    size_t uordblks;
+    size_t fordblks;
+    size_t keepcost;
+};
+
+typedef struct my_mallinfo2_s (*mallinfo2_fnc)(void);
+EXPORT void* my_mallinfo2(x64emu_t* emu, void* p)
+{
+    static mallinfo2_fnc f = NULL;
+    static int inited = 0;
+    if(!inited) {
+        inited = 1;
+        f = (mallinfo2_fnc)dlsym(my_lib->w.lib, "mallinfo2");
+    }
+    if(f)
+        *(struct my_mallinfo2_s*)p = f();
+    else
+        memset(p, 0, sizeof(struct my_mallinfo2_s));
     return p;
 }
 

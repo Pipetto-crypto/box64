@@ -48,8 +48,18 @@ uintptr_t dynarec64_AVX(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int n
     uint8_t opcode = PK(0);
     rex_t rex = vex.rex;
 
-    if ((vex.m == VEX_M_0F) && (vex.p == VEX_P_F3))
+    if ((vex.m == VEX_M_0F) && (vex.p == VEX_P_NONE))
+        addr = dynarec64_AVX_0F(dyn, addr, ip, ninst, vex, ok, need_epilog);
+    else if ((vex.m == VEX_M_0F) && (vex.p == VEX_P_66))
+        addr = dynarec64_AVX_66_0F(dyn, addr, ip, ninst, vex, ok, need_epilog);
+    else if ((vex.m == VEX_M_0F) && (vex.p == VEX_P_F2))
+        addr = dynarec64_AVX_F2_0F(dyn, addr, ip, ninst, vex, ok, need_epilog);
+    else if ((vex.m == VEX_M_0F) && (vex.p == VEX_P_F3))
         addr = dynarec64_AVX_F3_0F(dyn, addr, ip, ninst, vex, ok, need_epilog);
+    else if ((vex.m == VEX_M_0F38) && (vex.p == VEX_P_66))
+        addr = dynarec64_AVX_66_0F38(dyn, addr, ip, ninst, vex, ok, need_epilog);
+    else if ((vex.m == VEX_M_0F3A) && (vex.p == VEX_P_66))
+        addr = dynarec64_AVX_66_0F3A(dyn, addr, ip, ninst, vex, ok, need_epilog);
     else {
         DEFAULT;
     }

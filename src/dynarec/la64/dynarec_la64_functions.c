@@ -74,10 +74,22 @@ int fpu_get_reg_xmm(dynarec_la64_t* dyn, int t, int xmm)
     return i;
 }
 
+// Get an YMM quad reg
+int fpu_get_reg_ymm(dynarec_la64_t* dyn, int t, int ymm)
+{
+    int i;
+    i = XMM0 + ymm;
+
+    dyn->lsx.fpuused[i] = 1;
+    dyn->lsx.lsxcache[i].t = t;
+    dyn->lsx.lsxcache[i].n = ymm;
+    dyn->lsx.news |= (1 << i);
+    return i;
+}
+
 // Reset fpu regs counter
 static void fpu_reset_reg_lsxcache(lsxcache_t* lsx)
 {
-    lsx->fpu_reg = 0;
     for (int i = 0; i < 24; ++i) {
         lsx->fpuused[i] = 0;
         lsx->lsxcache[i].v = 0;
@@ -145,6 +157,7 @@ int fpuCacheNeedsTransform(dynarec_la64_t* dyn, int ninst)
                 if (dyn->insts[ninst].lsx.lsxcache[i].n != cache_i2.lsxcache[i].n) {    // not the same x64 reg
                     ret = 1;
                 } else if (dyn->insts[ninst].lsx.lsxcache[i].t == LSX_CACHE_XMMR && cache_i2.lsxcache[i].t == LSX_CACHE_XMMW) { /* nothing */
+                } else if (dyn->insts[ninst].lsx.lsxcache[i].t == LSX_CACHE_YMMR && cache_i2.lsxcache[i].t == LSX_CACHE_YMMW) { /* nothing */
                 } else
                     ret = 1;
             }
@@ -215,14 +228,14 @@ void lsxcacheUnwind(lsxcache_t* cache)
     // And now, rebuild the x87cache info with lsxcache
     cache->mmxcount = 0;
     cache->fpu_scratch = 0;
-    cache->fpu_extra_qscratch = 0;
-    cache->fpu_reg = 0;
     for (int i = 0; i < 8; ++i) {
         cache->x87cache[i] = -1;
         cache->mmxcache[i] = -1;
         cache->x87reg[i] = 0;
         cache->ssecache[i * 2].v = -1;
         cache->ssecache[i * 2 + 1].v = -1;
+        cache->avxcache[i * 2].v = -1;
+        cache->avxcache[i * 2 + 1].v = -1;
     }
     int x87reg = 0;
     for (int i = 0; i < 24; ++i) {
@@ -232,13 +245,16 @@ void lsxcacheUnwind(lsxcache_t* cache)
                 case LSX_CACHE_MM:
                     cache->mmxcache[cache->lsxcache[i].n] = i;
                     ++cache->mmxcount;
-                    ++cache->fpu_reg;
                     break;
                 case LSX_CACHE_XMMR:
                 case LSX_CACHE_XMMW:
                     cache->ssecache[cache->lsxcache[i].n].reg = i;
                     cache->ssecache[cache->lsxcache[i].n].write = (cache->lsxcache[i].t == LSX_CACHE_XMMW) ? 1 : 0;
-                    ++cache->fpu_reg;
+                    break;
+                case LSX_CACHE_YMMR:
+                case LSX_CACHE_YMMW:
+                    cache->avxcache[cache->lsxcache[i].n].reg = i;
+                    cache->avxcache[cache->lsxcache[i].n].write = (cache->lsxcache[i].t == LSX_CACHE_YMMW) ? 1 : 0;
                     break;
                 case LSX_CACHE_ST_F:
                 case LSX_CACHE_ST_D:
@@ -246,7 +262,6 @@ void lsxcacheUnwind(lsxcache_t* cache)
                     cache->x87cache[x87reg] = cache->lsxcache[i].n;
                     cache->x87reg[x87reg] = i;
                     ++x87reg;
-                    ++cache->fpu_reg;
                     break;
                 case LSX_CACHE_SCR:
                     cache->fpuused[i] = 0;
@@ -269,6 +284,8 @@ const char* getCacheName(int t, int n)
         case LSX_CACHE_MM: sprintf(buff, "MM%d", n); break;
         case LSX_CACHE_XMMW: sprintf(buff, "XMM%d", n); break;
         case LSX_CACHE_XMMR: sprintf(buff, "xmm%d", n); break;
+        case LSX_CACHE_YMMW: sprintf(buff, "YMM%d", n); break;
+        case LSX_CACHE_YMMR: sprintf(buff, "ymm%d", n); break;        
         case LSX_CACHE_SCR: sprintf(buff, "Scratch"); break;
         case LSX_CACHE_NONE: buff[0] = '\0'; break;
     }
@@ -385,6 +402,8 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
             case LSX_CACHE_MM: length += sprintf(buf + length, " D%d:%s", ii, getCacheName(dyn->insts[ninst].lsx.lsxcache[ii].t, dyn->insts[ninst].lsx.lsxcache[ii].n)); break;
             case LSX_CACHE_XMMW: length += sprintf(buf + length, " Q%d:%s", ii, getCacheName(dyn->insts[ninst].lsx.lsxcache[ii].t, dyn->insts[ninst].lsx.lsxcache[ii].n)); break;
             case LSX_CACHE_XMMR: length += sprintf(buf + length, " Q%d:%s", ii, getCacheName(dyn->insts[ninst].lsx.lsxcache[ii].t, dyn->insts[ninst].lsx.lsxcache[ii].n)); break;
+            case LSX_CACHE_YMMW: length += sprintf(buf + length, " Q%d:%s%s", ii, getCacheName(dyn->insts[ninst].lsx.lsxcache[ii].t, dyn->insts[ninst].lsx.lsxcache[ii].n), dyn->insts[ninst].lsx.avxcache[dyn->insts[ninst].lsx.lsxcache[ii].n].zero_upper==1?"-UZ":""); break;
+            case LSX_CACHE_YMMR: length += sprintf(buf + length, " Q%d:%s%s", ii, getCacheName(dyn->insts[ninst].lsx.lsxcache[ii].t, dyn->insts[ninst].lsx.lsxcache[ii].n), dyn->insts[ninst].lsx.avxcache[dyn->insts[ninst].lsx.lsxcache[ii].n].zero_upper==1?"-UZ":""); break;
             case LSX_CACHE_SCR: length += sprintf(buf + length, " D%d:%s", ii, getCacheName(dyn->insts[ninst].lsx.lsxcache[ii].t, dyn->insts[ninst].lsx.lsxcache[ii].n)); break;
             case LSX_CACHE_NONE:
             default: break;
@@ -515,12 +534,18 @@ static void sse_reset(lsxcache_t* lsx)
     for (int i = 0; i < 16; ++i)
         lsx->ssecache[i].v = -1;
 }
+static void avx_reset(lsxcache_t* lsx)
+{
+    for (int i = 0; i < 16; ++i)
+        lsx->avxcache[i].v = -1;
+}
 
 void fpu_reset(dynarec_la64_t* dyn)
 {
     x87_reset(&dyn->lsx);
     mmx_reset(&dyn->lsx);
     sse_reset(&dyn->lsx);
+    avx_reset(&dyn->lsx);
     fpu_reset_reg(dyn);
 }
 
@@ -528,6 +553,7 @@ void fpu_reset_ninst(dynarec_la64_t* dyn, int ninst)
 {
     // TODO: x87 and mmx
     sse_reset(&dyn->insts[ninst].lsx);
+    avx_reset(&dyn->insts[ninst].lsx);
     fpu_reset_reg_lsxcache(&dyn->insts[ninst].lsx);
 }
 

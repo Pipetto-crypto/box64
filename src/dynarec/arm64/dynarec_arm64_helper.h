@@ -4,6 +4,7 @@
 // undef to get Close to SSE Float->int conversions
 //#define PRECISE_CVT
 
+#ifndef STEP_PASS
 #if STEP == 0
 #include "dynarec_arm64_pass0.h"
 #elif STEP == 1
@@ -12,6 +13,8 @@
 #include "dynarec_arm64_pass2.h"
 #elif STEP == 3
 #include "dynarec_arm64_pass3.h"
+#endif
+#define STEP_PASS
 #endif
 
 #include "debug.h"
@@ -962,19 +965,19 @@
 
 // Generate FCOMI with s1 and s2 scratch regs (the VCMP is already done)
 #define FCOMI(s1, s2)                                                       \
-    IFX(X_OF|X_AF|X_SF|X_PEND) {                                            \
+    IFX(X_OF|X_AF|X_SF) {                                                   \
         MOV32w(s2, 0b100011010101);                                         \
         BICw_REG(xFlags, xFlags, s2);                                       \
-        IFX(X_CF|X_PF|X_ZF|X_PEND) {                                        \
+        IFX(X_CF|X_PF|X_ZF) {                                               \
             MOV32w(s2, 0b01000101);                                         \
         }                                                                   \
     } else {                                                                \
-        IFX(X_CF|X_PF|X_ZF|X_PEND) {                                        \
+        IFX(X_CF|X_PF|X_ZF) {                                               \
             MOV32w(s2, 0b01000101);                                         \
             BICw_REG(xFlags, xFlags, s2);                                   \
         }                                                                   \
     }                                                                       \
-    IFX(X_CF|X_PF|X_ZF|X_PEND) {                                            \
+    IFX(X_CF|X_PF|X_ZF) {                                                   \
         CSETw(s1, cMI); /* 1 if less than, 0 else */                        \
         /*s2 already set */     /* unordered */                             \
         CSELw(s1, s2, s1, cVS);                                             \
@@ -1119,13 +1122,14 @@
     x87_do_pop(dyn, ninst, scratch)
 #endif
 
+#define FORCE_DFNONE()  STRw_U12(wZR, xEmu, offsetof(x64emu_t, df))
+
 #define SET_DFNONE()                                        \
     do {                                                    \
         if (!dyn->f.dfnone) {                               \
-            STRw_U12(wZR, xEmu, offsetof(x64emu_t, df));    \
+            FORCE_DFNONE();                                 \
         }                                                   \
         if(!dyn->insts[ninst].x64.may_set) {                \
-            dyn->f.dfnone_here = 1;                         \
             dyn->f.dfnone = 1;                              \
         }                                                   \
     } while(0)
@@ -1135,7 +1139,8 @@
         MOVZw(S, (N));                                                                                                          \
         STRw_U12(S, xEmu, offsetof(x64emu_t, df));                                                                              \
         if (dyn->f.pending == SF_PENDING && dyn->insts[ninst].x64.need_after && !(dyn->insts[ninst].x64.need_after & X_PEND)) { \
-            CALL_I(const_updateflags);                                                                                          \
+            TABLE64C(x6, const_updateflags_arm64);                                                                              \
+            BLR(x6);                                                                                                            \
             dyn->f.pending = SF_SET;                                                                                            \
             SET_NODF();                                                                                                         \
         }                                                                                                                       \
@@ -1146,7 +1151,7 @@
 #ifndef SET_NODF
 #define SET_NODF()          dyn->f.dfnone = 0
 #endif
-#define SET_DFOK()          dyn->f.dfnone = 1; dyn->f.dfnone_here=1
+#define SET_DFOK()          dyn->f.dfnone = 1
 
 #ifndef READFLAGS
 #define READFLAGS(A) \
@@ -1157,7 +1162,8 @@
             j64 = (GETMARKF)-(dyn->native_size);        \
             CBZw(x3, j64);                              \
         }                                               \
-        CALL_I(const_updateflags);                      \
+        TABLE64C(x6, const_updateflags_arm64);          \
+        BLR(x6);                                        \
         MARKF;                                          \
         dyn->f.pending = SF_SET;                        \
         SET_DFOK();                                     \
@@ -1196,9 +1202,12 @@
 #define UFLAG_OP12(A1, A2) if(dyn->insts[ninst].x64.gen_flags) {STRxw_U12(A1, xEmu, offsetof(x64emu_t, op1));STRxw_U12(A2, xEmu, offsetof(x64emu_t, op2));}
 #define UFLAG_RES(A) if(dyn->insts[ninst].x64.gen_flags) {STRxw_U12(A, xEmu, offsetof(x64emu_t, res));}
 #define UFLAG_DF(r, A) if(dyn->insts[ninst].x64.gen_flags) {SET_DF(r, A);}
+#ifndef UFLAG_IF
 #define UFLAG_IF if(dyn->insts[ninst].x64.gen_flags)
-#define UFLAG_IF_DF if(dyn->insts[ninst].x64.gen_flags || (dyn->insts[ninst].f_entry.dfnone && dyn->insts[ninst].f_entry.dfnone_here))
+#endif
+#ifndef UFLAG_IF2
 #define UFLAG_IF2(A) if(dyn->insts[ninst].x64.gen_flags A)
+#endif
 #ifndef DEFAULT
 #define DEFAULT      *ok = -1; BARRIER(2)
 #endif
@@ -1286,6 +1295,8 @@
 #endif
 
 #define native_pass        STEPNAME(native_pass)
+
+#define updateflags_pass   STEPNAME(updateflags_pass)
 
 #define dynarec64_00       STEPNAME(dynarec64_00)
 #define dynarec64_0F       STEPNAME(dynarec64_0F)
@@ -1650,7 +1661,7 @@ int sse_setround(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 // purge ymm_zero mask according to purge_ymm
 void avx_purge_ymm(dynarec_arm_t* dyn, int ninst, uint16_t mask, int s1);
 
-void CacheTransform(dynarec_arm_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3);
+void CacheTransform(dynarec_arm_t* dyn, int ninst, int cacheupd);
 
 void arm64_move32(dynarec_arm_t* dyn, int ninst, int reg, uint32_t val);
 void arm64_move64(dynarec_arm_t* dyn, int ninst, int reg, uint64_t val);
@@ -2002,6 +2013,10 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         }                                       \
     }
 
-#define PURGE_YMM()    avx_purge_ymm(dyn, ninst, dyn->insts[ninst+1].purge_ymm, x1)
+#define PURGE_YMM()                                                         \
+    do {                                                                    \
+        if ((ok > 0) && reset_n == -1 && dyn->insts[ninst + 1].purge_ymm)   \
+            avx_purge_ymm(dyn, ninst, dyn->insts[ninst + 1].purge_ymm, x1); \
+    } while (0)
 
 #endif //__DYNAREC_ARM64_HELPER_H__

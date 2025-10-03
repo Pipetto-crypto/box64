@@ -17,6 +17,7 @@
 #include "debug.h"
 #include "la64_emitter.h"
 #include "../emu/x64primop.h"
+#include "dynarec_la64_consts.h"
 
 #define F8      *(uint8_t*)(addr++)
 #define F8S     *(int8_t*)(addr++)
@@ -37,6 +38,8 @@
 
 // GETGD    get x64 register in gd
 #define GETGD gd = TO_NAT(((nextop & 0x38) >> 3) + (rex.r << 3));
+// GETVD    get x64 register in vd
+#define GETVD vd = TO_NAT(vex.v)
 
 // GETGW extract x64 register in gd, that is i
 #define GETGW(i)                                        \
@@ -133,7 +136,18 @@
         }                                                                                           \
         ed = x1;                                                                                    \
     }
-
+// GETEDOz can use r1 for ed, and r2 for wback. wback is 0 if ed is xEAX..xEDI
+#define GETEDOz(O, D, S)                                                                       \
+    if (MODREG) {                                                                              \
+        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                              \
+        wback = 0;                                                                             \
+    } else {                                                                                   \
+        SMREAD();                                                                              \
+        addr = geted(dyn, addr, ninst, nextop, &wback, x2, S, &fixedaddress, rex, NULL, 1, D); \
+        ADDz(S, wback, O);                                                                     \
+        LDz(x1, S, fixedaddress);                                                              \
+        ed = x1;                                                                               \
+    }
 // GETSED can use r1 for ed, and r2 for wback. ed will be sign extended!
 #define GETSED(D)                                                                               \
     if (MODREG) {                                                                               \
@@ -326,6 +340,7 @@
     }
 
 #define VEXTRINS_IMM_4_0(n, m) ((n & 0xf) << 4 | (m & 0xf))
+#define XVPERMI_IMM_4_0(n, m)  ((n & 0xf) << 4 | (m & 0xf))
 
 // Get GX as a quad (might use x1)
 #define GETGX(a, w)                             \
@@ -433,6 +448,221 @@
         BSTRINS_D(wback, ed, wb2 + 7, wb2); \
     }
 
+#define YMM_UNMARK_UPPER_ZERO(a)             \
+    do {                                     \
+        dyn->lsx.avxcache[a].zero_upper = 0; \
+    } while (0)
+
+// AVX helpers
+// Get VX (might use x1)
+#define GETVYx(a, w) \
+    a = avx_get_reg(dyn, ninst, x1, vex.v, w, LSX_AVX_WIDTH_128)
+
+#define GETVYy(a, w) \
+    a = avx_get_reg(dyn, ninst, x1, vex.v, w, LSX_AVX_WIDTH_256)
+
+// Get an empty VX (use x1)
+#define GETVYx_empty(a) \
+    a = avx_get_reg_empty(dyn, ninst, x1, vex.v, LSX_AVX_WIDTH_128)
+
+#define GETVYy_empty(a) \
+    a = avx_get_reg_empty(dyn, ninst, x1, vex.v, LSX_AVX_WIDTH_256)
+
+// Get GX as a quad (might use x1)
+#define GETGYx(a, w)                            \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = avx_get_reg(dyn, ninst, x1, gd, w, LSX_AVX_WIDTH_128)
+
+#define GETGYy(a, w)                            \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = avx_get_reg(dyn, ninst, x1, gd, w, LSX_AVX_WIDTH_256)
+
+#define GETGYx_empty(a)                         \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = avx_get_reg_empty(dyn, ninst, x1, gd, LSX_AVX_WIDTH_128)
+
+#define GETGYy_empty(a)                         \
+    gd = ((nextop & 0x38) >> 3) + (rex.r << 3); \
+    a = avx_get_reg_empty(dyn, ninst, x1, gd, LSX_AVX_WIDTH_256)
+
+// Get EY as a quad, (x1 is used)
+#define GETEYx(a, w, D)                                                                      \
+    if (MODREG) {                                                                            \
+        a = avx_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), w, LSX_AVX_WIDTH_128);  \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        VLD(a, ed, fixedaddress);                                                            \
+    }
+
+#define GETEYy(a, w, D)                                                                      \
+    if (MODREG) {                                                                            \
+        a = avx_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), w, LSX_AVX_WIDTH_256);  \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        XVLD(a, ed, fixedaddress);                                                           \
+    }
+
+#define GETEYx_empty(a, D)                                                                     \
+    if (MODREG) {                                                                              \
+        a = avx_get_reg_empty(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), LSX_AVX_WIDTH_128); \
+    } else {                                                                                   \
+        SMREAD();                                                                              \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, D);   \
+        a = fpu_get_scratch(dyn);                                                              \
+    }
+
+#define GETEYy_empty(a, D)                                                                     \
+    if (MODREG) {                                                                              \
+        a = avx_get_reg_empty(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), LSX_AVX_WIDTH_256); \
+    } else {                                                                                   \
+        SMREAD();                                                                              \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, D);   \
+        a = fpu_get_scratch(dyn);                                                              \
+    }
+
+// Get EY as 32bits , (x1 is used)
+#define GETEYSS(a, w, D)                                                                     \
+    if (MODREG) {                                                                            \
+        a = avx_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), w, LSX_AVX_WIDTH_128);  \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        FLD_S(a, ed, fixedaddress);                                                          \
+    }
+
+#define PUTEYSS(a)                  \
+    if (!MODREG) {                  \
+        FST_S(a, ed, fixedaddress); \
+        SMWRITE2();                 \
+    }
+
+// Get EY as 32bits , (x1 is used)
+#define GETEYSD(a, w, D)                                                                     \
+    if (MODREG) {                                                                            \
+        a = avx_get_reg(dyn, ninst, x1, (nextop & 7) + (rex.b << 3), w, LSX_AVX_WIDTH_128);  \
+    } else {                                                                                 \
+        SMREAD();                                                                            \
+        addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 1, D); \
+        a = fpu_get_scratch(dyn);                                                            \
+        FLD_D(a, ed, fixedaddress);                                                          \
+    }
+
+#define PUTEYSD(a)                  \
+    if (!MODREG) {                  \
+        FST_D(a, ed, fixedaddress); \
+        SMWRITE2();                 \
+    }
+
+#define GETGYxy(a, w) \
+    if (vex.l) {      \
+        GETGYy(a, w); \
+    } else {          \
+        GETGYx(a, w); \
+    }
+
+#define GETGYxy_empty(a) \
+    if (vex.l) {         \
+        GETGYy_empty(a); \
+    } else {             \
+        GETGYx_empty(a); \
+    }
+
+#define GETVYxy(a, w) \
+    if (vex.l) {      \
+        GETVYy(a, w); \
+    } else {          \
+        GETVYx(a, w); \
+    }
+
+#define GETVYxy_empty(a) \
+    if (vex.l) {         \
+        GETVYy_empty(a); \
+    } else {             \
+        GETVYx_empty(a); \
+    }
+
+#define GETEYxy(a, w, D) \
+    if (vex.l) {         \
+        GETEYy(a, w, D); \
+    } else {             \
+        GETEYx(a, w, D); \
+    }
+
+#define GETEYxy_empty(a, D) \
+    if (vex.l) {            \
+        GETEYy_empty(a, D); \
+    } else {                \
+        GETEYx_empty(a, D); \
+    }
+
+// Put Back EY if it was a memory and not an emm register
+#define PUTEYy(a)                  \
+    if (!MODREG) {                 \
+        XVST(a, ed, fixedaddress); \
+        SMWRITE2();                \
+    }
+
+#define PUTEYx(a)                 \
+    if (!MODREG) {                \
+        VST(a, ed, fixedaddress); \
+        SMWRITE2();               \
+    }
+
+#define PUTEYxy(a) \
+    if (vex.l) {   \
+        PUTEYy(a); \
+    } else {       \
+        PUTEYx(a); \
+    }
+
+// Get empty GY, and non-written VY and EY
+#define GETGY_empty_VYEY_xy(gx, vx, ex, D) \
+    GETVYxy(vx, 0);                        \
+    GETEYxy(ex, 0, D);                     \
+    GETGYxy_empty(gx);
+
+// Get empty GY, and non-written EY
+#define GETGY_empty_EY_xy(gx, ex, D) \
+    GETEYxy(ex, 0, D);               \
+    GETGYxy_empty(gx);
+
+// Get writable GY, and non-written VY and EY
+#define GETGY_VYEY_xy(gx, vx, ex, D) \
+    GETVYxy(vx, 0);                  \
+    GETEYxy(ex, 0, D);               \
+    GETGYxy(gx, 1);
+
+// Get writable GY, and non-written EY
+#define GETGY_EY_xy(gx, ex, D) \
+    GETEYxy(ex, 0, D);         \
+    GETGYxy(gx, 1);
+
+// Get writable EY, and non-written VY and GY
+#define GETEY_VYGY_xy(ex, vx, gx, D) \
+    GETVYxy(vx, 0);                  \
+    GETGYxy(gx, 0);                  \
+    GETEYxy(ex, 1, D);
+
+// Get writable EY, and non-written GY
+#define GETEY_GY_xy(ex, gx, D) \
+    GETGYxy(gx, 0);            \
+    GETEYxy(ex, 1, D);
+
+// Get writable GYx, and non-written VYx, EYSD or EYSS , for FMA SD/SSinsts.
+#define GETGYx_VYx_EYxw(gx, vx, ex, D) \
+    GETVYx(vx, 0);                     \
+    if (rex.w) {                       \
+        GETEYSD(ex, 0, D)              \
+    } else {                           \
+        GETEYSS(ex, 0, D);             \
+    }                                  \
+    GETGYx(gx, 1);
+
 // Get direction with size Z and based of F_DF flag, on register r ready for load/store fetching
 // using s as scratch.
 // F_DF is not in LBT4.eflags, don't worry
@@ -444,13 +674,16 @@
 
 // CALL will use x6 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2
-#define CALL(F, ret) call_c(dyn, ninst, F, x6, ret, 1, 0)
+#define CALL(F, ret, arg1, arg2)                          call_c(dyn, ninst, F, x6, ret, 1, 0, arg1, arg2, 0, 0, 0, 0)
+#define CALL4(F, ret, arg1, arg2, arg3, arg4)             call_c(dyn, ninst, F, x6, ret, 1, 0, arg1, arg2, arg3, arg4, 0, 0)
+#define CALL6(F, ret, arg1, arg2, arg3, arg4, arg5, arg6) call_c(dyn, ninst, F, x6, ret, 1, 0, arg1, arg2, arg3, arg4, arg5, arg6)
 // CALL_ will use x6 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2
-#define CALL_(F, ret, reg) call_c(dyn, ninst, F, x6, ret, 1, reg)
+#define CALL_(F, ret, reg, arg1, arg2) call_c(dyn, ninst, F, x6, ret, 1, reg, arg1, arg2, 0, 0, 0, 0)
+#define CALL4_(F, ret, reg, arg1, arg2, arg3, arg4) call_c(dyn, ninst, F, x6, ret, 1, reg, arg1, arg2, arg3, arg4, 0, 0)
 // CALL_S will use x6 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2. Flags are not save/restored
-#define CALL_S(F, ret) call_c(dyn, ninst, F, x6, ret, 0, 0)
+#define CALL_S(F, ret, arg1) call_c(dyn, ninst, F, x6, ret, 0, 0, arg1, 0, 0, 0, 0, 0)
 
 #define MARKi(i)    dyn->insts[ninst].mark[i] = dyn->native_size
 #define GETMARKi(i) dyn->insts[ninst].mark[i]
@@ -618,8 +851,9 @@
 
 // Need to also store current value of some register, as they may be used by functions like setjmp
 #define STORE_XEMU_CALL() \
-    STORE_REG(R8);        \
-    STORE_REG(R9);        \
+    STORE_REG(RBX);       \
+    STORE_REG(RSP);       \
+    STORE_REG(RBP);       \
     STORE_REG(R10);       \
     STORE_REG(R11);       \
     STORE_REG(R12);       \
@@ -630,8 +864,9 @@
 #define LOAD_XEMU_CALL()
 
 #define LOAD_XEMU_REM() \
-    LOAD_REG(R8);       \
-    LOAD_REG(R9);       \
+    LOAD_REG(RBX);      \
+    LOAD_REG(RSP);      \
+    LOAD_REG(RBP);      \
     LOAD_REG(R10);      \
     LOAD_REG(R11);      \
     LOAD_REG(R12);      \
@@ -639,15 +874,16 @@
     LOAD_REG(R14);      \
     LOAD_REG(R15);
 
-#define SET_DFNONE()                                 \
-    do {                                             \
-        if (!dyn->f.dfnone) {                        \
-            ST_W(xZR, xEmu, offsetof(x64emu_t, df)); \
-        }                                            \
-        if (!dyn->insts[ninst].x64.may_set) {        \
-            dyn->f.dfnone_here = 1;                  \
-            dyn->f.dfnone = 1;                       \
-        }                                            \
+#define FORCE_DFNONE() ST_W(xZR, xEmu, offsetof(x64emu_t, df))
+
+#define SET_DFNONE()                          \
+    do {                                      \
+        if (!dyn->f.dfnone) {                 \
+            FORCE_DFNONE();                   \
+        }                                     \
+        if (!dyn->insts[ninst].x64.may_set) { \
+            dyn->f.dfnone = 1;                \
+        }                                     \
     } while (0)
 
 #define SET_DF(S, N)                                           \
@@ -657,7 +893,7 @@
         if (dyn->f.pending == SF_PENDING                       \
             && dyn->insts[ninst].x64.need_after                \
             && !(dyn->insts[ninst].x64.need_after & X_PEND)) { \
-            CALL_(UpdateFlags, -1, 0);                         \
+            CALL_(const_updateflags, -1, 0, 0, 0);             \
             dyn->f.pending = SF_SET;                           \
             SET_NODF();                                        \
         }                                                      \
@@ -666,9 +902,8 @@
         SET_DFNONE()
 
 #define SET_NODF() dyn->f.dfnone = 0
-#define SET_DFOK()     \
-    dyn->f.dfnone = 1; \
-    dyn->f.dfnone_here = 1
+#define SET_DFOK() \
+    dyn->f.dfnone = 1
 
 #define CLEAR_FLAGS_(s)                                                                                       \
     MOV64x(s, (1UL << F_AF) | (1UL << F_CF) | (1UL << F_OF) | (1UL << F_ZF) | (1UL << F_SF) | (1UL << F_PF)); \
@@ -720,18 +955,18 @@
 #endif
 
 #ifndef READFLAGS
-#define READFLAGS(A)                                \
-    if (((A) != X_PEND && dyn->f.pending != SF_SET) \
-        && (dyn->f.pending != SF_SET_PENDING)) {    \
-        if (dyn->f.pending != SF_PENDING) {         \
-            LD_D(x3, xEmu, offsetof(x64emu_t, df)); \
-            j64 = (GETMARKF) - (dyn->native_size);  \
-            BEQ(x3, xZR, j64);                      \
-        }                                           \
-        CALL_(UpdateFlags, -1, 0);                  \
-        MARKF;                                      \
-        dyn->f.pending = SF_SET;                    \
-        SET_DFOK();                                 \
+#define READFLAGS(A)                                 \
+    if (((A) != X_PEND && dyn->f.pending != SF_SET)  \
+        && (dyn->f.pending != SF_SET_PENDING)) {     \
+        if (dyn->f.pending != SF_PENDING) {          \
+            LD_WU(x3, xEmu, offsetof(x64emu_t, df)); \
+            j64 = (GETMARKF) - (dyn->native_size);   \
+            BEQ(x3, xZR, j64);                       \
+        }                                            \
+        CALL_(const_updateflags, -1, 0, 0, 0);       \
+        MARKF;                                       \
+        dyn->f.pending = SF_SET;                     \
+        SET_DFOK();                                  \
     }
 #endif
 
@@ -815,40 +1050,53 @@
 #ifndef TABLE64
 #define TABLE64(A, V)
 #endif
+#ifndef TABLE64C
+#define TABLE64C(A, V)
+#endif
+
+#ifndef TABLE64_
+#define TABLE64_(A, V)
+#endif
 
 #define ARCH_INIT() SMSTART()
 
 #define ARCH_RESET()
 
 #if STEP < 2
-#define GETIP(A)  TABLE64(0, 0)
-#define GETIP_(A) TABLE64(0, 0)
+#define GETIP(A, scratch)
+#define GETIP_(A, scratch)
 #else
-// put value in the Table64 even if not using it for now to avoid difference between Step2 and Step3. Needs to be optimized later...
-#define GETIP(A)                                       \
-    if (dyn->last_ip && ((A) - dyn->last_ip) < 2048) { \
-        uint64_t _delta_ip = (A) - dyn->last_ip;       \
-        dyn->last_ip += _delta_ip;                     \
-        if (_delta_ip) {                               \
-            ADDI_D(xRIP, xRIP, _delta_ip);             \
-        }                                              \
-    } else {                                           \
-        dyn->last_ip = (A);                            \
-        if (dyn->last_ip < 0xffffffff) {               \
-            MOV64x(xRIP, dyn->last_ip);                \
-        } else                                         \
-            TABLE64(xRIP, dyn->last_ip);               \
-    }
-#define GETIP_(A)                                         \
-    if (dyn->last_ip && ((A) - dyn->last_ip) < 2048) {    \
-        int64_t _delta_ip = (A) - dyn->last_ip;           \
-        if (_delta_ip) { ADDI_D(xRIP, xRIP, _delta_ip); } \
-    } else {                                              \
-        if ((A) < 0xffffffff) {                           \
-            MOV64x(xRIP, (A));                            \
-        } else                                            \
-            TABLE64(xRIP, (A));                           \
-    }
+
+#define GETIP_(A, scratch)                                        \
+    do {                                                          \
+        ssize_t _delta_ip = (ssize_t)(A) - (ssize_t)dyn->last_ip; \
+        if (!dyn->last_ip) {                                      \
+            if (dyn->need_reloc) {                                \
+                TABLE64(xRIP, (A));                               \
+            } else {                                              \
+                MOV64x(xRIP, (A));                                \
+            }                                                     \
+        } else if (_delta_ip == 0) {                              \
+        } else if (_delta_ip >= -2048 && _delta_ip < 2048) {      \
+            ADDI_D(xRIP, xRIP, _delta_ip);                        \
+        } else if (_delta_ip < 0 && _delta_ip >= -0xffffffff) {   \
+            MOV32w(scratch, -_delta_ip);                          \
+            SUB_D(xRIP, xRIP, scratch);                           \
+        } else if (_delta_ip > 0 && _delta_ip <= 0xffffffff) {    \
+            MOV32w(scratch, _delta_ip);                           \
+            ADD_D(xRIP, xRIP, scratch);                           \
+        } else {                                                  \
+            if (dyn->need_reloc) {                                \
+                TABLE64(xRIP, (A));                               \
+            } else {                                              \
+                MOV64x(xRIP, (A));                                \
+            }                                                     \
+        }                                                         \
+    } while (0)
+#define GETIP(A, scratch) \
+    GETIP_(A, scratch);   \
+    dyn->last_ip = (A);
+
 #endif
 #define CLEARIP() dyn->last_ip = 0
 
@@ -864,10 +1112,6 @@
 
 #define MODREG ((nextop & 0xC0) == 0xC0)
 
-void la64_epilog(void);
-void la64_epilog_fast(void);
-void* la64_next(x64emu_t* emu, uintptr_t addr);
-
 #ifndef STEPNAME
 #define STEPNAME3(N, M) N##M
 #define STEPNAME2(N, M) STEPNAME3(N, M)
@@ -876,19 +1120,30 @@ void* la64_next(x64emu_t* emu, uintptr_t addr);
 
 #define native_pass STEPNAME(native_pass)
 
-#define dynarec64_00     STEPNAME(dynarec64_00)
-#define dynarec64_0F     STEPNAME(dynarec64_0F)
-#define dynarec64_64     STEPNAME(dynarec64_64)
-#define dynarec64_66     STEPNAME(dynarec64_66)
-#define dynarec64_6664   STEPNAME(dynarec64_6664)
-#define dynarec64_67     STEPNAME(dynarec64_67)
-#define dynarec64_F30F   STEPNAME(dynarec64_F30F)
-#define dynarec64_660F   STEPNAME(dynarec64_660F)
-#define dynarec64_66F0   STEPNAME(dynarec64_66F0)
-#define dynarec64_66F20F STEPNAME(dynarec64_66F20F)
-#define dynarec64_66F30F STEPNAME(dynarec64_66F30F)
-#define dynarec64_F0     STEPNAME(dynarec64_F0)
-#define dynarec64_F20F   STEPNAME(dynarec64_F20F)
+#define dynarec64_00          STEPNAME(dynarec64_00)
+#define dynarec64_0F          STEPNAME(dynarec64_0F)
+#define dynarec64_64          STEPNAME(dynarec64_64)
+#define dynarec64_66          STEPNAME(dynarec64_66)
+#define dynarec64_6664        STEPNAME(dynarec64_6664)
+#define dynarec64_67          STEPNAME(dynarec64_67)
+#define dynarec64_F30F        STEPNAME(dynarec64_F30F)
+#define dynarec64_660F        STEPNAME(dynarec64_660F)
+#define dynarec64_66F0        STEPNAME(dynarec64_66F0)
+#define dynarec64_66F20F      STEPNAME(dynarec64_66F20F)
+#define dynarec64_66F30F      STEPNAME(dynarec64_66F30F)
+#define dynarec64_F0          STEPNAME(dynarec64_F0)
+#define dynarec64_F20F        STEPNAME(dynarec64_F20F)
+#define dynarec64_AVX         STEPNAME(dynarec64_AVX)
+#define dynarec64_AVX_0F      STEPNAME(dynarec64_AVX_0F)
+#define dynarec64_AVX_0F38    STEPNAME(dynarec64_AVX_0F38)
+#define dynarec64_AVX_66_0F   STEPNAME(dynarec64_AVX_66_0F)
+#define dynarec64_AVX_66_0F38 STEPNAME(dynarec64_AVX_66_0F38)
+#define dynarec64_AVX_66_0F3A STEPNAME(dynarec64_AVX_66_0F3A)
+#define dynarec64_AVX_F2_0F   STEPNAME(dynarec64_AVX_F2_0F)
+#define dynarec64_AVX_F2_0F38 STEPNAME(dynarec64_AVX_F2_0F38)
+#define dynarec64_AVX_F2_0F3A STEPNAME(dynarec64_AVX_F2_0F3A)
+#define dynarec64_AVX_F3_0F   STEPNAME(dynarec64_AVX_F3_0F)
+#define dynarec64_AVX_F3_0F38 STEPNAME(dynarec64_AVX_F3_0F38)
 
 #define geted               STEPNAME(geted)
 #define geted32             STEPNAME(geted32)
@@ -987,6 +1242,14 @@ void* la64_next(x64emu_t* emu, uintptr_t addr);
 #define sse_forget_reg    STEPNAME(sse_forget_reg)
 #define sse_reflect_reg   STEPNAME(sse_reflect_reg)
 
+#define avx_get_reg              STEPNAME(avx_get_reg)
+#define avx_get_reg_empty        STEPNAME(avx_get_reg_empty)
+#define avx_forget_reg           STEPNAME(sse_forget_reg)
+#define avx_reflect_reg          STEPNAME(avx_reflect_reg)
+#define avx_purgecache           STEPNAME(avx_purgecache)
+#define avx_reflect_reg_upper128 STEPNAME(avx_reflect_reg_upper128)
+
+
 #define fpu_pushcache       STEPNAME(fpu_pushcache)
 #define fpu_popcache        STEPNAME(fpu_popcache)
 #define fpu_reset_cache     STEPNAME(fpu_reset_cache)
@@ -1014,7 +1277,7 @@ void jump_to_next(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
 void ret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex);
 void retn_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n);
 void iret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is64bits);
-void call_c(dynarec_la64_t* dyn, int ninst, void* fnc, int reg, int ret, int saveflags, int save_reg);
+void call_c(dynarec_la64_t* dyn, int ninst, la64_consts_t fnc, int reg, int ret, int saveflags, int save_reg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6);
 void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg);
 void emit_cmp8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
 void emit_cmp16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
@@ -1129,6 +1392,17 @@ int mmx_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int a);
 int mmx_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int a);
 
 
+// AVX helpers
+// get lasx register for a AVX reg, create the entry if needed
+int avx_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int a, int forwrite, int width);
+// get lasx register for an AVX reg, but don't try to synch it if it needed to be created
+int avx_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int a, int width);
+// forget float register for a AVX reg, create the entry if needed
+void avx_forget_reg(dynarec_la64_t* dyn, int ninst, int a);
+// Push current value to the cache
+void avx_reflect_reg(dynarec_la64_t* dyn, int ninst, int a);
+void avx_reflect_reg_upper128(dynarec_la64_t* dyn, int ninst, int a, int forwrite);
+
 void CacheTransform(dynarec_la64_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3);
 
 void la64_move64(dynarec_la64_t* dyn, int ninst, int reg, int64_t val);
@@ -1153,6 +1427,18 @@ uintptr_t dynarec64_66F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, in
 uintptr_t dynarec64_66F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
 uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_66_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_66_0F3A(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_F2_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_F2_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_F2_0F3A(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_F3_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_AVX_F3_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+
 
 #if STEP < 3
 #define PASS3(A)
@@ -1299,6 +1585,6 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
         }                                  \
     } while (0)
 
-#define PURGE_YMM() /* TODO */
+#define PURGE_YMM()
 
 #endif //__DYNAREC_LA64_HELPER_H__

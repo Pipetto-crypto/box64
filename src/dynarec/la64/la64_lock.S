@@ -1,3 +1,7 @@
+#define ASM_MAPPING 1
+#include "la64_mapping.h"
+#undef ASM_MAPPING
+
 // LA64 lock helper
 // there is 2 part: read and write
 // write return 0 on success, 1 on fail (value has been changed)
@@ -11,6 +15,7 @@
 .global la64_lock_storeifnull
 .global la64_lock_storeifnull_d
 .global la64_lock_storeifref
+.global la64_lock_storeifref2
 .global la64_lock_storeifref_d
 .global la64_lock_storeifref2_d
 .global la64_lock_storeb
@@ -108,6 +113,19 @@ la64_lock_storeifref2_d:
     ll.w $a3, $a0, 0
     bne  $a2, $a3, 2f
     sc.w $a4, $a0, 0
+    beqz $a4, 1b
+2:
+    move $a0, $a3
+    ret
+
+la64_lock_storeifref2:
+    // address is a0, value is a1, a1 store to a0 only if [a0] is a2. return old [a0] value
+    dbar 0
+1:
+    move $a4, $a1
+    ll.d $a3, $a0, 0
+    bne  $a2, $a3, 2f
+    sc.d $a4, $a0, 0
     beqz $a4, 1b
 2:
     move $a0, $a3
