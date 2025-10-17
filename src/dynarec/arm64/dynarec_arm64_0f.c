@@ -186,9 +186,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             }
             BARRIER(BARRIER_FLOAT);
             GETIP(ip);
-            STORE_XEMU_CALL(xRIP);
-            CALL_S(const_native_ud, -1);
-            LOAD_XEMU_CALL(xRIP);
+            UDF(0);
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
             *ok = 0;
@@ -203,9 +201,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             }
             BARRIER(BARRIER_FLOAT);
             GETIP(ip);
-            STORE_XEMU_CALL(xRIP);
-            CALL_S(const_native_ud, -1);
-            LOAD_XEMU_CALL(xRIP);
+            UDF(0);
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
             *ok = 0;
@@ -397,6 +393,11 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             break;
 
         case 0x19:
+        case 0x1A:
+        case 0x1B:
+        case 0x1C:
+        case 0x1D:
+        case 0x1E:
         case 0x1F:
             INST_NAME("NOP (multibyte)");
             nextop = F8;
@@ -461,7 +462,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             INST_NAME("CVTTPS2PI Gm,Ex");
             nextop = F8;
             GETGM(q0);
-            GETEX(v1, 0, 0);
+            GETEXSD(v1, 0, 0);
             if (BOX64ENV(dynarec_fastround)) {
                 VFCVTZSS(q0, v1);
             } else {
@@ -495,7 +496,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             INST_NAME("CVTPS2PI Gm, Ex");
             nextop = F8;
             GETGM(q0);
-            GETEX(v1, 0, 0);
+            GETEXSD(v1, 0, 0);
             if (BOX64ENV(dynarec_fastround)) {
                 u8 = sse_setround(dyn, ninst, x1, x2, x3);
                 VFRINTIS(q0, v1);
@@ -1219,7 +1220,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0x5A:
             INST_NAME("CVTPS2PD Gx, Ex");
             nextop = F8;
-            GETEX(q0, 0, 0);
+            GETEXSD(q0, 0, 0);
             GETGX_empty(q1);
             FCVTL(q1, q0);
             break;
@@ -1798,6 +1799,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 WBACK;
             } else {
                 FAKEED;
+                if (!rex.w && !rex.is32bits && MODREG) { MOVw_REG(ed, ed); }
                 F8;
             }
             break;
@@ -1885,6 +1887,7 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 WBACK;
             } else {
                 FAKEED;
+                if (!rex.w && !rex.is32bits && MODREG) { MOVw_REG(ed, ed); }
                 F8;
             }
             break;
@@ -2103,19 +2106,23 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     CMPSxw_REG(xRAX, ed);
                 }
                 MOVxw_REG(x1, ed); // save value
-                Bcond(cNE, 4+4);
+                Bcond(cNE, 4 + (rex.w ? 4 : 8));
                 MOVxw_REG(ed, gd);
+                if (!rex.w) { B_NEXT_nocond; }
             } else {
                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff<<(2+rex.w), (1<<(2+rex.w))-1, rex, NULL, 0, 0);
                 LDxw(x1, wback, fixedaddress);
-                UFLAG_IF {emit_cmp32(dyn, ninst, rex, xRAX, x1, x3, x4, x5);}
+                UFLAG_IF {
+                    emit_cmp32(dyn, ninst, rex, xRAX, x1, x3, x4, x5);
+                }
                 SUBxw_REG(x4, xRAX, x1);
                 CBNZxw_MARK(x4);
                 // EAX == Ed
                 STxw(gd, wback, fixedaddress);
+                if (!rex.w) { B_NEXT_nocond; }
                 MARK;
             }
-            MOVxw_REG(xRAX, x1);    // upper part of RAX will be erase on 32bits, no mater what
+            MOVxw_REG(xRAX, x1);
             break;
 
         case 0xB3:
@@ -2355,8 +2362,6 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             nextop = F8;
             GETED(0);
             GETGD;
-            if(!MODREG)
-                MOVxw_REG(gd, ed);  // to handle ed=0, setting UD gd to 0
             IFX(X_ZF) {
                 TSTxw_REG(ed, ed);
                 B_MARK(cEQ);
@@ -2391,8 +2396,6 @@ uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             nextop = F8;
             GETED(0);
             GETGD;
-            if(!MODREG)
-                MOVxw_REG(gd, ed);  // to handle ed=0, setting UD gd to 0
             IFX(X_ZF) {
                 TSTxw_REG(ed, ed);
                 B_MARK(cEQ);

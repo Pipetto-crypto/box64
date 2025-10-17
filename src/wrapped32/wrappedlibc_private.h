@@ -329,7 +329,7 @@ GOW(ferror, iES)
 //GO(ferror_unlocked, iEp)
 //GO(fexecve, iEipp)  //TODO: Check if needed to be wrapped, and target checked for x86 / native?
 GOW(fflush, iES)
-//GO(fflush_unlocked, iES)
+GO(fflush_unlocked, iES)
 GO(ffs, iEi)
 // __ffs
 GOW(ffsl, iEl)
@@ -395,7 +395,7 @@ GOW(fread, LEpLLS)
 //GO(__freadable, iEp)
 GO(__fread_chk, uEpLLLS)
 //GO(__freading, iEp)
-//GO(fread_unlocked, uEpuup)
+GO(fread_unlocked, LEpLLS)
 //GO(__fread_unlocked_chk, uEpuuup)
 GO(free, vEp)
 GOM(freeaddrinfo, vEEp)
@@ -454,7 +454,7 @@ GOWM(futimes, iEEip)
 //GOM(__fwprintf_chk, iEEpvpV) //%%
 //GO(__fwritable, iEp)
 GOW(fwrite, LEpLLS)
-//GO(fwrite_unlocked, uEpuup)
+GO(fwrite_unlocked, LEpLLS)
 //GO(__fwriting, iEp)
 // fwscanf
 GOM(__fxstat, iEEiip)       //%%
@@ -511,7 +511,7 @@ GOM(gethostbyaddr, pFEpui)
 GOM(gethostbyaddr_r, iFEpuippupp)
 GOM(gethostbyname, pFEp)
 //GO(gethostbyname2, pFpi)
-//GO(gethostbyname2_r, iFpippupp)
+GOM(gethostbyname2_r, iFEpippupp)
 GOM(gethostbyname_r, iFEpppupp)
 //GO(gethostent, pFv)
 //GO(gethostent_r, iFppupp)
@@ -562,9 +562,9 @@ GOW(getppid, iEv)
 GO(getpriority, iEuu)
 GO(getrandom, iEpLu)
 GOM(getprotobyname, pEEp)
-//GO(getprotobyname_r, iEpppup)
+GOM(getprotobyname_r, iEEpppup)
 //GO(getprotobynumber, pEi)
-//GO(getprotobynumber_r, iEippup)
+GOM(getprotobynumber_r, iEEippup)
 //GO(getprotoent, pEv)
 //GO(getprotoent_r, iEppup)
 GOW(getpt, iEv)
@@ -636,9 +636,9 @@ GO(getwchar_unlocked, uEv)
 // __getwd_chk
 GO(getxattr, iEpppL)
 GOM(glob, iEEpipp)             //%%
-//GOM(glob64, iEEpipp)           //%%
-GO(globfree, vEp)
-//GO(globfree64, vEp)
+GOM(glob64, iEEpipp)           //%%
+GOM(globfree, vEEp)             //%%
+GOM(globfree64, vEEp)           //%%
 // glob_pattern_p   // Weak
 GOM(gmtime, pEEp)
 GOM(__gmtime64, pEEp)
@@ -910,7 +910,7 @@ GO2(__isoc99_fscanf, iEESpV, my32_fscanf)
 // __isoc99_fwscanf
 // __isoc99_scanf
 GOM(__isoc99_sscanf, iEEppV)  //%%
-// __isoc99_swscanf
+GOM(__isoc99_swscanf, iEEppV)   //%%
 //GOM(__isoc99_vfscanf, iEEppp) //%%
 // __isoc99_vfwscanf
 // __isoc99_vscanf
@@ -1020,7 +1020,7 @@ GO(lgetxattr, iEpppL)
 GOM(__libc_alloca_cutoff, iEEL) //%%
 // __libc_allocate_rtsig
 // __libc_allocate_rtsig_private
-//GO(__libc_calloc, pELL)
+GO2(__libc_calloc, pELL, calloc)
 // __libc_clntudp_bufcreate
 GO(__libc_current_sigrtmax, iEv)
 // __libc_current_sigrtmax_private
@@ -1032,28 +1032,28 @@ GO(__libc_current_sigrtmin, iEv)
 //GOM(__libc_dlsym, pEEpp)        //%%
 // __libc_fatal
 // __libc_fork
-//GO(__libc_free, vEp)
+GO2(__libc_free, vEp, free)
 // __libc_freeres
 GOM(__libc_init_first, vEEipV)  //%%
 DATAM(_libc_intl_domainname, 4)    // type R
 //GO2(__libc_open, iEEpOu, my_open)
 // __libc_longjmp
 // __libc_mallinfo
-//GO(__libc_malloc, pEL)
+GO2(__libc_malloc, pEL, malloc)
 // __libc_mallopt
-//GO(__libc_memalign, pELL)
+GO2(__libc_memalign, pELL, memalign)
 // __libc_pthread_init
-//GO(__libc_pvalloc, pEL)
+GO2(__libc_pvalloc, pEL, pvalloc)
 // __libc_pwrite
 //GO2(__libc_read, lEipL, my_read) //%%,noE
-//GO(__libc_realloc, pEpL)
+GO2(__libc_realloc, pEpL, realloc)
 // __libc_sa_len
 // __libc_siglongjmp
 GOM(__libc_start_main, iEEpippppp) //%%
 GO2(__libc_sigaction, iEEipp, my32_sigaction) //%%
 // __libc_system
 // __libc_thread_freeres
-//GO(__libc_valloc, pEL)
+GO2(__libc_valloc, pEL, valloc)
 GOW(link, iEpp)
 //GO(linkat, iEipipi)
 GOW(listen, iEii)
@@ -1619,7 +1619,7 @@ GOW(sigsuspend, iEp)
 // __sigsuspend
 GOW(sigtimedwait, iEpprLL_)
 //GOW(sigvec, iEipp)
-//GOW(sigwait, iEpp)
+GOW(sigwait, iEpp)
 //GOW(sigwaitinfo, iEpp)
 GOW(sleep, uEu)
 GOM(snprintf, iEEpLpV) //%%

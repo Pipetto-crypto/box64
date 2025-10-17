@@ -168,10 +168,11 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             GETGD;
             CHECK_FLAGS(emu);
             tmp8u = ED->word[0]>>3;
-            if (tmp8u>0x10 || !my_context->segtls[tmp8u].present) {
+            tmp8s = !!(ED->word[0]&2);
+            if (tmp8u>0x10 || !tmp8s?emu->segldt[tmp8u].present:my_context->seggdt[tmp8u].present) {
                 CLEAR_FLAG(F_ZF);
             } else {
-                GD->dword[0] = my_context->segtls[tmp8u].limit;
+                GD->dword[0] = tmp8s?emu->segldt[tmp8u].limit:my_context->seggdt[tmp8u].limit;
                 SET_FLAG(F_ZF);
             }
             break;
@@ -302,6 +303,11 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
             break;
 
         case 0x19:
+        case 0x1A:
+        case 0x1B:
+        case 0x1C:
+        case 0x1D:
+        case 0x1E:
         case 0x1F:                      /* NOP (multi-byte) */
             nextop = F8;
             FAKEED(0);
@@ -1413,7 +1419,6 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                         ED->q[0] = GD->dword[0];
                     else
                         ED->dword[0] = GD->dword[0];
-                    R_RAX = R_EAX;   // to erase upper part of RAX
                 } else {
                     R_RAX = ED->dword[0];
                 }
@@ -1797,8 +1802,8 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                         tmp64u2= ED->q[1];
                         if(R_RAX == tmp64u && R_RDX == tmp64u2) {
                             SET_FLAG(F_ZF);
-                            ED->q[0] = R_EBX;
-                            ED->q[1] = R_ECX;
+                            ED->q[0] = R_RBX;
+                            ED->q[1] = R_RCX;
                         } else {
                             CLEAR_FLAG(F_ZF);
                             R_RAX = tmp64u;

@@ -2013,6 +2013,7 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             break;
         case 0xCD:
             u8 = F8;
+            NOTEST(x1);
             if (box64_wine && (u8 == 0x2D || u8 == 0x2C || u8 == 0x29)) {
                 INST_NAME("INT 29/2c/2d");
                 // lets do nothing
@@ -2538,15 +2539,22 @@ uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             break;
         case 0xF4:
             INST_NAME("HLT");
-            if (BOX64DRENV(dynarec_safeflags) > 1) {
-                READFLAGS(X_PEND);
+            if (box64_unittest_mode) { // HLT in unittest mode is an exit
+                READFLAGS(X_ALL);
+                BARRIER(BARRIER_FLOAT);
+                MOV32w(x1, 1);
+                ST_W(x1, xEmu, offsetof(x64emu_t, quit));
             } else {
-                SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION); // Hack to set flags in "don't care" state
+                if (BOX64DRENV(dynarec_safeflags) > 1) {
+                    READFLAGS(X_PEND);
+                } else {
+                    SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION); // Hack to set flags in "don't care" state
+                }
+                GETIP(ip, x7);
+                STORE_XEMU_CALL();
+                CALL(const_native_priv, -1, 0, 0);
+                LOAD_XEMU_CALL();
             }
-            GETIP(ip, x7);
-            STORE_XEMU_CALL();
-            CALL(const_native_priv, -1, 0, 0);
-            LOAD_XEMU_CALL();
             jump_to_epilog(dyn, 0, xRIP, ninst);
             *need_epilog = 0;
             *ok = 0;

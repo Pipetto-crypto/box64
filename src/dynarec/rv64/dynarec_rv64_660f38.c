@@ -293,6 +293,7 @@ uintptr_t dynarec64_660F38(dynarec_rv64_t* dyn, uintptr_t addr, uint8_t opcode, 
                     nextop = F8;
                     GETGX();
                     GETEX(x2, 0, 12);
+                    sse_forget_reg(dyn, ninst, x6, 0);
                     for (int i = 0; i < 4; ++i) {
                         LW(x3, xEmu, offsetof(x64emu_t, xmm[0]) + i * 4);
                         BGE(x3, xZR, 4 + 4 * 2);
@@ -305,6 +306,7 @@ uintptr_t dynarec64_660F38(dynarec_rv64_t* dyn, uintptr_t addr, uint8_t opcode, 
                     nextop = F8;
                     GETGX();
                     GETEX(x2, 0, 8);
+                    sse_forget_reg(dyn, ninst, x6, 0);
                     for (int i = 0; i < 2; ++i) {
                         LD(x3, xEmu, offsetof(x64emu_t, xmm[0]) + i * 8);
                         BGE(x3, xZR, 4 + 4 * 2);
@@ -1096,7 +1098,15 @@ uintptr_t dynarec64_660F38(dynarec_rv64_t* dyn, uintptr_t addr, uint8_t opcode, 
                     INST_NAME("PINSRB Gx, ED, Ib");
                     nextop = F8;
                     GETGX();
-                    GETED(1);
+                    if (MODREG) {
+                        ed = TO_NAT((nextop & 7) + (rex.b << 3));
+                        wback = 0;
+                    } else {
+                        SMREAD();
+                        addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, 1);
+                        LB(x1, wback, fixedaddress);
+                        ed = x1;
+                    }
                     u8 = F8;
                     SB(ed, gback, gdoffset + (u8 & 0xF));
                     break;
@@ -1182,6 +1192,7 @@ uintptr_t dynarec64_660F38(dynarec_rv64_t* dyn, uintptr_t addr, uint8_t opcode, 
                     nextop = F8;
                     GETG;
                     sse_forget_reg(dyn, ninst, x6, gd);
+                    sse_forget_reg(dyn, ninst, x6, 0);
                     ADDI(x3, xEmu, offsetof(x64emu_t, xmm[gd]));
                     if (MODREG) {
                         ed = (nextop & 7) + (rex.b << 3);
@@ -1261,6 +1272,7 @@ uintptr_t dynarec64_660F38(dynarec_rv64_t* dyn, uintptr_t addr, uint8_t opcode, 
                     nextop = F8;
                     GETG;
                     sse_forget_reg(dyn, ninst, x6, gd);
+                    sse_forget_reg(dyn, ninst, x6, 0);
                     ADDI(x2, xEmu, offsetof(x64emu_t, xmm[gd]));
                     if (MODREG) {
                         ed = (nextop & 7) + (rex.b << 3);

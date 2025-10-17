@@ -172,6 +172,11 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
         case 0x18:
         case 0x19:
+        case 0x1A:
+        case 0x1B:
+        case 0x1C:
+        case 0x1D:
+        case 0x1E:
         case 0x1F:
             INST_NAME("NOP (multibyte)");
             nextop = F8;
@@ -1143,7 +1148,15 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     INST_NAME("PINSRB Gx, ED, Ib");
                     nextop = F8;
                     GETGX(q0, 1);
-                    GETED(1);
+                    if (MODREG) {
+                        ed = TO_NAT((nextop & 7) + (rex.b << 3));
+                        wback = 0;
+                    } else {
+                        SMREAD();
+                        addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, 1);
+                        LD_B(x1, wback, fixedaddress);
+                        ed = x1;
+                    }
                     u8 = F8;
                     VINSGR2VR_B(q0, ed, (u8 & 0xf));
                     break;
@@ -2139,11 +2152,11 @@ uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 case 0: VFCMP_D(v0, v0, v1, cEQ); break;  // Equal => cEQ              True if EQ
                 case 1: VFCMP_D(v0, v0, v1, cLT); break;  // Less than => cLT          True if EQ LT
                 case 2: VFCMP_D(v0, v0, v1, cLE); break;  // Less or equal => CLE      True if LT EQ
-                case 3: VFCMP_D(v0, v0, v0, cUN); break;  // unordered => CUN          True if UN
+                case 3: VFCMP_D(v0, v0, v1, cUN); break;  // unordered => CUN          True if UN
                 case 4: VFCMP_D(v0, v0, v1, cUNE); break; // Not Equal or unordered    True if UN LT GT
                 case 5: VFCMP_D(v0, v1, v0, cULE); break; // grether or equal or un    True if UN EQ GT, use cULE UN LT, swap v0 v1
                 case 6: VFCMP_D(v0, v1, v0, cULT); break; // Greater or unordered      True if UN GT, use cULE UN EQ LT, swap v0 v1
-                case 7: VFCMP_D(v0, v0, v0, cOR); break;  // not NaN(ordered)          True if LT EQ GT
+                case 7: VFCMP_D(v0, v0, v1, cOR); break;  // not NaN(ordered)          True if LT EQ GT
             }
             break;
         case 0xC4:

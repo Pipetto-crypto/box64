@@ -67,6 +67,7 @@ int box64_zoom = 0;
 int box64_steam = 0;
 int box64_steamcmd = 0;
 int box64_musl = 0;
+int box64_nolibs = 0;
 char* box64_custom_gstreamer = NULL;
 int box64_tcmalloc_minimal = 0;
 uintptr_t fmod_smc_start = 0;
@@ -74,6 +75,7 @@ uintptr_t fmod_smc_end = 0;
 uint32_t default_gs = 0x53;
 uint32_t default_fs = 0;
 int box64_isglibc234 = 0;
+int box64_unittest_mode = 0;
 
 #ifdef DYNAREC
 cpu_ext_t cpuext = {0};
@@ -328,6 +330,7 @@ void PrintHelp() {
     PrintfFtrace(0, "    '-v'|'--version' to print box64 version and quit\n");
     PrintfFtrace(0, "    '-h'|'--help' to print this and quit\n");
     PrintfFtrace(0, "    '-k'|'--kill-all' to kill all box64 instances\n");
+    PrintfFtrace(0, "    '-t'|'--test' to run a unit test\n");
     PrintfFtrace(0, "    '--dynacache-list' to list of DynaCache file and their validity\n");
     PrintfFtrace(0, "    '--dynacache-clean' to remove invalide DynaCache files\n");
 }
@@ -428,7 +431,7 @@ static void addLibPaths(box64context_t* context)
         AppendList(&context->box64_path, getenv("PATH"), 1);   // in case some of the path are for x86 world
 }
 
-void setupZydis(box64context_t* context)
+static void setupZydis(box64context_t* context)
 {
 #ifdef HAVE_TRACE
     if ((BOX64ENV(trace_init) && strcmp(BOX64ENV(trace_init), "0")) || (BOX64ENV(trace) && strcmp(BOX64ENV(trace), "0"))) {
@@ -728,10 +731,14 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
     if(argc>1 && !strcmp(argv[1], "/usr/bin/gdb") && BOX64ENV(trace_file))
         exit(0);
     // uname -m is redirected to box64 -m
-    if(argc==2 && (!strcmp(argv[1], "-m") || !strcmp(argv[1], "-p") || !strcmp(argv[1], "-i")))
-    {
+    if (argc == 2 && (!strcmp(argv[1], "-m") || !strcmp(argv[1], "-p") || !strcmp(argv[1], "-i"))) {
         printf("x86_64\n");
         exit(0);
+    }
+
+    if (argc >= 3 && (!strcmp(argv[1], "--test") || !strcmp(argv[1], "-t"))) {
+        box64_unittest_mode = 1;
+        exit(unittest(argc, argv));
     }
 
     ftrace = stdout;
@@ -1316,6 +1323,8 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         my_context->orig_argc = argc;
         my_context->orig_argv = (char**)argv;
     }
+    box64_nolibs = (NeededLibs(elf_header)==0);
+    if(box64_nolibs) printf_log(LOG_INFO, "Warning, box64 is not really compatible with staticaly linked binaries. Expect crash!\n");
     box64_isglibc234 = GetNeededVersionForLib(elf_header, "libc.so.6", "GLIBC_2.34");
     if(box64_isglibc234)
         printf_log(LOG_DEBUG, "Program linked with GLIBC 2.34+\n");
@@ -1399,7 +1408,7 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
     setupTraceInit();
     RunDeferredElfInit(emu);
     // update TLS of main elf
-    RefreshElfTLS(elf_header);
+    RefreshElfTLS(elf_header, emu);
     // do some special case check, _IO_2_1_stderr_ and friends, that are setup by libc, but it's already done here, so need to do a copy
     ResetSpecialCaseMainElf(elf_header);
     // init...

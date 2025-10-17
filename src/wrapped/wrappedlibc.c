@@ -3071,7 +3071,11 @@ EXPORT void* my_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int f
             }
         }
         // hack to capture full size of the mmap done by wine
+#if defined(ANDROID) || defined(WINLATOR_GLIBC)
+        if(emu && (fd==-1) && (flags&(MAP_PRIVATE|MAP_ANON))==(MAP_PRIVATE|MAP_ANON) && !(flags&MAP_NORESERVE)) {
+#else
         if(emu && (fd==-1) && (flags&(MAP_PRIVATE|MAP_ANON))==(MAP_PRIVATE|MAP_ANON)) {
+#endif
             last_mmap_addr[last_mmap_idx] = ret;
             last_mmap_len[last_mmap_idx] = length;
         } else {
@@ -3873,7 +3877,19 @@ EXPORT void my_exit(x64emu_t* emu, int code)
     exit(code);
 }
 
-EXPORT void my__exit(x64emu_t* emu, int code) __attribute__((alias("my_exit")));
+EXPORT void my__exit(x64emu_t* emu, int code)
+{
+    if(emu->flags.quitonexit || emu->quit) {
+        _exit(code);
+    }
+    printf_log(LOG_INFO, "Fast _exit called\n");
+    emu->quit = 1;
+    box64_exit_code = code;
+    SerializeAllMapping();   // just to be safe
+    // then call all the fini
+    
+    _exit(code);
+}
 
 EXPORT int my_prctl(x64emu_t* emu, int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5)
 {

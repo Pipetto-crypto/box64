@@ -65,6 +65,16 @@ Allow missing libraries to be ignored.
  * 1 : Allow missing libraries. 
 
 
+=item B<BOX64_ARCH> =I<`arm64`|`la64`|`rv64`|`<empty>`>
+
+Specify the architecture in rcfiles to which the current entry applies. This option only takes effect when used inside rcfiles.
+
+ * `arm64` : Only apply current entry for AArch64. 
+ * `la64` : Only apply current entry for LoongArch64. 
+ * `rv64` : Only apply current entry for RISC-V. 
+ * `<empty>` : Apply current entry for all architectures, will be replaced by more specific entries. [Default]
+
+
 =item B<BOX64_ARGS> =I<XXXX|XXXX YYYY ZZZZ>
 
 Arguments to pass to the guest program, only valid if there is no existing arguments.
@@ -195,6 +205,14 @@ Allow continue running a block that is unprotected and potentially dirty.
  * 0 : Do not allow continue running a block that is unprotected and potentially dirty. [Default]
  * 1 : Allow continue to run a dynablock that write data in the same page as code. It can gets faster in loading time of some game but can also get unexpected crashes. 
  * 2 : Will also, when it detect an HotPage, flag that page as NEVERCLEAN, and so it will not be write protected but Block build from that page will always be tested. It can be faster that way (but soem SMC case might not be trapped). 
+
+
+=item B<BOX64_DYNAREC_NOHOTPAGE> =I<0|1>
+
+Disable detection of hot page (where code is executed and data written at the same time).
+
+ * 0 : Detect hot page [Default]
+ * 1 : Do not detect hot page 
 
 
 =item B<BOX64_DYNAREC_DIV0> =I<0|1>

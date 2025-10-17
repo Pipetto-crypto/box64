@@ -15,6 +15,7 @@ extern int box64_rdtsc;
 extern uint8_t box64_rdtsc_shift;
 extern int box64_is32bits;
 extern int box64_isAddressSpace32;
+extern int box64_nolibs;
 #ifdef DYNAREC
 extern cpu_ext_t cpuext;
 #endif
@@ -28,6 +29,7 @@ extern int box64_steamcmd;
 extern int box64_wine;
 extern int box64_musl;
 extern int box64_isglibc234; // is the program linked with glibc 2.34+
+extern int box64_unittest_mode;
 extern uintptr_t fmod_smc_start, fmod_smc_end; // to handle libfmod (from Unreal) SMC (self modifying code)
 extern uint32_t default_gs, default_fs;
 extern int box64_tcmalloc_minimal;  // when using tcmalloc_minimal

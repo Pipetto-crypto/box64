@@ -116,12 +116,6 @@ uint64_t RunFunctionHandler(x64emu_t* emu, int* exit, int dynarec, x64_ucontext_
     trace_start = 0; trace_end = 1; // disabling trace, globably for now...
 #endif
 #endif
-#ifndef USE_CUSTOM_MEM
-    // because a signal can interupt a malloc-like function
-    // Dynarec cannot be used in signal handling unless custom malloc is used
-    if(dynarec==1)
-        dynarec = 0;
-#endif
     if(!emu)
         emu = thread_get_emu();
     #ifdef DYNAREC
@@ -882,8 +876,6 @@ void my_sigactionhandler_oldcode_64(x64emu_t* emu, int32_t sig, int simple, sigi
     (void)ucntx; (void)cur_db;
     void* pc = NULL;
 #endif
-    // setup libc context stack frame, on caller stack
-    frame = frame&~15;
 
     // stack tracking
     x64_stack_t *new_ss = my_context->onstack[sig]?(x64_stack_t*)pthread_getspecific(sigstack_key):NULL;
@@ -897,6 +889,7 @@ void my_sigactionhandler_oldcode_64(x64emu_t* emu, int32_t sig, int simple, sigi
             new_ss->ss_flags = SS_ONSTACK;
         }
     } else {
+        frame = frame&~15;
         frame -= 0x200; // redzone
     }
 
@@ -1069,6 +1062,7 @@ void my_sigactionhandler_oldcode_64(x64emu_t* emu, int32_t sig, int simple, sigi
     } else if(sig==X64_SIGILL) {
         info2->si_code = 2;
         sigcontext->uc_mcontext.gregs[X64_TRAPNO] = 6;
+        info2->si_addr = (void*)sigcontext->uc_mcontext.gregs[X64_RIP];
     } else if(sig==X64_SIGTRAP) {
         if(info->si_code==1) {  //single step
             info2->si_code = 2;
@@ -1342,7 +1336,7 @@ void my_box64signalhandler(int32_t sig, siginfo_t* info, void * ucntx)
 {
     sig = signal_from_x64(sig);
     // sig==X64_SIGSEGV || sig==X64_SIGBUS || sig==X64_SIGILL || sig==X64_SIGABRT here!
-    int log_minimum = (BOX64ENV(showsegv))?LOG_NONE:((sig==X64_SIGSEGV && my_context->is_sigaction[sig])?LOG_DEBUG:LOG_INFO);
+    int log_minimum = (BOX64ENV(showsegv))?LOG_NONE:((((sig==X64_SIGSEGV) || (sig==X64_SIGILL)) && my_context->is_sigaction[sig])?LOG_DEBUG:LOG_INFO);
     if(signal_jmpbuf_active) {
         signal_jmpbuf_active = 0;
         longjmp(SIG_JMPBUF, 1);

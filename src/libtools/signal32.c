@@ -362,12 +362,6 @@ uint32_t RunFunctionHandler32(int* exit, int dynarec, i386_ucontext_t* sigcontex
     trace_start = 0; trace_end = 1; // disabling trace, globably for now...
 #endif
 #endif
-#ifndef USE_CUSTOM_MEM
-    // because a signal can interupt a malloc-like function
-    // Dynarec cannot be used in signal handling unless custom malloc is used
-    dynarec = 0;
-#endif
-
     x64emu_t *emu = thread_get_emu();
     #ifdef DYNAREC
     if (BOX64ENV(dynarec_test))
@@ -670,6 +664,7 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     } else if(sig==X64_SIGILL) {
         info2->si_code = 2;
         sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 6;
+        info2->_sifields._sigfault.__si_addr = sigcontext->uc_mcontext.gregs[I386_EIP];
     } else if(sig==X64_SIGTRAP) {
         if(info->si_code==1) {  //single step
             info2->si_code = 2;

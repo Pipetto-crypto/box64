@@ -130,7 +130,10 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         if (!rex.w) ZEROUP(ed);
                     } else {
                         addr = geted(dyn, addr, ninst, nextop, &wback, x3, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
-                        SRAIxw(x1, gd, 5 + rex.w);
+                        if (rex.w)
+                            SRAI(x1, gd, 6);
+                        else
+                            SRAIW(x1, gd, 5);
                         ADDSL(x3, wback, x1, 2 + rex.w, x1);
                         ed = x1;
                         wback = x3;
@@ -249,20 +252,24 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                                 SUBxw(x2, ed, xRAX);
                                 BNE_MARK2(x2, xZR);
                                 MVxw(ed, gd);
+                                if (!rex.w) { B_NEXT_nocond; }
                                 MARK2;
                                 MVxw(xRAX, x1);
                             } else {
                                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
+                                UFLAG_IF { MVxw(x6, xRAX); }
                                 ANDI(x1, wback, (1 << (rex.w + 2)) - 1);
                                 BNEZ_MARK3(x1);
                                 // Aligned
                                 MARKLOCK;
                                 LRxw(x1, wback, 1, 1);
                                 SUBxw(x3, x1, xRAX);
-                                BNEZ_MARK(x3);
+                                BNEZ(x3, 4 + (rex.w ? 8 : 12));
                                 // EAX == Ed
                                 SCxw(x4, gd, wback, 1, 1);
                                 BNEZ_MARKLOCK(x4);
+                                if (!rex.w) { B_MARK_nocond; }
+                                MVxw(xRAX, x1);
                                 B_MARK_nocond;
                                 MARK3;
                                 // Unaligned
@@ -271,14 +278,15 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                                 LDxw(x1, wback, 0);
                                 LRxw(x6, x5, 1, 1);
                                 SUBxw(x3, x1, xRAX);
-                                BNEZ_MARK(x3);
+                                BNEZ(x3, 4 + (rex.w ? 12 : 16));
                                 // EAX == Ed
                                 SCxw(x4, x6, x5, 1, 1);
                                 BNEZ_MARKLOCK2(x4);
                                 SDxw(gd, wback, 0);
-                                MARK;
-                                UFLAG_IF { emit_cmp32(dyn, ninst, rex, xRAX, x1, x3, x4, x5, x6); }
+                                if (!rex.w) { B_MARK_nocond; }
                                 MVxw(xRAX, x1);
+                                MARK;
+                                UFLAG_IF { emit_cmp32(dyn, ninst, rex, x6, x1, x3, x4, x5, x6); }
                             }
                             break;
                         default:
@@ -305,7 +313,10 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         if (!rex.w) ZEROUP(ed);
                     } else {
                         addr = geted(dyn, addr, ninst, nextop, &wback, x3, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
-                        SRAIxw(x1, gd, 5 + rex.w);
+                        if (rex.w)
+                            SRAI(x1, gd, 6);
+                        else
+                            SRAIW(x1, gd, 5);
                         ADDSL(x3, wback, x1, 2 + rex.w, x1);
                         LDxw(x1, x3, fixedaddress);
                         ed = x1;

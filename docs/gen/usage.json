@@ -36,6 +36,34 @@
     ]
   },
   {
+    "name": "BOX64_ARCH",
+    "description": "Specify the architecture in rcfiles to which the current entry applies. This option only takes effect when used inside rcfiles.",
+    "category": "Compatibility",
+    "wine": false,
+    "options": [
+      {
+        "key": "`arm64`",
+        "description": "Only apply current entry for AArch64.",
+        "default": false
+      },
+      {
+        "key": "`la64`",
+        "description": "Only apply current entry for LoongArch64.",
+        "default": false
+      },
+      {
+        "key": "`rv64`",
+        "description": "Only apply current entry for RISC-V.",
+        "default": false
+      },
+      {
+        "key": "`<empty>`",
+        "description": "Apply current entry for all architectures, will be replaced by more specific entries.",
+        "default": true
+      }
+    ]
+  },
+  {
     "name": "BOX64_ARGS",
     "description": "Arguments to pass to the guest program, only valid if there is no existing arguments.",
     "category": "Arguments",
@@ -339,6 +367,24 @@
       {
         "key": "2",
         "description": "Will also, when it detect an HotPage, flag that page as NEVERCLEAN, and so it will not be write protected but Block build from that page will always be tested. It can be faster that way (but soem SMC case might not be trapped).",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_DYNAREC_NOHOTPAGE",
+    "description": "Disable detection of hot page (where code is executed and data written at the same time).",
+    "category": "Performance",
+    "wine": false,
+    "options": [
+      {
+        "key": "0",
+        "description": "Detect hot page",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Do not detect hot page",
         "default": false
       }
     ]

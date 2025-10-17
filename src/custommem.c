@@ -2250,6 +2250,8 @@ void CheckHotPage(uintptr_t addr, uint32_t prot)
         return;
     if(prot&PROT_NEVERCLEAN && BOX64ENV(dynarec_dirty)==2)
         return;
+    if(BOX64ENV(dynarec_nohotpage))
+        return;
     uintptr_t page = addr>>12;
     // look for idx
     int idx = IdxHotPage(page);
@@ -2465,7 +2467,8 @@ void loadProtectionFromMap()
             printf_log(LOG_INFO, "Didn't detect 48bits of address space, considering it's 39bits\n");
     }
     if(!pbrk) {
-        printf_log(LOG_INFO, "Warning, program break not found\n");
+        if (!box64_unittest_mode)
+            printf_log(LOG_INFO, "Warning, program break not found\n");
         if(cur_brk) pbrk = *cur_brk;    // approximate is better than nothing
     }
     fclose(f);
