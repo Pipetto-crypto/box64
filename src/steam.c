@@ -4,6 +4,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
+#include <glob.h>
+#include <unistd.h>
 
 #include "debug.h"
 #include "box64context.h"
@@ -12,6 +14,53 @@
 #ifndef MAX_PATH
 #define MAX_PATH 4096
 #endif
+
+static void create_lib_symlink(const char* lib)
+{
+    char file[MAX_PATH] = {0};
+    char folder[MAX_PATH] = {0};
+    char tmp[MAX_PATH] = {0};
+    char* p = strrchr(lib, '/');
+    if(!p) return;  // no folder?
+    strcpy(file, p+1);
+    p = strrchr(file, '.');
+    if(!p) return; //no '.' in name?
+    *p = '\0';
+    strcpy(folder, lib);
+    *(strrchr(folder, '/')) = '\0';
+    snprintf(tmp, sizeof(tmp), "%s/%s", folder, file);
+    if(FileExist(tmp, IS_FILE)) return; // already there
+    strcpy(file, strrchr(lib, '/')+1);
+    printf_log(LOG_DEBUG, "Creating symlinks %s -> %s\n", tmp, file);
+    symlink(file, tmp);
+}
+
+static void create_libs_symlink(const char* folder)
+{
+    glob_t g = {0};
+    char tmp[MAX_PATH] = {0};
+    // start with lib*.so.X.X.XXX
+    snprintf(tmp, sizeof(tmp), "%s/lib*.so.*.*.*", folder);
+    if(!glob(tmp, 0, NULL, &g)) {
+        printf_log(LOG_DEBUG, "Creating symlinks for %s\n", folder);
+        for(ulong_t i=0; i<g.gl_pathc; ++i) {
+            if(FileIsX64X86ELF(g.gl_pathv[i])) {
+                create_lib_symlink(g.gl_pathv[i]);
+            }
+        }
+        globfree(&g);
+    }
+    // then do lib*.so.X.X
+    snprintf(tmp, sizeof(tmp), "%s/lib*.so.*.*", folder);
+    if(!glob(tmp, 0, NULL, &g)) {
+        for(ulong_t i=0; i<g.gl_pathc; ++i) {
+            if(FileIsX64X86ELF(g.gl_pathv[i])) {
+                create_lib_symlink(g.gl_pathv[i]);
+            }
+        }
+        globfree(&g);
+    }
+}
 
 void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog)
 {
@@ -83,6 +132,26 @@ void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog)
         if(p) {
             *p = '\0';
             strcat(sniper, "/../../");
+            #ifdef ARM64
+            if(!getenv("BOX64_PYTHON3"))
+            {
+                // find python3 binary
+                glob_t g = {0};
+                char tmp[MAX_PATH] = {0};
+                snprintf(tmp, sizeof(tmp), "%svar/*/usr/bin/python3", sniper);
+                if(!glob(tmp, 0, NULL, &g)) {
+                    int found = 0;
+                    for(ulong_t i=0; i<g.gl_pathc && !found; ++i) {
+                        if(FileIsX64ELF(g.gl_pathv[i])) {
+                            found = 1;
+                            setenv("BOX64_PYTHON3", g.gl_pathv[i], 1);
+                            printf_log(LOG_DEBUG, "Found x86_64 python3 binary!");
+                        }
+                    }
+                    globfree(&g);
+                }
+            }
+            #endif
             strcat(sniper, runtime);
         } else {
             printf_log(LOG_INFO, "Warning, could not guess sniper runtime path\n");
@@ -91,28 +160,40 @@ void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog)
         printf_log(LOG_DEBUG, "pressure-vessel sniper env: %s\n", sniper);
         // TODO: read metadata from sniper folder and analyse [Environment] section
         strcat(sniper, "/files");  // this is the sniper root
+        #ifdef ARM64
+        if(!getenv("BOX64_PYTHON3"))
+        {
+            // find python3 binary
+            glob_t g = {0};
+            char tmp[MAX_PATH] = {0};
+            snprintf(tmp, sizeof(tmp), "%s/bin/python3*", sniper);
+            if(!glob(tmp, 0, NULL, &g)) {
+                int found = 0;
+                for(ulong_t i=0; i<g.gl_pathc && !found; ++i) {
+                    if(FileIsX64ELF(g.gl_pathv[i])) {
+                        found = 1;
+                        setenv("BOX64_PYTHON3", g.gl_pathv[i], 1);
+                        printf_log(LOG_DEBUG, "Found x86_64 python3 binary!");
+                    }
+                }
+                globfree(&g);
+            }
+        }
+        #endif
         // do LD_LIBRARY_PATH
         {
-            const char* usrsbinldconfig = "/usr/sbin/ldconfig";
-            const char* sbinldconfig = "/sbin/ldconfig";
-            const char* ldconfig = "ldconfig";
-            const char* ldcmd = ldconfig;
-            if(FileExist(usrsbinldconfig, IS_FILE))
-                ldcmd = usrsbinldconfig;
-            else if(FileExist(sbinldconfig, IS_FILE))
-                ldcmd = sbinldconfig;
-            char tmp[MAX_PATH*5] = {0};
-            // prepare folders, using ldconfig
-            snprintf(tmp, sizeof(tmp), "%s -i -n %s/lib/x86_64-linux-gnu", ldcmd, sniper);
-            if(system(tmp)<0) printf_log(LOG_INFO, "%s failed\n", tmp);
-            snprintf(tmp, sizeof(tmp), "%s -i -n %s/lib/i386-linux-gnu", ldcmd, sniper);
-            if(system(tmp)<0) printf_log(LOG_INFO, "%s failed\n", tmp);
-            snprintf(tmp, sizeof(tmp), "%s -i -n %s/lib", ldcmd, sniper);
-            if(system(tmp)<0) printf_log(LOG_INFO, "%s failed\n", tmp);
-            snprintf(tmp, sizeof(tmp), "%s -i -n %s/lib64", ldcmd, sniper);
-            if(system(tmp)<0) printf_log(LOG_INFO, "%s failed\n", tmp);
-            snprintf(tmp, sizeof(tmp), "%s -i -n %s/lib32", ldcmd, sniper);
-            if(system(tmp)<0) printf_log(LOG_INFO, "%s failed\n", tmp);
+            char tmp[MAX_PATH] = {0};
+            // prepare folders, using a fake ldconfig: sp just create the symlinks
+            snprintf(tmp, sizeof(tmp), "%s/lib/x86_64-linux-gnu", sniper);
+            create_libs_symlink(tmp);
+            snprintf(tmp, sizeof(tmp), "%s/lib/i386-linux-gnu", sniper);
+            create_libs_symlink(tmp);
+            snprintf(tmp, sizeof(tmp), "%s/lib", sniper);
+            create_libs_symlink(tmp);
+            snprintf(tmp, sizeof(tmp), "%s/lib64", sniper);
+            create_libs_symlink(tmp);
+            snprintf(tmp, sizeof(tmp), "%s/lib32", sniper);
+            create_libs_symlink(tmp);
             // setup LD_LIBRARY_PATH
             const char* ld = getenv("LD_LIBRARY_PATH");
             char tmp2[4096];
@@ -123,6 +204,8 @@ void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog)
                 strncat(tmp, tmp2, sizeof(tmp)-1);  \
                 strncat(tmp, ":", sizeof(tmp)-1);   \
             }
+            GO("/usr/lib/%s-x86_64-linux-gnu", "box64")
+            GO("/usr/lib/%s-i386-linux-gnu/", "box64")
             GO("%s/lib/x86_64-linux-gnu", sniper)
             GO("%s/lib/i386-linux-gnu", sniper)
             GO("%s/lib/x86_64-linux-gnu/openblas", sniper)
@@ -163,6 +246,7 @@ void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog)
         }
         // should disable native gtk on box86 for now, until better wrapping of gstreamer is done on box86 too
         // setenv("BOX86_NOGTK", "1", 1);
+        setenv("BOX64_PRESSURE_VESSEL_FILES", sniper, 1);
     }
     printf_log(LOG_DEBUG, "Ready to launch \"%s\", nextarg=%d, argc=%d\n", argv[nextarg], nextarg, argc);
     prog = argv[nextarg];

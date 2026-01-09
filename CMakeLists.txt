@@ -15,11 +15,12 @@ option(ODROIDN2 "Set to ON if targeting an Odroid-N2 device" ${ODROIDN2})
 option(TEGRAX1 "Set to ON if targeting an Tegra X1 based device" ${TEGRAX1})
 option(TEGRA_T194 "Set to ON if targeting an Tegra Xavier based device" ${TEGRA_T194})
 option(TEGRA_T234 "Set to ON if targeting an Tegra Orin based device" ${TEGRA_T234})
+option(NVIDIA_GB10 "Set to ON if targeting a DGX Spark(GB10) based device" ${NVIDIA_GB10})
 option(PHYTIUM "Set to ON if targeting an Phytium (D2000 or FT2000/4) based device" ${PHYTIUM})
-option(SD845 "Set to ON if targeting a Snapragon 845 based device" ${SD845})
-option(SD865 "Set to ON if targeting a Snapragon 865 based device" ${SD865})
-option(SD888 "Set to ON if targeting a Snapragon 888 based device" ${SD888})
-option(SD8G2 "Set to ON if targeting a Snapragon 8 Gen 2 based device" ${SD8G2})
+option(SD845 "Set to ON if targeting a Snapdragon 845 based device" ${SD845})
+option(SD865 "Set to ON if targeting a Snapdragon 865 based device" ${SD865})
+option(SD888 "Set to ON if targeting a Snapdragon 888 based device" ${SD888})
+option(SD8G2 "Set to ON if targeting a Snapdragon 8 Gen 2 based device" ${SD8G2})
 option(SDORYON1 "Set to ON if targeting a Snapdragon Oryon 1 (X1E80100/X1E78100) based device" ${SDORYON1})
 option(ADLINK "Set to ON if targeting an ADLink AmpereAltra based device" ${ADLINK})
 option(M1 "Set to ON if targeting a AppleM1 running on Asahi computer" ${M1})
@@ -38,6 +39,7 @@ option(SAVE_MEM "Set to ON to build dynarec with some slower memory saving optim
 option(NOLOADADDR "Set to ON to avoid fixing the load address of Box64" OFF)
 option(NOGIT "Set to ON if not building from a git clone repo (like when building from a zip download from github)" ${NOGIT})
 option(BAD_SIGNAL "Set to ON to activate the workaround for incoherent si_info on SIGSEGV" ${BAD_SIGNAL})
+option(BAD_PKILL "Set to ON to activate the workaround for incoherent pthread_kill" ${BAD_PKILL})
 option(SW64 "Set ON if targeting an SW64 based device" ${SW64})
 option(CI "Set to ON if running in CI" ${CI})
 option(WITH_MOLD "Set to ON to use with mold" ${WITH_MOLD})
@@ -66,6 +68,7 @@ if(LARCH64)
     set(ARM_DYNAREC OFF CACHE BOOL "")
     set(RV64_DYNAREC OFF CACHE BOOL "")
     set(LARCH64_DYNAREC ON CACHE BOOL "")
+    set(BAD_PKILL ON CACHE BOOL "")
     if(LARCH64_ABI_1)
         message(STATUS "Build for Loongarch64 ABI 1.0 system")
         add_definitions(-DLA64_ABI_1)
@@ -85,7 +88,7 @@ if(PPC64LE)
     set(RV64_DYNAREC OFF CACHE BOOL "")
     set(LARCH64_DYNAREC OFF CACHE BOOL "")
 endif()
-if(RK3399 OR RK3588 OR ODROIDN2 OR RPI3ARM64 OR RPI4ARM64 OR RPI5ARM64 OR RK3326 OR TEGRAX1 OR TEGRA_T194 OR TEGRA_T234 OR PHYTIUM OR SD845 OR SD865 OR SD888 OR SD8G2 OR SDORYON1 OR LX2160A OR M1 OR ARM64 OR ADLINK)
+if(RK3399 OR RK3588 OR ODROIDN2 OR RPI3ARM64 OR RPI4ARM64 OR RPI5ARM64 OR RK3326 OR TEGRAX1 OR TEGRA_T194 OR TEGRA_T234 OR NVIDIA_GB10 OR PHYTIUM OR SD845 OR SD865 OR SD888 OR SD8G2 OR SDORYON1 OR LX2160A OR M1 OR ARM64 OR ADLINK)
     set(LD80BITS OFF CACHE BOOL "")
     set(NOALIGN OFF CACHE BOOL "")
     set(ARM_DYNAREC ON CACHE BOOL "")
@@ -183,6 +186,9 @@ elseif(TEGRA_T194)
 elseif(TEGRA_T234)
     add_definitions(-DTEGRA_T234)
     set(CFLAGS -pipe -march=armv8.2-a+fp16+simd+crypto+predres -mcpu=cortex-a78ae+crypto -mtune=cortex-a78ae)
+elseif(NVIDIA_GB10)
+    add_definitions(-DNVIDIA_GB10)
+    set(CFLAGS -pipe -mcpu=gb10 -mtune=gb10)
 elseif(PHYTIUM)
     add_definitions(-DPHYTIUM)
     set(CFLAGS -pipe -march=armv8.1-a+crc+simd+crypto)
@@ -224,6 +230,7 @@ elseif(M1)
     set(CFLAGS -pipe -march=armv8.5-a+simd+crypto)
 elseif(LARCH64)
     add_definitions(-DLA64)
+    add_definitions(-DBAD_PKILL)
     set(CFLAGS -pipe -march=loongarch64)
     set(ASMFLAGS  -pipe -march=loongarch64)
 elseif(RV64)
@@ -259,6 +266,9 @@ if(WINLATOR_GLIBC)
 endif()
 if(BAD_SIGNAL)
     add_definitions(-DBAD_SIGNAL)
+endif()
+if(BAD_PKILL)
+    add_definitions(-DBAD_PKILL)
 endif()
 if(SAVE_MEM)
     add_definitions(-DSAVE_MEM)
@@ -444,6 +454,7 @@ if(BOX32)
         "${BOX64_ROOT}/src/tools/box32stack.c"
         "${BOX64_ROOT}/src/emu/x86int3.c"
         "${BOX64_ROOT}/src/librarian/globalsymbols32.c"
+        "${BOX64_ROOT}/src/libtools/box32_inputevent.c"
         "${BOX64_ROOT}/src/libtools/myalign32.c"
         "${BOX64_ROOT}/src/libtools/myalign64_32.c"
         "${BOX64_ROOT}/src/libtools/myalignxcb32.c"
@@ -606,6 +617,7 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedlibgl.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibglu.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibglx.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedlibglxnvidia.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibharfbuzz.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibibus.c"
     "${BOX64_ROOT}/src/wrapped/wrappedlibice.c"
@@ -688,6 +700,7 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappednspr4.c"
     "${BOX64_ROOT}/src/wrapped/wrappednss3.c"
     "${BOX64_ROOT}/src/wrapped/wrappednssutil3.c"
+    "${BOX64_ROOT}/src/wrapped/wrappednvml.c"
     "${BOX64_ROOT}/src/wrapped/wrappedopenal.c"
     "${BOX64_ROOT}/src/wrapped/wrappedopencl.c"
     "${BOX64_ROOT}/src/wrapped/wrappedpango.c"
@@ -756,6 +769,8 @@ set(WRAPPEDS
     "${BOX64_ROOT}/src/wrapped/wrappedicui18n74.c"
     "${BOX64_ROOT}/src/wrapped/wrappedicuuc75.c"
     "${BOX64_ROOT}/src/wrapped/wrappedicui18n75.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedicuuc76.c"
+    "${BOX64_ROOT}/src/wrapped/wrappedicui18n76.c"
     "${BOX64_ROOT}/src/wrapped/wrappedidn2.c"
     "${BOX64_ROOT}/src/wrapped/wrappedanl.c"
     "${BOX64_ROOT}/src/wrapped/wrappedpsl5.c"
@@ -845,6 +860,7 @@ if(BOX32)
         "${BOX64_ROOT}/src/wrapped32/wrappedcrashhandler.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedlibgl.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedlibglu.c"
+        "${BOX64_ROOT}/src/wrapped32/wrappedlibglxnvidia.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedsdl1.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedsdl2.c"
         "${BOX64_ROOT}/src/wrapped32/wrappedsdl2image.c"
@@ -956,14 +972,7 @@ if(ARM_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_emit_shift.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_00.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_0f.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_64.c"
-    #"${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_65.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_66.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_67.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_67_32.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_67_avx.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_6764.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_6764_32.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_d8.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_d9.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_da.c"
@@ -976,7 +985,6 @@ if(ARM_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_660f.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_66f20f.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_66f30f.c"
-    "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_6664.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_66f0.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_f20f.c"
     "${BOX64_ROOT}/src/dynarec/arm64/dynarec_arm64_f30f.c"
@@ -1027,12 +1035,7 @@ if(RV64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_00_3.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_0f.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_0f_vector.c"
-    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_64.c"
-    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_64_vector.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66.c"
-    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_67.c"
-    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_67_vector.c"
-    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_67_32.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_d8.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_d9.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_da.c"
@@ -1047,7 +1050,6 @@ if(RV64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_660f_vector.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66f20f.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66f30f.c"
-    "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_6664.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_66f0.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_f20f.c"
     "${BOX64_ROOT}/src/dynarec/rv64/dynarec_rv64_f20f_vector.c"
@@ -1088,14 +1090,11 @@ if(LARCH64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_emit_logic.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_00.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_0f.c"
-    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_64.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66.c"
-    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_6664.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_660f.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66f0.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66f20f.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_66f30f.c"
-    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_67.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f0.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f20f.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_f30f.c"
@@ -1110,6 +1109,14 @@ if(LARCH64_DYNAREC)
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_avx_f2_0f3a.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_avx_f3_0f.c"
     "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_avx_f3_0f38.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_d8.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_d9.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_da.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_db.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_dc.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_dd.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_de.c"
+    "${BOX64_ROOT}/src/dynarec/la64/dynarec_la64_df.c"
     )
 endif()
 
@@ -1178,13 +1185,13 @@ if(DYNAREC)
     add_custom_command(
         OUTPUT "${BOX64_ROOT}/src/git_head.h"
         COMMAND sh -c "echo \\\#define GITREV \\\"$(git rev-parse --short HEAD)\\\">\"${BOX64_ROOT}/src/git_head.h\""
-        DEPENDS ${DYNAREC_SRC} ${DYNAREC_ASM} ${DYNAREC_PASS} ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32}
+        DEPENDS ${DYNAREC_SRC} ${DYNAREC_ASM} ${DYNAREC_PASS} ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32} ${WRAPPEDS_HEAD} ${WRAPPEDS32_HEAD}
         VERBATIM)
 else()
     add_custom_command(
         OUTPUT "${BOX64_ROOT}/src/git_head.h"
         COMMAND sh -c "echo \\\#define GITREV \\\"$(git rev-parse --short HEAD)\\\">\"${BOX64_ROOT}/src/git_head.h\""
-        DEPENDS ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32}
+        DEPENDS ${ELFLOADER_SRC} ${INTERPRETER} ${WRAPPEDS} ${WRAPPEDS32} ${WRAPPEDS_HEAD} ${WRAPPEDS32_HEAD}
         VERBATIM)
 endif()
 
@@ -1422,7 +1429,7 @@ if(_aarch64)
 	else()
     		set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "arm64")
 	endif()
-elseif(__riscv64)
+elseif(_riscv64)
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "riscv64")
 elseif(_x86_64)
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "x86_64")
@@ -1547,7 +1554,7 @@ add_test(irelative_reloc ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${
     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref20.txt
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
-add_test(longjumpInSignals ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+add_test(longjumpInSignals_nocosim ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
     -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test21 -D TEST_OUTPUT=tmpfile21.txt
     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref21.txt
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
@@ -1615,6 +1622,11 @@ add_test(x87pc ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
 set_tests_properties(x87pc PROPERTIES ENVIRONMENT "BOX64_DYNAREC_X87DOUBLE=2")
+
+add_test(Boundary ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+    -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test33 -D TEST_OUTPUT=tmpfile33.txt
+    -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref33.txt
+    -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
 else()
 
@@ -1703,7 +1715,7 @@ add_test(irelative_reloc ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${
     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref20.txt
     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 
-# add_test(longjumpInSignals ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+# add_test(longjumpInSignals_nocosim ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
 #     -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests/test21_android -D TEST_OUTPUT=tmpfile21.txt
 #     -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests/ref21.txt
 #     -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
@@ -1875,7 +1887,7 @@ if(BOX32)
 
     set_tests_properties(sse_32bits PROPERTIES ENVIRONMENT "BOX64_DYNAREC_FASTNAN=0;BOX64_DYNAREC_FASTROUND=0")
 
-    add_test(NAME longjumpInSignals_32bits COMMAND ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
+    add_test(NAME longjumpInSignals_32bits_nocosim COMMAND ${CMAKE_COMMAND} -D TEST_PROGRAM=${CMAKE_BINARY_DIR}/${BOX64}
         -D TEST_ARGS=${CMAKE_SOURCE_DIR}/tests32/test18 -D TEST_OUTPUT=tmpfile32_18.txt
         -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests32/ref18.txt
         -P ${CMAKE_SOURCE_DIR}/runTest.cmake )

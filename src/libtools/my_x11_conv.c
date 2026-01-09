@@ -11,6 +11,7 @@
 #include "my_x11_defs.h"
 #include "my_x11_defs_32.h"
 #include "my_x11_conv.h"
+#include "myalign32.h"
 
 typedef struct Visuals_s {
     my_Visual_t* _64;
@@ -25,6 +26,7 @@ struct my_XFreeFuncs_32 my32_free_funcs_32[N_DISPLAY] = {0};
 struct my_XLockPtrs_32 my32_lock_fns_32[N_DISPLAY] = {0};
 my_XDisplay_32_t my32_Displays_32[N_DISPLAY] = {0};
 kh_visuals_t* my32_Displays_Visuals[N_DISPLAY] = {0};
+void* my32_XCB_Display[N_DISPLAY] = {0};
 
 void* getDisplay(void* d)
 {
@@ -327,9 +329,30 @@ void delDisplay(void* d)
             kh_foreach_ref(my32_Displays_Visuals[i], k, v, if(v->ref) free(v->_64); else free(v->_32));
             kh_destroy(visuals, my32_Displays_Visuals[i]);
             my32_Displays_Visuals[i] = NULL;
+            if(my32_XCB_Display[i]) {
+                del_xcb_connection32(my32_XCB_Display[i]);
+                my32_XCB_Display[i] = NULL;
+            }
             return;
         }
     }
+}
+
+void regXCBDisplay(void* d, void* xcb)
+{    if(!my_context->libx11) {
+        // the lib has not be loaded directly... need to open it! leaking the lib handle...
+        #ifdef ANDROID
+        my_dlopen(thread_get_emu(), "libX11.so", RTLD_NOW);
+        #else
+        my_dlopen(thread_get_emu(), "libX11.so.6", RTLD_NOW);
+        #endif
+    }
+    my_XDisplay_t* dpy = (my_XDisplay_t*)d;
+    for(int i=0; i<N_DISPLAY; ++i)
+        if(my32_Displays_64[i]==dpy) {
+            my32_XCB_Display[i] = xcb;
+            return;
+        }
 }
 
 void refreshDisplay(void* dpy)
@@ -1462,7 +1485,7 @@ void* inplace_XRRMonitorInfo_shrink(void* a, int n)
             src++;
             dst++;
         }
-        src->name = 0;  // mark the last record...
+        dst->name = 0; // mark the last record...
     }
     return a;
 }
@@ -1472,23 +1495,40 @@ void* inplace_XRRMonitorInfo_enlarge(void* a, int n)
     if(a) {
         my_XRRMonitorInfo_32_t* src = a;
         my_XRRMonitorInfo_t* dst = a;
-        for(int i=0; i<n; ++i) {
-            dst->name = from_ulong(src->name);
-            dst->primary = src->primary;
-            dst->automatic = src->automatic;
-            dst->noutput = src->noutput;
-            dst->x = src->x;
-            dst->y = src->y;
-            dst->width = src->width;
-            dst->height = src->height;
-            dst->mwidth = src->mwidth;
-            dst->mheight = src->mheight;
-            dst->outputs = from_ptrv(src->outputs);
+        src+=n-1;
+        dst+=n-1;
+        for(int i=n-1; i>=0; --i, --src, --dst) {
             for(int j=dst->noutput-1; j>=0; --j)
                 ((unsigned long*)dst->outputs)[j] = from_ulong(dst->outputs[j]);
-            src++;
-            dst++;
+            dst->outputs = from_ptrv(src->outputs);
+            dst->mheight = src->mheight;
+            dst->mwidth = src->mwidth;
+            dst->height = src->height;
+            dst->width = src->width;
+            dst->y = src->y;
+            dst->x = src->x;
+            dst->noutput = src->noutput;
+            dst->automatic = src->automatic;
+            dst->primary = src->primary;
+            dst->name = from_ulong(src->name);
         }
+    }
+    return a;
+}
+
+void* inplace_XRRCrtcTransformAttributes_shrink(void* a)
+{
+    if(a) {
+        my_XRRCrtcTransformAttributes_t* src = a;
+        my_XRRCrtcTransformAttributes_32_t* dst = a;
+        dst->pendingTransform = src->pendingTransform;
+        dst->pendingFilter = to_ptrv(src->pendingFilter);
+        dst->pendingNparams = src->pendingNparams;
+        dst->pendingParams = to_ptrv(src->pendingParams);
+        dst->currentTransform = src->currentTransform;
+        dst->currentFilter = to_ptrv(src->currentFilter);
+        dst->currentNparams = src->currentNparams;
+        dst->currentParams = to_ptrv(src->currentParams);
     }
     return a;
 }

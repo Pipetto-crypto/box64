@@ -1486,5 +1486,528 @@ typedef struct my__XRRMonitorInfo_s {
     XID*    outputs;
 } my_XRRMonitorInfo_t;
 
+typedef struct my_XkbAnyEvent_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    unsigned int    device;
+} my_XkbAnyEvent_t;
+
+typedef struct my_XkbNewKeyboardNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    int             old_device;
+    int             min_key_code;
+    int             max_key_code;
+    int             old_min_key_code;
+    int             old_max_key_code;
+    unsigned int    changed;
+    char            req_major;
+    char            req_minor;
+} my_XkbNewKeyboardNotifyEvent_t;
+
+typedef struct my_XkbMapNotifyEvent_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    changed;
+    unsigned int    flags;
+    int             first_type;
+    int             num_types;
+    uint8_t         min_key_code;
+    uint8_t         max_key_code;
+    uint8_t         first_key_sym;
+    uint8_t         first_key_act;
+    uint8_t         first_key_behavior;
+    uint8_t         first_key_explicit;
+    uint8_t         first_modmap_key;
+    uint8_t         first_vmodmap_key;
+    int             num_key_syms;
+    int             num_key_acts;
+    int             num_key_behaviors;
+    int             num_key_explicit;
+    int             num_modmap_keys;
+    int             num_vmodmap_keys;
+    unsigned int    vmods;
+} my_XkbMapNotifyEvent_t;
+
+typedef struct my_XkbStateNotifyEvent_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    changed;
+    int             group;
+    int             base_group;
+    int             latched_group;
+    int             locked_group;
+    unsigned int    mods;
+    unsigned int    base_mods;
+    unsigned int    latched_mods;
+    unsigned int    locked_mods;
+    int             compat_state;
+    unsigned char   grab_mods;
+    unsigned char   compat_grab_mods;
+    unsigned char   lookup_mods;
+    unsigned char   compat_lookup_mods;
+    int             ptr_buttons;
+    uint8_t         keycode;
+    char            event_type;
+    char            req_major;
+    char            req_minor;
+} my_XkbStateNotifyEvent_t;
+
+typedef struct my_XkbControlsNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    changed_ctrls;
+    unsigned int    enabled_ctrls;
+    unsigned int    enabled_ctrl_changes;
+    int             num_groups;
+    uint8_t         keycode;
+    char            event_type;
+    char            req_major;
+    char            req_minor;
+} my_XkbControlsNotifyEvent_t;
+
+typedef struct my_XkbIndicatorNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    changed;
+    unsigned int    state;
+} my_XkbIndicatorNotifyEvent_t;
+
+typedef struct my_XkbNamesNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    changed;
+    int             first_type;
+    int             num_types;
+    int             first_lvl;
+    int             num_lvls;
+    int             num_aliases;
+    int             num_radio_groups;
+    unsigned int    changed_vmods;
+    unsigned int    changed_groups;
+    unsigned int    changed_indicators;
+    int             first_key;
+    int             num_keys;
+} my_XkbNamesNotifyEvent_t;
+
+typedef struct my_XkbCompatMapNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    changed_groups;
+    int             first_si;
+    int             num_si;
+    int             num_total_si;
+} my_XkbCompatMapNotifyEvent_t;
+
+typedef struct my_XkbBellNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    int             percent;
+    int             pitch;
+    int             duration;
+    int             bell_class;
+    int             bell_id;
+    XID             name;
+    XID             window;
+    int            event_only;
+} my_XkbBellNotifyEvent_t;
+
+typedef struct my_XkbActionMessage_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    uint8_t         keycode;
+    int             press;
+    int             key_event_follows;
+    int             group;
+    unsigned int    mods;
+    char            message[6+1];
+} my_XkbActionMessageEvent_t;
+
+typedef struct my_XkbAccessXNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    int             detail;
+    int             keycode;
+    int             sk_delay;
+    int             debounce_delay;
+} my_XkbAccessXNotifyEvent_t;
+
+typedef struct my_XkbExtensionDeviceNotify_s {
+    int             type;
+    unsigned long   serial;
+    int             send_event;
+    my_XDisplay_t*  display;
+    unsigned long   time;
+    int             xkb_type;
+    int             device;
+    unsigned int    reason;
+    unsigned int    supported;
+    unsigned int    unsupported;
+    int             first_btn;
+    int             num_btns;
+    unsigned int    leds_defined;
+    unsigned int    led_state;
+    int             led_class;
+    int             led_id;
+} my_XkbExtensionDeviceNotifyEvent_t;
+
+typedef union my_XkbEvent_s {
+    int                                 type;
+    my_XkbAnyEvent_t                    any;
+    my_XkbNewKeyboardNotifyEvent_t      new_kbd;
+    my_XkbMapNotifyEvent_t              map;
+    my_XkbStateNotifyEvent_t            state;
+    my_XkbControlsNotifyEvent_t         ctrls;
+    my_XkbIndicatorNotifyEvent_t        indicators;
+    my_XkbNamesNotifyEvent_t            names;
+    my_XkbCompatMapNotifyEvent_t        compat;
+    my_XkbBellNotifyEvent_t             bell;
+    my_XkbActionMessageEvent_t          message;
+    my_XkbAccessXNotifyEvent_t          accessx;
+    my_XkbExtensionDeviceNotifyEvent_t  device;
+    my_XEvent_t                         core;
+} my_XkbEvent_t;
+
+typedef struct my_XIEvent_s {
+    int           type;
+    unsigned long serial;
+    int           send_event;
+    my_XDisplay_t*display;
+    int           extension;
+    int           evtype;
+    unsigned long time;
+} my_XIEvent_t;
+
+typedef struct my_XIHierarchyInfo_s {
+    int           deviceid;
+    int           attachment;
+    int           use;
+    int           enabled;
+    int           flags;
+} my_XIHierarchyInfo_t;
+
+typedef struct my_XIButtonState_s {
+    int           mask_len;
+    unsigned char *mask;
+} my_XIButtonState_t;
+
+typedef struct my_XIValuatorState_s {
+    int           mask_len;
+    unsigned char *mask;
+    double        *values;
+} my_XIValuatorState_t;
+
+typedef struct my_XIModifierState_s {
+    int    base;
+    int    latched;
+    int    locked;
+    int    effective;
+} my_XIModifierState_t;
+
+typedef struct my_XIHierarchyEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     flags;
+    int                     num_info;
+    my_XIHierarchyInfo_t*   info;
+} my_XIHierarchyEvent_t;
+
+typedef struct my_XIDeviceChangedEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     deviceid;
+    int                     sourceid;
+    int                     reason;
+    int                     num_classes;
+    my_XIAnyClassInfo_t**   classes;
+} my_XIDeviceChangedEvent_t;
+
+typedef struct my_XIDeviceEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     deviceid;
+    int                     sourceid;
+    int                     detail;
+    XID                     root;
+    XID                     event;
+    XID                     child;
+    double                  root_x;
+    double                  root_y;
+    double                  event_x;
+    double                  event_y;
+    int                     flags;
+    my_XIButtonState_t      buttons;
+    my_XIValuatorState_t    valuators;
+    my_XIModifierState_t    mods;
+    my_XIModifierState_t    group;
+} my_XIDeviceEvent_t;
+
+typedef struct my_XIRawEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     deviceid;
+    int                     sourceid;
+    int                     detail;
+    int                     flags;
+    my_XIValuatorState_t    valuators;
+    double*                 raw_values;
+} my_XIRawEvent_t;
+
+typedef struct my_XIEnterEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     deviceid;
+    int                     sourceid;
+    int                     detail;
+    XID                     root;
+    XID                     event;
+    XID                     child;
+    double                  root_x;
+    double                  root_y;
+    double                  event_x;
+    double                  event_y;
+    int                     mode;
+    int                     focus;
+    int                     same_screen;
+    my_XIButtonState_t      buttons;
+    my_XIModifierState_t    mods;
+    my_XIModifierState_t    group;
+} my_XIEnterEvent_t;
+// Leave, FocusIn and FocusOut are like Enter
+
+typedef struct my_XIPropertyEvent_s {
+    int           type;
+    unsigned long serial;
+    int           send_event;
+    my_XDisplay_t*display;
+    int           extension;
+    int           evtype;
+    unsigned long time;
+    int           deviceid;
+    XID           property;
+    int           what;
+} my_XIPropertyEvent_t;
+
+typedef struct my_XITouchOwnershipEvent_s {
+    int           type;
+    unsigned long serial;
+    int           send_event;
+    my_XDisplay_t*display;
+    int           extension;
+    int           evtype;
+    unsigned long time;
+    int           deviceid;
+    int           sourceid;
+    unsigned int  touchid;
+    XID           root;
+    XID           event;
+    XID           child;
+    int           flags;
+} my_XITouchOwnershipEvent_t;
+
+typedef struct my_XIBarrierEvent_s {
+    int           type;
+    unsigned long serial;
+    int           send_event;
+    my_XDisplay_t*display;
+    int           extension;
+    int           evtype;
+    unsigned long time;
+    int           deviceid;
+    int           sourceid;
+    XID           event;
+    XID           root;
+    double        root_x;
+    double        root_y;
+    double        dx;
+    double        dy;
+    int           dtime;
+    int           flags;
+    XID           barrier;
+    uint32_t      eventid;
+} my_XIBarrierEvent_t;
+
+typedef struct my_XIGesturePinchEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     deviceid;
+    int                     sourceid;
+    int                     detail;
+    XID                     root;
+    XID                     event;
+    XID                     child;
+    double                  root_x;
+    double                  root_y;
+    double                  event_x;
+    double                  event_y;
+    double                  delta_x;
+    double                  delta_y;
+    double                  delta_unaccel_x;
+    double                  delta_unaccel_y;
+    double                  scale;
+    double                  delta_angle;
+    int                     flags;
+    my_XIModifierState_t    mods;
+    my_XIModifierState_t    group;
+} my_XIGesturePinchEvent_t;
+
+typedef struct my_XIGestureSwipeEvent_s {
+    int                     type;
+    unsigned long           serial;
+    int                     send_event;
+    my_XDisplay_t*          display;
+    int                     extension;
+    int                     evtype;
+    unsigned long           time;
+    int                     deviceid;
+    int                     sourceid;
+    int                     detail;
+    XID                     root;
+    XID                     event;
+    XID                     child;
+    double                  root_x;
+    double                  root_y;
+    double                  event_x;
+    double                  event_y;
+    double                  delta_x;
+    double                  delta_y;
+    double                  delta_unaccel_x;
+    double                  delta_unaccel_y;
+    int                     flags;
+    my_XIModifierState_t    mods;
+    my_XIModifierState_t    group;
+} my_XIGestureSwipeEvent_t;
+
+#define XI_DeviceChanged                 1
+#define XI_KeyPress                      2
+#define XI_KeyRelease                    3
+#define XI_ButtonPress                   4
+#define XI_ButtonRelease                 5
+#define XI_Motion                        6
+#define XI_Enter                         7
+#define XI_Leave                         8
+#define XI_FocusIn                       9
+#define XI_FocusOut                      10
+#define XI_HierarchyChanged              11
+#define XI_PropertyEvent                 12
+#define XI_RawKeyPress                   13
+#define XI_RawKeyRelease                 14
+#define XI_RawButtonPress                15
+#define XI_RawButtonRelease              16
+#define XI_RawMotion                     17
+#define XI_TouchBegin                    18 /* XI 2.2 */
+#define XI_TouchUpdate                   19
+#define XI_TouchEnd                      20
+#define XI_TouchOwnership                21
+#define XI_RawTouchBegin                 22
+#define XI_RawTouchUpdate                23
+#define XI_RawTouchEnd                   24
+#define XI_BarrierHit                    25 /* XI 2.3 */
+#define XI_BarrierLeave                  26
+#define XI_GesturePinchBegin             27 /* XI 2.4 */
+#define XI_GesturePinchUpdate            28
+#define XI_GesturePinchEnd               29
+#define XI_GestureSwipeBegin             30
+#define XI_GestureSwipeUpdate            31
+#define XI_GestureSwipeEnd               32
+
+typedef struct my__XTransform_s {
+    int  matrix[3][3];
+} my_XTransform_t;
+
+typedef struct my_XRRCrtcTransformAttributes_s {
+    my_XTransform_t     pendingTransform;
+    char*               pendingFilter;
+    int                 pendingNparams;
+    int*                pendingParams;
+    my_XTransform_t     currentTransform;
+    char*               currentFilter;
+    int                 currentNparams;
+    int*                currentParams;
+} my_XRRCrtcTransformAttributes_t;
 
 #endif//MY_X11_DEFS

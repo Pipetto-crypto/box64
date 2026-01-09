@@ -1030,7 +1030,7 @@ void emit_rol16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int 
     if (!c) return;
 
     if(!BOX64ENV(cputype))
-        IFX(X_OF) {
+        IFX2(X_OF, && c == 1) {
             LSRw(s3, s1, 14);
             EORw_REG_LSR(s3, s3, s3, 1);
             BFIw(xFlags, s3, F_OF, 1);
@@ -1058,7 +1058,7 @@ void emit_ror16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int 
     if (!c) return;
 
     if(!BOX64ENV(cputype))
-        IFX(X_OF) {
+        IFX2(X_OF, && c == 1) {
             EORw_REG_LSR(s3, s1, s1, 15);
             BFIw(xFlags, s3, F_OF, 1);
         }
@@ -1086,20 +1086,11 @@ void emit_rcl8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s
     if (!c && !BOX64ENV(cputype)) return;
     if(c) {
         BFIw(s1, xFlags, 8, 1); // insert cf
-        if(BOX64ENV(cputype)) {
-            IFX(X_OF|X_CF) {
-                BFXILw(xFlags, s1, 8-c, 1);
-            }
-        } else {
-            IFX(X_CF) {
-                BFXILw(xFlags, s1, 8-c, 1);
-            }
-        }
-    }
-    if(!BOX64ENV(cputype)) {
         IFX(X_OF|X_CF) {
             BFXILw(xFlags, s1, 8-c, 1);
         }
+    }
+    if(!BOX64ENV(cputype)) {
         IFX(X_OF) {
             LSRw(s3, s1, 6);
             EORw_REG_LSR(s3, s3, s3, 1);
@@ -1273,6 +1264,102 @@ void emit_rcr32c(dynarec_arm_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, i
     }
     IFX(X_CF) {
         BFIw(wFlags, s3, 0, 1);
+    }
+    IFX2(X_OF, && BOX64ENV(cputype)) {
+        LSRxw(s4, s1, rex.w?62:30);
+        EORw_REG_LSR(s4, s4, s4, 1);
+        BFIw(xFlags, s4, F_OF, 1);
+    }
+}
+
+// emit RCL32/RCL64 instruction, from s1 , shift s2 (destroyed), store result in s1 using s3 and s4 as scratch
+void emit_rcl32(dynarec_arm_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5)
+{
+    MAYUSE(s1); MAYUSE(s3); MAYUSE(s4);
+
+    if(BOX64ENV(cputype)) {
+        IFX(X_OF|X_CF) {
+            MOVZw(s4, rex.w?64:32);
+            SUBx_REG(s4, s4, s2);
+            LSRxw_REG(s3, s1, s4);
+        }
+    } else {
+        IFX(X_CF) {
+            MOVZw(s4, rex.w?64:32);
+            SUBx_REG(s4, s4, s2);
+            LSRxw_REG(s3, s1, s4);
+        }
+    }
+    if(!BOX64ENV(cputype))
+        IFX(X_OF) {
+            LSRxw(s4, s1, rex.w?62:30);
+            EORw_REG_LSR(s4, s4, s4, 1);
+            BFIw(xFlags, s4, F_OF, 1);
+        }
+    SUBw_U12(s4, s2, 1);
+    CBNZw(s4, 4+4*3);
+    /*if(c==1)*/
+    {
+        LSLxw(s1, s1, 1);
+        BFIxw(s1, xFlags, 0, 1);
+        B(4+4*9);
+    }
+    /*else*/
+    {
+        LSLxw_REG(s4, s1, s2);
+        UBFXw(s5, xFlags, 0, 1);
+        SUBw_U12(s2, s2, 1);    //s2 = c-1 now
+        LSLxw_REG(s5, s5, s2);
+        ORRxw_REG(s4, s4, s5);
+        MOVZw(s5, rex.w?64:32); // -1 to compensate from the c-1 is s2
+        SUBw_REG(s5, s5, s2);
+        LSRxw_REG(s1, s1, s5);
+        ORRxw_REG(s1, s1, s4);
+    }
+    IFX(X_CF) {
+        BFIw(xFlags, s3, F_CF, 1);
+    }
+    IFX2(X_OF, && BOX64ENV(cputype)) {
+        EORxw_REG_LSR(s3, s3, s1, rex.w?63:31);
+        BFIw(xFlags, s3, F_OF, 1);
+    }
+}
+// emit RCR32/RCR64 instruction, from s1 , shift s2, store result in s1 using s3 and s4 as scratch
+void emit_rcr32(dynarec_arm_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5)
+{
+    MAYUSE(s1); MAYUSE(s3); MAYUSE(s4);
+
+    IFX2(X_OF, && !BOX64ENV(cputype)) {
+        EORxw_REG_LSR(s3, xFlags, s1, rex.w?63:31);
+        BFIw(xFlags, s3, F_OF, 1);
+    }
+    SUBw_U12(s4, s2, 1);
+    IFX(X_CF) {
+        LSRxw_REG(s3, s1, s4);
+        BFIw(xFlags, s3, F_res2, 1); // saving the value without reserving s3
+    }
+    CBNZw(s4, 4+4*3);
+    /*if(c==1)*/
+    {
+        LSRxw(s1, s1, 1);
+        BFIxw(s1, xFlags, rex.w?63:31, 1);
+        B(4+4*9);
+    } 
+    /*else*/
+    {
+        LSRxw_REG(s5, s1, s2);
+        UBFXw(s4, xFlags, 0, 1);
+        MOVZw(s3, (rex.w?64:32));
+        SUBx_REG(s3, s3, s2);
+        LSLxw_REG(s4, s4, s3);
+        ORRxw_REG(s5, s5, s4);
+        ADDx_U12(s3, s3, 1);
+        LSLxw_REG(s1, s1, s3);
+        ORRxw_REG(s1, s1, s5);
+    }
+    IFX(X_CF) {
+        BFXILw(xFlags, xFlags, F_res2, 1);
+        BFCw(xFlags, F_res2, 1);
     }
     IFX2(X_OF, && BOX64ENV(cputype)) {
         LSRxw(s4, s1, rex.w?62:30);

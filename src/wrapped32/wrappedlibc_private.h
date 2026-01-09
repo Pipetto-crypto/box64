@@ -121,8 +121,8 @@ GO(__bzero, vEpL)
 GOW(calloc, pELL)
 // callrpc
 //GOW(canonicalize_file_name, pEp)
-// capget
-// capset
+GO(capget, iFpp)
+GO(capset, iFpp)
 //GO(catclose, iEp)
 //GO(catgets, pEpiip)
 //GO(catopen, pEpi)
@@ -160,10 +160,11 @@ GO(clearerr, vES)
 GO(clock, lEv)
 // clone    // Weak
 // __clone
-GOW(close, iEi)
+GOWM(close, iEEi)   //%%
 // __close  // Weak
 GOW(closedir, iEp)
 GO(closelog, vEv)
+GO(close_range, iEuui)
 GOM(__cmsg_nxthdr, pEpp)    //%noE
 //GO(confstr, uEipu)
 // __confstr_chk
@@ -346,7 +347,7 @@ GOW(fgets, pEpiS)
 GO(__fgets_chk, pEpLiS)
 // fgetspent
 // fgetspent_r  // Weak
-//GO(fgets_unlocked, pEpip)
+GOW(fgets_unlocked, pEpiS)
 // __fgets_unlocked_chk
 //GOW(fgetwc, iEp)
 //GOW(fgetwc_unlocked, iEp)
@@ -421,8 +422,11 @@ GO(__fsetlocking, iESi)
 GO(fsetpos, iEpBlii_)
 //GO(fsetpos64, iEpp)
 GO(fsetxattr, iEippLi)
-GOM(fstat, iFip)    //%%,noE
-GO2(__fstat64_time64, iFip, fstat)
+GOM(fstat, iEip)    //%%,noE
+GOM(fstat64, iEip)  //%%,noE
+GOM(__fstat64_time64, iFEip)
+GOM(fstatat, iEEippi)
+GOM(fstatat64, iEEippi)
 GO2(__fstatat64_time64, iEippi, fstatat)
 GOWM(fstatfs, iEip) //%%,noE
 GOWM(fstatfs64, iEip)    //%%,noE
@@ -438,10 +442,10 @@ GOW(ftruncate, iEil)
 GOW(ftruncate64, iEiI)
 //GOW(ftrylockfile, iEp)
 //GOM(fts_children, pEEpi) //%%
-//GOM(fts_close, iEEp)     //%%
-//GOM(fts_open, pEEpip)    //%%
-//GOM(fts_read, pEEp)      //%%
-// fts_set
+GO(fts_close, iEp)
+GOM(fts_open, pEEpip)
+GO(fts_read, pEp)
+GO(fts_set, iEppi)
 GOM(ftw, iEEppi)         //%%
 GOM(ftw64, iEEppi)       //%%
 GOW(funlockfile, vFS)
@@ -506,7 +510,7 @@ GOM(getgrnam, pEEp)
 GOM(getgrnam_r, iEEpppLp)
 GO(getgrouplist, iEpipp)
 GOW(getgroups, iEip)
-// __getgroups_chk
+GO(__getgroups_chk, iEipL)
 GOM(gethostbyaddr, pFEpui)
 GOM(gethostbyaddr_r, iFEpuippupp)
 GOM(gethostbyname, pFEp)
@@ -588,6 +592,7 @@ GO(getrlimit64, iEup)
 // getrpcent_r
 // getrpcport
 GOW(getrusage, iEiBLLLLLLLLLLLLLLLLLL_)
+GO2(__getrusage64, iEiBUUUULLLLLLLLLLLLLL_, getrusage)
 //GOW(gets, pEp)
 // __gets_chk
 // getsecretkey
@@ -735,7 +740,7 @@ GO(inotify_rm_watch, iEii)
 //DATA(_IO_2_1_stdout_, 152)
 //GO(_IO_adjust_column, uEupi)
 // _IO_adjust_wcolumn
-GO(ioctl, iEiLp)   //the vararg is just to have optional arg of various type, but only 1 arg
+GOM(ioctl, iEEiLp)   //the vararg is just to have optional arg of various type, but only 1 arg
 GO2(__ioctl_time64, iEiLp, ioctl)
 //GO(_IO_default_doallocate, iES)
 //GO(_IO_default_finish, vESi)
@@ -1076,7 +1081,7 @@ GOM(_longjmp, vEEpi)        //%%
 GOM(__longjmp_chk, vEEpi)   //%%
 GO(lrand48, lEv)
 // lrand48_r
-//GO(lremovexattr, iEpp)
+GO(lremovexattr, iEpp)
 GOM(lsearch, pEEppbL_Lp)      //%%
 GOW(lseek, lEili)
 // __lseek  // Weak
@@ -1109,7 +1114,7 @@ GOW(mbsnrtowcs, LEpbp_LLp)
 GOW(mbsrtowcs, LEpbp_Lp)
 // __mbsrtowcs_chk
 GO(mbstowcs, LEppL)
-// __mbstowcs_chk
+GO(__mbstowcs_chk, LEppLL)
 GO(mbtowc, iEppL)
 // mcheck
 // mcheck_check_all
@@ -1177,6 +1182,7 @@ GO(munlockall, iEv)
 GOM(munmap, iEEpL)       //%%
 GO(muntrace, vFv)
 GOWM(nanosleep, iErLL_BLL_)	 //%%,noE
+GO2(__nanosleep64, iEpp, nanosleep)
 // __nanosleep  // Weak
 // netname2host
 // netname2user
@@ -1232,14 +1238,14 @@ GOWM(obstack_vprintf, iEEpppp)  //%%
 // __obstack_vprintf_chk
 //GOWM(on_exit, iEEpp)  //%%
 //GO2(__on_exit, iEEpp, my_on_exit)   //%%
-GOW2(open, iEEpON, my_open)    //%%
-GOW2(__open, iEEpON, my_open)  //%%
+GOWM(open, iEEpON)    //%%
+GOW2(__open, iEEpON, my32_open)  //%%
 GO(__open_2, iEpO)
-GOW2(open64, iEEpON, my_open64)  //%%
+GOWM(open64, iEEpON)  //%%
 // __open64 // Weak
 GO(__open64_2, iEpO)
 //GOW(openat, iEipON)
-// __openat_2
+GO(__openat_2, iEipO)
 GOW(openat64, iEipON)
 //GO(__openat64_2, iEipON)
 // __open_catalog
@@ -1249,7 +1255,7 @@ GOW(open_memstream, SEpp)
 // open_wmemstream
 //DATAB(optarg, 4)
 //DATA(opterr, 4)
-//DATA(optind, 4)
+DATA(optind, 4)
 //DATA(optopt, 4)
 // outb // Weak
 // outl // Weak
@@ -1418,7 +1424,7 @@ GOM(__register_atfork, iEEpppp) //%%
 //GOW(re_match, iEppiip)
 // re_match_2   // Weak
 GO(remove, iEp)
-//GO(removexattr, iEpp)
+GO(removexattr, iEpp)
 // remque
 GO(rename, iEpp)
 GO(renameat, iEipip)
@@ -1641,11 +1647,11 @@ GOM(sscanf, iEEppV) //%%
 // ssignal  // Weak
 // sstk
 GOM(__stack_chk_fail, vEEv) //%%
-//GOM(lstat64, iEpp)	//%%,noE
-GO2(__lstat64_time64, iEEpp, my_lstat64)
-//GOM(stat64, iEpp)	//%%,noE
-GO2(__stat64_time64, iEEpp, my_stat64)
-GOM(stat, iFpp) //%%,noE
+GOM(lstat64, iEpp)	//%%,noE
+GOM(__lstat64_time64, iEEpp)
+GOM(stat64, iEpp)	//%%,noE
+GOM(__stat64_time64, iEEpp)
+GOM(stat, iEpp) //%%,noE
 GOWM(statfs, iEpp)  //%%,noE
 // __statfs
 GOWM(statfs64, iEpp)     //%%,noE
@@ -1760,6 +1766,7 @@ GO(strtoll, IEpBp_i)
 //GOW(strtol_l, lEppiip)
 GO(__strtoll_internal, IEpBp_ii)
 GO(__strtoll_l, IEpBp_ia)
+GO2(__isoc23_strtoll_l, IEpBp_ia, __strtoll_l)
 GOW(strtoll_l, IEpBp_ia)
 GOW(strtoq, IEppi)  // is that ok?
 GOM(strtoul, LEpBp_i)   //%%,noE
@@ -1769,6 +1776,7 @@ GO(strtoull, UEpBp_i)
 //GOW(strtoul_l, LEppip)
 GO(__strtoull_internal, UEpBp_ii)
 GO(__strtoull_l, UEpBp_ia)
+GO2(__isoc23_strtoull_l, UEpBp_ia, __strtoull_l)
 GOW(strtoull_l, UEpBp_ia)
 //GO(strtoumax, UEppi)
 GOW(strtouq, UEppi) // ok?
@@ -1903,8 +1911,8 @@ GO(__uflow, iES)
 // ulckpwdf // Weak
 // ulimit   // Weak
 GOW(umask, uEu)
-//GOW(umount, iEp)
-//GOW(umount2, iEpi)
+GOW(umount, iEp)
+GOW(umount2, iEpi)
 GOWM(uname, iEp) //%%,noE
 //GO(__underflow, iEp)
 GOW(ungetc, iEiS)
@@ -1955,7 +1963,7 @@ GOWM(vsnprintf, iEEpLpp)         //%%
 GOWM(__vsnprintf, iEEpLpp)       //%%
 GOM(__vsnprintf_chk, iEEpLiipp)  //%%
 GOWM(vsprintf, iEEppp)            //%%
-GOM(__vsprintf_chk, iEEpiLpp)     //%% 
+GOM(__vsprintf_chk, iEEpiLpp)     //%%
 GOM(vsscanf, iEEppp) //%%
 // __vsscanf    // Weak
 GOWM(vswprintf, iEEpLpp)         //%%
@@ -2088,7 +2096,7 @@ GO(wmemset, pEpiL)
 // __woverflow
 GOM(wprintf, iEEpV) //%%
 //GOM(__wprintf_chk, iEEipV) //%%
-GOW(write, lEipL)
+GOWM(write, lEEipL)
 //GOW(__write, lEipL)
 GOWM(writev, lEEipi)
 // wscanf
@@ -2192,7 +2200,7 @@ GOM(reallocarray, pEpLL)     //%%,noE
 //GO2(__read_nocancel, lEipL, read)
 GO2(__close_nocancel, iEi, close)
 
-//GOM(mkstemps64, iEEpi)   //%% not always implemented
+GOM(mkstemps64, iEEpi)   //%% not always implemented
 GO(getentropy, iEpL)
 
 // not found (libitm???), but it seems OK to declare dummies:
@@ -2229,6 +2237,10 @@ GO(name_to_handle_at, iEipppi) // only glibc 2.14+, so may not be present...
 
 //GOM(modify_ldt, iEEipL) // there is suposedly no glibc wrapper for this one
 
+// duplicated stuffs from libresolv
+GOWM(res_query, iEEpiipi)
+GOWM(res_search, iEEpiipi)
+
 #ifdef ANDROID
 //GOM(__libc_init, vEEpppp)
 GO(__errno, pEv)
@@ -2238,7 +2250,7 @@ GO(__errno, pEv)
 //GO(__errno,
 #endif
 
-//GOM(lstat,
+GOM(lstat, iEpp)    //%%,noE
 //GO(setprogname,
 //GO(getprogname,
 

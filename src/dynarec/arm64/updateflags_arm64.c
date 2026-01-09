@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
-#include <assert.h>
 
 #include "os.h"
 #include "debug.h"
@@ -41,12 +40,12 @@ void* create_updateflags()
     helper.insts = insts;
     helper.need_dump = BOX64ENV(dynarec_dump);
     helper.cap = 1;
-    helper.f.dfnone = 1;
-    helper.f.pending = SF_NODF;
+    helper.f = status_none;
     helper.insts[0].x64.gen_flags = X_ALL;
     // pass 0
     updateflags_pass0(&helper, jmp_df);
     // check if all flags are handled
+    helper.have_purge = 0;  // force no purge
     int ok = 1;
     for(int i=d_none; i<d_unknown; ++i)
         if(!jmp_df[i]) {

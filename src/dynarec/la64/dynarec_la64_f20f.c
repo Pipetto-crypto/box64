@@ -199,7 +199,7 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
         case 0x51:
             INST_NAME("SQRTSD Gx, Ex");
             nextop = F8;
-            GETGX_empty(v0);
+            GETGX(v0, 1);
             d1 = fpu_get_scratch(dyn);
             GETEXSD(d0, 0, 0);
             FSQRT_D(d1, d0);
@@ -351,6 +351,18 @@ uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             VPICKEV_W(v0, q1, q0);
             VPICKOD_W(v1, q1, q0);
             VFSUB_S(q0, v0, v1);
+            break;
+        case 0xAE:
+            nextop = F8;
+            switch ((nextop >> 3) & 7) {
+                case 6:
+                    INST_NAME("(unsupported) UWAIT Ed");
+                    FAKEED;
+                    UDF();
+                    break;
+                default:
+                    DEFAULT;
+            }
             break;
         case 0xC2:
             INST_NAME("CMPSD Gx, Ex, Ib");

@@ -77,12 +77,12 @@ GO(13)  \
 GO(14)  \
 
 // GCopyFct
-#define GO(A)   \
-static uintptr_t my_copy_fct_##A = 0;                                     \
-static void* my_copy_##A(void* data)                                      \
-{                                                                         \
-    return (void*)RunFunctionFmt(my_copy_fct_##A, "p", data); \
-}
+#define GO(A)                                                           \
+    static uintptr_t my_copy_fct_##A = 0;                               \
+    static void* my_copy_##A(void* src, void* data)                     \
+    {                                                                   \
+        return (void*)RunFunctionFmt(my_copy_fct_##A, "pp", src, data); \
+    }
 SUPER()
 #undef GO
 static void* findCopyFct(void* fct)
@@ -761,6 +761,62 @@ static void* findGTraverseFuncFct(void* fct)
     return NULL;
 }
 
+// GLogWriterFunc ...
+#define GO(A)                                                         \
+    static uintptr_t my_GLogWriterFunc_fct_##A = 0;                   \
+    static int my_GLogWriterFunc_##A(void* a, void* b)                \
+    {                                                                 \
+        return RunFunctionFmt(my_GLogWriterFunc_fct_##A, "pp", a, b); \
+    }
+SUPER()
+#undef GO
+static void* findLogWriterFct(void* fct)
+{
+    if (!fct) return fct;
+    if (GetNativeFnc((uintptr_t)fct)) return GetNativeFnc((uintptr_t)fct);
+#define GO(A) \
+    if (my_GLogWriterFunc_fct_##A == (uintptr_t)fct) return my_GLogWriterFunc_##A;
+    SUPER()
+#undef GO
+#define GO(A)                                       \
+    if (my_GLogWriterFunc_fct_##A == 0) {           \
+        my_GLogWriterFunc_fct_##A = (uintptr_t)fct; \
+        return my_GLogWriterFunc_##A;               \
+    }
+    SUPER()
+#undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for glib2 GLogWriterFunc callback\n");
+    return NULL;
+}
+
+// GDataForeachFunc ...
+#define GO(A)                                                                      \
+    static uintptr_t my_GDataForeachFunc_fct_##A = 0;                              \
+    static void* my_GDataForeachFunc_##A(uint32_t a, void* b, void* c)             \
+    {                                                                              \
+        return (void*)RunFunctionFmt(my_GDataForeachFunc_fct_##A, "upp", a, b, c); \
+    }
+SUPER()
+#undef GO
+static void* findGDataForeachFuncFct(void* fct)
+{
+    if (!fct) return fct;
+    if (GetNativeFnc((uintptr_t)fct)) return GetNativeFnc((uintptr_t)fct);
+#define GO(A) \
+    if (my_GDataForeachFunc_fct_##A == (uintptr_t)fct) return my_GDataForeachFunc_##A;
+    SUPER()
+#undef GO
+#define GO(A)                                         \
+    if (my_GDataForeachFunc_fct_##A == 0) {           \
+        my_GDataForeachFunc_fct_##A = (uintptr_t)fct; \
+        return my_GDataForeachFunc_##A;               \
+    }
+    SUPER()
+#undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for glib2 GDataForeachFunc callback\n");
+    return NULL;
+}
+
 #undef SUPER
 
 EXPORT void* my_g_markup_vprintf_escaped(x64emu_t *emu, void* fmt, void* b) {
@@ -804,6 +860,11 @@ EXPORT void my_g_datalist_id_set_data_full(x64emu_t* emu, void* datalist, uintpt
 {
     void* fc = findFreeFct(freecb);
     my->g_datalist_id_set_data_full(datalist, key, data, fc);
+}
+
+EXPORT void my_g_datalist_foreach(x64emu_t* emu, void* datalist, void* func, void* data)
+{
+    my->g_datalist_foreach(datalist, findGDataForeachFuncFct(func), data);
 }
 
 EXPORT void* my_g_datalist_id_dup_data(x64emu_t* emu, void* datalist, uintptr_t key, void* dupcb, void* data)
@@ -1088,6 +1149,11 @@ EXPORT void my_g_source_set_callback(x64emu_t* emu, void* source, void* func, vo
     my->g_source_set_callback(source, findGSourceFuncFct(func), data, findFreeFct(notify));
 }
 
+EXPORT void my_g_main_context_invoke(x64emu_t* emu, void* context, void* func, void* data)
+{
+    my->g_main_context_invoke(context, findGSourceFuncFct(func), data);
+}
+
 EXPORT void* my_g_slist_insert_sorted(x64emu_t* emu, void* list, void* d, void* comp)
 {
 
@@ -1115,24 +1181,24 @@ EXPORT uint32_t my_g_idle_add(x64emu_t* emu, void* func, void* data)
 
 EXPORT void* my_g_variant_new_va(x64emu_t* emu, char* fmt, void* endptr, x64_va_list_t* b)
 {
-    #ifdef CONVERT_VALIST
+#ifdef CONVERT_VALIST
     CONVERT_VALIST(*b);
-    #else
-      #if defined(__loongarch64) || defined(__riscv)
-        va_list sysv_varargs;
-        myStackAlignGVariantNewVa(emu, fmt, emu->scratch, b);
-        sysv_varargs = (va_list)emu->scratch;
-      #else
-        CREATE_VALIST_FROM_VALIST(*b, emu->scratch);
-      #endif
-    #endif
+#else
+#if defined(__loongarch64) || defined(__riscv)
+    va_list sysv_varargs;
+    myStackAlignGVariantNewVa(emu, fmt, emu->scratch, b);
+    sysv_varargs = (va_list)emu->scratch;
+#else
+    CREATE_VALIST_FROM_VALIST(*b, emu->scratch);
+#endif
+#endif
     return my->g_variant_new_va(fmt, endptr, &sysv_varargs);
 }
 
 EXPORT void* my_g_variant_new(x64emu_t* emu, char* fmt, uint64_t* V)
 {
 #if defined(__loongarch64) || defined(__riscv)
-    myStackAlignGVariantNew(emu, fmt, V, emu->scratch, R_EAX);
+    myStackAlignGVariantNew(emu, fmt, V, emu->scratch, 1);
     PREPARE_VALIST;
 #else
     CREATE_VALIST_FROM_VAARG(V, emu->scratch, 1);
@@ -1248,6 +1314,11 @@ EXPORT uint32_t my_g_timeout_add_seconds_full(x64emu_t *emu, int priority, uint3
 EXPORT uint32_t my_g_log_set_handler(x64emu_t *emu, void* domain, int level, void* f, void* data)
 {
     return my->g_log_set_handler(domain, level, findGLogFuncFct(f), data);
+}
+
+EXPORT void my_g_log_set_writer_func(x64emu_t* emu, void* f, void* data, void* notify)
+{
+    my->g_log_set_writer_func(findLogWriterFct(f), data, findDestroyFct(notify));
 }
 
 EXPORT void my_g_set_error(x64emu_t *emu, void* err, void* domain, uint32_t code, void* fmt, uintptr_t* stack)
@@ -1464,6 +1535,11 @@ EXPORT void* my_g_node_copy_deep(x64emu_t* emu, void* node, void* f, void* data)
     return my->g_node_copy_deep(node, findCopyFct(f), data);
 }
 
+EXPORT void* my_g_slist_copy_deep(x64emu_t* emu, void* list, void* f, void* data)
+{
+    return my->g_slist_copy_deep(list, findCopyFct(f), data);
+}
+
 EXPORT void* my_g_thread_try_new(x64emu_t* emu, void* name, void* f, void* data, void* err)
 {
     return my->g_thread_try_new(name, findGThreadFuncFct(f), data, err);
@@ -1566,8 +1642,12 @@ EXPORT void my_g_thread_pool_set_sort_function(x64emu_t* emu, void* pool, void* 
     my->g_thread_pool_set_sort_function(pool, findGCompareDataFuncFct(func), user_data);
 }
 
-#define PRE_INIT    \
-    if(BOX64ENV(nogtk)) \
-        return -1;
+EXPORT void my_g_queue_free_full(x64emu_t* emu, void* queue, void* d)
+{
+    my->g_queue_free_full(queue, findGDestroyNotifyFct(d));
+}
+
+#define PRE_INIT \
+    if (BOX64ENV(nogtk)) return -2;
 
 #include "wrappedlib_init.h"

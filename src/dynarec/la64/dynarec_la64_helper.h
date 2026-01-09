@@ -69,17 +69,7 @@
         LDz(x1, wback, fixedaddress);                                                           \
         ed = x1;                                                                                \
     }
-// GETED32 can use r1 for ed, and r2 for wback. wback is 0 if ed is xEAX..xEDI
-#define GETED32(D)                                                                                \
-    if (MODREG) {                                                                                 \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                 \
-        wback = 0;                                                                                \
-    } else {                                                                                      \
-        SMREAD();                                                                                 \
-        addr = geted32(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, D); \
-        LDxw(x1, wback, fixedaddress);                                                            \
-        ed = x1;                                                                                  \
-    }
+
 // GETEDH can use hint for wback and ret for ed. wback is 0 if ed is xEAX..xEDI
 #define GETEDH(hint, ret, D)                                                                       \
     if (MODREG) {                                                                                  \
@@ -119,35 +109,19 @@
 // GETEW will use i for ed, and can use r3 for wback.
 #define GETEW(i, D) GETEWW(x3, i, D)
 
-// GETEDO can use r1 for ed, and r2 for wback. wback is 0 if ed is xEAX..xEDI
-#define GETEDO(O, D)                                                                                \
-    if (MODREG) {                                                                                   \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                   \
-        wback = 0;                                                                                  \
-    } else {                                                                                        \
-        SMREAD();                                                                                   \
-        if (rex.is32bits) {                                                                         \
-            addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, D); \
-            ADDz(O, wback, O);                                                                      \
-            LD_WU(x1, O, fixedaddress);                                                             \
-        } else {                                                                                    \
-            addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 0, D); \
-            LDXxw(x1, wback, O);                                                                    \
-        }                                                                                           \
-        ed = x1;                                                                                    \
+#define GETGWEW(i, j, D)                                    \
+    GETEW(j, D);                                            \
+    if (MODREG) {                                           \
+        gd = TO_NAT(((nextop & 0x38) >> 3) + (rex.r << 3)); \
+        if (gd == wback)                                    \
+            gd = ed;                                        \
+        else {                                              \
+            GETGW(i);                                       \
+        }                                                   \
+    } else {                                                \
+        GETGW(i);                                           \
     }
-// GETEDOz can use r1 for ed, and r2 for wback. wback is 0 if ed is xEAX..xEDI
-#define GETEDOz(O, D, S)                                                                       \
-    if (MODREG) {                                                                              \
-        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                              \
-        wback = 0;                                                                             \
-    } else {                                                                                   \
-        SMREAD();                                                                              \
-        addr = geted(dyn, addr, ninst, nextop, &wback, x2, S, &fixedaddress, rex, NULL, 1, D); \
-        ADDz(S, wback, O);                                                                     \
-        LDz(x1, S, fixedaddress);                                                              \
-        ed = x1;                                                                               \
-    }
+
 // GETSED can use r1 for ed, and r2 for wback. ed will be sign extended!
 #define GETSED(D)                                                                               \
     if (MODREG) {                                                                               \
@@ -313,33 +287,24 @@
     gd = i;                                                  \
     BSTRPICK_D(gd, gb1, gb2 + 7, gb2);
 
-// GETEBO will use i for ed, i is also Offset, and can use r3 for wback.
-#define GETEBO(i, D)                                                                                \
-    if (MODREG) {                                                                                   \
-        if (rex.rex) {                                                                              \
-            wback = TO_NAT((nextop & 7) + (rex.b << 3));                                            \
-            wb2 = 0;                                                                                \
-        } else {                                                                                    \
-            wback = (nextop & 7);                                                                   \
-            wb2 = (wback >> 2) * 8;                                                                 \
-            wback = TO_NAT(wback & 3);                                                              \
-        }                                                                                           \
-        BSTRPICK_D(i, wback, wb2 + 7, wb2);                                                         \
-        wb1 = 0;                                                                                    \
-        ed = i;                                                                                     \
-    } else {                                                                                        \
-        SMREAD();                                                                                   \
-        if (rex.is32bits) {                                                                         \
-            addr = geted(dyn, addr, ninst, nextop, &wback, x3, x2, &fixedaddress, rex, NULL, 1, D); \
-            ADDz(x3, wback, i);                                                                     \
-            if (wback != x3) wback = x3;                                                            \
-            LD_BU(i, wback, fixedaddress);                                                          \
-        } else {                                                                                    \
-            addr = geted(dyn, addr, ninst, nextop, &wback, x3, x2, &fixedaddress, rex, NULL, 0, D); \
-            LDX_BU(i, wback, i);                                                                    \
-        }                                                                                           \
-        wb1 = 1;                                                                                    \
-        ed = i;                                                                                     \
+#define GETGBEB(i, j, D)                                         \
+    GETEB(j, D);                                                 \
+    if (MODREG) {                                                \
+        if (rex.rex) {                                           \
+            gb1 = TO_NAT(((nextop & 0x38) >> 3) + (rex.r << 3)); \
+            gb2 = 0;                                             \
+        } else {                                                 \
+            gd = (nextop & 0x38) >> 3;                           \
+            gb2 = ((gd & 4) << 1);                               \
+            gb1 = TO_NAT((gd & 3));                              \
+        }                                                        \
+        if (gb1 == wback && gb2 == wb2)                          \
+            gd = ed;                                             \
+        else {                                                   \
+            GETGB(i);                                            \
+        }                                                        \
+    } else {                                                     \
+        GETGB(i);                                                \
     }
 
 #define VEXTRINS_IMM_4_0(n, m) ((n & 0xf) << 4 | (m & 0xf))
@@ -682,7 +647,7 @@
 #define CALL6(F, ret, arg1, arg2, arg3, arg4, arg5, arg6) call_c(dyn, ninst, F, x6, ret, 1, 0, arg1, arg2, arg3, arg4, arg5, arg6)
 // CALL_ will use x6 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2
-#define CALL_(F, ret, reg, arg1, arg2) call_c(dyn, ninst, F, x6, ret, 1, reg, arg1, arg2, 0, 0, 0, 0)
+#define CALL_(F, ret, reg, arg1, arg2)              call_c(dyn, ninst, F, x6, ret, 1, reg, arg1, arg2, 0, 0, 0, 0)
 #define CALL4_(F, ret, reg, arg1, arg2, arg3, arg4) call_c(dyn, ninst, F, x6, ret, 1, reg, arg1, arg2, arg3, arg4, 0, 0)
 // CALL_S will use x6 for the call address. Return value can be put in ret (unless ret is -1)
 // R0 will not be pushed/popd if ret is -2. Flags are not save/restored
@@ -794,6 +759,10 @@
 #define BLTU_MARK(reg1, reg2) Bxx_gen(LTU, MARK, reg1, reg2)
 // Branch to MARK if reg1>=reg2 (use j64)
 #define BGE_MARK(reg1, reg2) Bxx_gen(GE, MARK, reg1, reg2)
+// Branch to MARK2 if reg1>=0 (use j64)
+#define BGE_MARK2(reg, reg2) Bxx_gen(GE, MARK2, reg, reg2)
+// Branch to MARK3 if reg1>=0 (use j64)
+#define BGE_MARK3(reg, reg2) Bxx_gen(GE, MARK3, reg, reg2)
 
 // Branch to MARK instruction unconditionnal (use j64)
 #define B_MARK_nocond Bxx_gen(__, MARK, 0, 0)
@@ -822,16 +791,6 @@
     j64 = (dyn->insts) ? (dyn->insts[ninst].epilog - (dyn->native_size)) : 0; \
     BCNEZ(fcc, j64)
 
-// Branch to NEXT if reg1==reg2 (use j64)
-#define BEQ_NEXT(reg1, reg2)                                                  \
-    j64 = (dyn->insts) ? (dyn->insts[ninst].epilog - (dyn->native_size)) : 0; \
-    BEQ(reg1, reg2, j64)
-
-// Branch to NEXT if reg1!=reg2 (use j64)
-#define BNE_NEXT(reg1, reg2)                                                  \
-    j64 = (dyn->insts) ? (dyn->insts[ninst].epilog - (dyn->native_size)) : 0; \
-    BNE(reg1, reg2, j64)
-
 // Branch to MARKSEG if reg is 0 (use j64)
 #define CBZ_MARKSEG(reg)                   \
     j64 = GETMARKSEG - (dyn->native_size); \
@@ -848,6 +807,23 @@
 #define IFXX(A)     if ((dyn->insts[ninst].x64.gen_flags == (A)))
 #define IFX2X(A, B) if ((dyn->insts[ninst].x64.gen_flags == (A) || dyn->insts[ninst].x64.gen_flags == (B) || dyn->insts[ninst].x64.gen_flags == ((A) | (B))))
 #define IFXN(A, B)  if ((dyn->insts[ninst].x64.gen_flags & (A) && !(dyn->insts[ninst].x64.gen_flags & (B))))
+
+#ifndef NATIVE_RESTORE_X87PC
+#define NATIVE_RESTORE_X87PC()                     \
+    if (dyn->need_x87check) {                      \
+        LD_D(x87pc, xEmu, offsetof(x64emu_t, cw)); \
+        SRLI_D(x87pc, x87pc, 8);                   \
+        ANDI(x87pc, x87pc, 0b11);                  \
+    }
+#endif
+#ifndef X87_CHECK_PRECISION
+#define X87_CHECK_PRECISION(A)               \
+    if (!ST_IS_F(0) && dyn->need_x87check) { \
+        BNEZ(x87pc, 4 + 8);                  \
+        FCVT_S_D(A, A);                      \
+        FCVT_D_S(A, A);                      \
+    }
+#endif
 
 #define STORE_REG(A) ST_D(x##A, xEmu, offsetof(x64emu_t, regs[_##A]))
 #define LOAD_REG(A)  LD_D(x##A, xEmu, offsetof(x64emu_t, regs[_##A]))
@@ -879,14 +855,12 @@
 
 #define FORCE_DFNONE() ST_W(xZR, xEmu, offsetof(x64emu_t, df))
 
-#define SET_DFNONE()                          \
-    do {                                      \
-        if (!dyn->f.dfnone) {                 \
-            FORCE_DFNONE();                   \
-        }                                     \
-        if (!dyn->insts[ninst].x64.may_set) { \
-            dyn->f.dfnone = 1;                \
-        }                                     \
+#define SET_DFNONE()          \
+    do {                      \
+        if (!dyn->f.dfnone) { \
+            FORCE_DFNONE();   \
+        }                     \
+        dyn->f.dfnone = 1;    \
     } while (0)
 
 #define SET_DF(S, N)                                           \
@@ -926,8 +900,8 @@
         IFX (X_AF) {                                                  \
             /* af = bc & 0x8 */                                       \
             ANDI(scratch1, scratch2, 8);                              \
-            BEQZ(scratch1, 8);                                        \
-            ORI(xFlags, xFlags, 1 << F_AF);                           \
+            SLLI_D(scratch1, scratch1, F_AF - 3);                     \
+            OR(xFlags, xFlags, scratch1);                             \
         }                                                             \
         IFX (X_CF) {                                                  \
             /* cf = bc & (1<<(width-1)) */                            \
@@ -951,10 +925,35 @@
         }                                                             \
     }
 
-#ifndef MAYSETFLAGS
-#define MAYSETFLAGS() \
-    do {              \
-    } while (0)
+
+#if STEP == 0
+#define X87_PUSH_OR_FAIL(var, dyn, ninst, scratch, t) var = x87_do_push(dyn, ninst, scratch, t)
+#define X87_PUSH_EMPTY_OR_FAIL(dyn, ninst, scratch)   x87_do_push_empty(dyn, ninst, scratch)
+#define X87_POP_OR_FAIL(dyn, ninst, scratch)          x87_do_pop(dyn, ninst, scratch)
+#else
+#define X87_PUSH_OR_FAIL(var, dyn, ninst, scratch, t)                                                                                                    \
+    if ((dyn->lsx.x87stack == 8) || (dyn->lsx.pushed == 8)) {                                                                                            \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->lsx.x87stack, dyn->lsx.pushed, ninst); \
+        dyn->abort = 1;                                                                                                                                  \
+        return addr;                                                                                                                                     \
+    }                                                                                                                                                    \
+    var = x87_do_push(dyn, ninst, scratch, t);
+
+#define X87_PUSH_EMPTY_OR_FAIL(dyn, ninst, scratch)                                                                                                      \
+    if ((dyn->lsx.x87stack == 8) || (dyn->lsx.pushed == 8)) {                                                                                            \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->lsx.x87stack, dyn->lsx.pushed, ninst); \
+        dyn->abort = 1;                                                                                                                                  \
+        return addr;                                                                                                                                     \
+    }                                                                                                                                                    \
+    x87_do_push_empty(dyn, ninst, scratch);
+
+#define X87_POP_OR_FAIL(dyn, ninst, scratch)                                                                                                           \
+    if ((dyn->lsx.x87stack == -8) || (dyn->lsx.poped == 8)) {                                                                                          \
+        if (dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->lsx.x87stack, dyn->lsx.poped, ninst); \
+        dyn->abort = 1;                                                                                                                                \
+        return addr;                                                                                                                                   \
+    }                                                                                                                                                  \
+    x87_do_pop(dyn, ninst, scratch);
 #endif
 
 #ifndef READFLAGS
@@ -985,14 +984,23 @@
     READFLAGS(A)
 #endif
 
-#define NAT_FLAGS_OPS(op1, op2)                    \
-    do {                                           \
-        dyn->insts[ninst + 1].nat_flags_op1 = op1; \
-        dyn->insts[ninst + 1].nat_flags_op2 = op2; \
+#define NAT_FLAGS_OPS(op1, op2, s1, s2)                                     \
+    do {                                                                    \
+        dyn->insts[dyn->insts[ninst].nat_next_inst].nat_flags_op1 = op1;    \
+        dyn->insts[dyn->insts[ninst].nat_next_inst].nat_flags_op2 = op2;    \
+        if (dyn->insts[ninst + 1].no_scratch_usage && IS_GPR(op1)) {        \
+            MV(s1, op1);                                                    \
+            dyn->insts[dyn->insts[ninst].nat_next_inst].nat_flags_op1 = s1; \
+        }                                                                   \
+        if (dyn->insts[ninst + 1].no_scratch_usage && IS_GPR(op2)) {        \
+            MV(s2, op2);                                                    \
+            dyn->insts[dyn->insts[ninst].nat_next_inst].nat_flags_op2 = s2; \
+        }                                                                   \
     } while (0)
 
 #define NAT_FLAGS_ENABLE_CARRY() dyn->insts[ninst].nat_flags_carry = 1
 #define NAT_FLAGS_ENABLE_SIGN()  dyn->insts[ninst].nat_flags_sign = 1
+#define NAT_FLAGS_ENABLE_SF()    dyn->insts[ninst].nat_flags_sf = 1
 
 #ifndef SETFLAGS
 #define SETFLAGS(A, B, FUSION)                                                                                      \
@@ -1052,6 +1060,9 @@
 
 #ifndef TABLE64
 #define TABLE64(A, V)
+#endif
+#ifndef FTABLE64
+#define FTABLE64(A, V)
 #endif
 #ifndef TABLE64C
 #define TABLE64C(A, V)
@@ -1125,10 +1136,7 @@
 
 #define dynarec64_00          STEPNAME(dynarec64_00)
 #define dynarec64_0F          STEPNAME(dynarec64_0F)
-#define dynarec64_64          STEPNAME(dynarec64_64)
 #define dynarec64_66          STEPNAME(dynarec64_66)
-#define dynarec64_6664        STEPNAME(dynarec64_6664)
-#define dynarec64_67          STEPNAME(dynarec64_67)
 #define dynarec64_F30F        STEPNAME(dynarec64_F30F)
 #define dynarec64_660F        STEPNAME(dynarec64_660F)
 #define dynarec64_66F0        STEPNAME(dynarec64_66F0)
@@ -1148,8 +1156,18 @@
 #define dynarec64_AVX_F3_0F   STEPNAME(dynarec64_AVX_F3_0F)
 #define dynarec64_AVX_F3_0F38 STEPNAME(dynarec64_AVX_F3_0F38)
 
+#define dynarec64_D8 STEPNAME(dynarec64_D8)
+#define dynarec64_D9 STEPNAME(dynarec64_D9)
+#define dynarec64_DA STEPNAME(dynarec64_DA)
+#define dynarec64_DB STEPNAME(dynarec64_DB)
+#define dynarec64_DC STEPNAME(dynarec64_DC)
+#define dynarec64_DD STEPNAME(dynarec64_DD)
+#define dynarec64_DE STEPNAME(dynarec64_DE)
+#define dynarec64_DF STEPNAME(dynarec64_DF)
+#define dynarec64_F0 STEPNAME(dynarec64_F0)
+
 #define geted               STEPNAME(geted)
-#define geted32             STEPNAME(geted32)
+#define geted16             STEPNAME(geted16)
 #define jump_to_epilog      STEPNAME(jump_to_epilog)
 #define jump_to_epilog_fast STEPNAME(jump_to_epilog_fast)
 #define jump_to_next        STEPNAME(jump_to_next)
@@ -1157,88 +1175,132 @@
 #define retn_to_epilog      STEPNAME(retn_to_epilog)
 #define iret_to_epilog      STEPNAME(iret_to_epilog)
 #define call_c              STEPNAME(call_c)
+#define call_n              STEPNAME(call_n)
 #define grab_segdata        STEPNAME(grab_segdata)
+#define emit_adc16          STEPNAME(emit_adc16)
+#define emit_adc32          STEPNAME(emit_adc32)
+#define emit_adc8           STEPNAME(emit_adc8)
+#define emit_adc8c          STEPNAME(emit_adc8c)
+#define emit_add16          STEPNAME(emit_add16)
+#define emit_add32          STEPNAME(emit_add32)
+#define emit_add32c         STEPNAME(emit_add32c)
+#define emit_add8           STEPNAME(emit_add8)
+#define emit_add8c          STEPNAME(emit_add8c)
+#define emit_and16          STEPNAME(emit_and16)
+#define emit_and32          STEPNAME(emit_and32)
+#define emit_and32c         STEPNAME(emit_and32c)
+#define emit_and8           STEPNAME(emit_and8)
+#define emit_and8c          STEPNAME(emit_and8c)
 #define emit_cmp16          STEPNAME(emit_cmp16)
 #define emit_cmp16_0        STEPNAME(emit_cmp16_0)
 #define emit_cmp32          STEPNAME(emit_cmp32)
 #define emit_cmp32_0        STEPNAME(emit_cmp32_0)
 #define emit_cmp8           STEPNAME(emit_cmp8)
 #define emit_cmp8_0         STEPNAME(emit_cmp8_0)
-#define emit_test8          STEPNAME(emit_test8)
-#define emit_test8c         STEPNAME(emit_test8c)
-#define emit_test16         STEPNAME(emit_test16)
-#define emit_test32         STEPNAME(emit_test32)
-#define emit_test32c        STEPNAME(emit_test32c)
-#define emit_add32          STEPNAME(emit_add32)
-#define emit_add32c         STEPNAME(emit_add32c)
-#define emit_add8           STEPNAME(emit_add8)
-#define emit_add8c          STEPNAME(emit_add8c)
-#define emit_add16          STEPNAME(emit_add16)
-#define emit_adc32          STEPNAME(emit_adc32)
-#define emit_adc8           STEPNAME(emit_adc8)
-#define emit_adc8c          STEPNAME(emit_adc8c)
-#define emit_adc16          STEPNAME(emit_adc16)
-#define emit_sub16          STEPNAME(emit_sub16)
-#define emit_sub32          STEPNAME(emit_sub32)
-#define emit_sub32c         STEPNAME(emit_sub32c)
-#define emit_sub8           STEPNAME(emit_sub8)
-#define emit_sub8c          STEPNAME(emit_sub8c)
-#define emit_sbb8           STEPNAME(emit_sbb8)
-#define emit_sbb8c          STEPNAME(emit_sbb8c)
-#define emit_sbb16          STEPNAME(emit_sbb16)
-#define emit_sbb32          STEPNAME(emit_sbb32)
-#define emit_neg8           STEPNAME(emit_neg8)
-#define emit_neg16          STEPNAME(emit_neg16)
-#define emit_neg32          STEPNAME(emit_neg32)
-#define emit_inc8           STEPNAME(emit_inc8)
-#define emit_inc16          STEPNAME(emit_inc16)
-#define emit_inc32          STEPNAME(emit_inc32)
-#define emit_dec8           STEPNAME(emit_dec8)
 #define emit_dec16          STEPNAME(emit_dec16)
 #define emit_dec32          STEPNAME(emit_dec32)
+#define emit_dec8           STEPNAME(emit_dec8)
+#define emit_inc16          STEPNAME(emit_inc16)
+#define emit_inc32          STEPNAME(emit_inc32)
+#define emit_inc8           STEPNAME(emit_inc8)
+#define emit_neg16          STEPNAME(emit_neg16)
+#define emit_neg32          STEPNAME(emit_neg32)
+#define emit_neg8           STEPNAME(emit_neg8)
+#define emit_or16           STEPNAME(emit_or16)
 #define emit_or32           STEPNAME(emit_or32)
 #define emit_or32c          STEPNAME(emit_or32c)
 #define emit_or8            STEPNAME(emit_or8)
 #define emit_or8c           STEPNAME(emit_or8c)
-#define emit_or16           STEPNAME(emit_or16)
-#define emit_xor8           STEPNAME(emit_xor8)
-#define emit_xor8c          STEPNAME(emit_xor8c)
-#define emit_xor16          STEPNAME(emit_xor16)
-#define emit_xor32          STEPNAME(emit_xor32)
-#define emit_xor32c         STEPNAME(emit_xor32c)
-#define emit_and8           STEPNAME(emit_and8)
-#define emit_and8c          STEPNAME(emit_and8c)
-#define emit_and16          STEPNAME(emit_and16)
-#define emit_and32          STEPNAME(emit_and32)
-#define emit_and32c         STEPNAME(emit_and32c)
+#define emit_rcl16c         STEPNAME(emit_rcl16c)
+#define emit_rcl32          STEPNAME(emit_rcl32)
+#define emit_rcl32c         STEPNAME(emit_rcl32c)
+#define emit_rcl8           STEPNAME(emit_rcl8)
+#define emit_rcl8c          STEPNAME(emit_rcl8c)
+#define emit_rcr16c         STEPNAME(emit_rcr16c)
+#define emit_rcr32          STEPNAME(emit_rcr32)
+#define emit_rcr32c         STEPNAME(emit_rcr32c)
+#define emit_rcr8           STEPNAME(emit_rcr8)
+#define emit_rcr8c          STEPNAME(emit_rcr8c)
+#define emit_rol16          STEPNAME(emit_rol16)
+#define emit_rol16c         STEPNAME(emit_rol16c)
+#define emit_rol32          STEPNAME(emit_rol32)
+#define emit_rol32c         STEPNAME(emit_rol32c)
+#define emit_rol8           STEPNAME(emit_rol8)
+#define emit_rol8c          STEPNAME(emit_rol8c)
+#define emit_ror16c         STEPNAME(emit_ror16c)
+#define emit_ror32          STEPNAME(emit_ror32)
+#define emit_ror32c         STEPNAME(emit_ror32c)
+#define emit_ror8           STEPNAME(emit_ror8)
+#define emit_ror8c          STEPNAME(emit_ror8c)
+#define emit_sar16          STEPNAME(emit_sar16)
+#define emit_sar16c         STEPNAME(emit_sar16c)
+#define emit_sar32          STEPNAME(emit_sar32)
+#define emit_sar32c         STEPNAME(emit_sar32c)
+#define emit_sar8           STEPNAME(emit_sar8)
+#define emit_sbb16          STEPNAME(emit_sbb16)
+#define emit_sbb32          STEPNAME(emit_sbb32)
+#define emit_sbb8           STEPNAME(emit_sbb8)
+#define emit_sbb8c          STEPNAME(emit_sbb8c)
 #define emit_shl16          STEPNAME(emit_shl16)
 #define emit_shl16c         STEPNAME(emit_shl16c)
 #define emit_shl32          STEPNAME(emit_shl32)
 #define emit_shl32c         STEPNAME(emit_shl32c)
 #define emit_shl8           STEPNAME(emit_shl8)
-#define emit_shr8           STEPNAME(emit_shr8)
-#define emit_sar8           STEPNAME(emit_sar8)
+#define emit_shld16         STEPNAME(emit_shld16)
+#define emit_shld16c        STEPNAME(emit_shld16c)
+#define emit_shld32         STEPNAME(emit_shld32)
+#define emit_shld32c        STEPNAME(emit_shld32c)
 #define emit_shr16          STEPNAME(emit_shr16)
 #define emit_shr16c         STEPNAME(emit_shr16c)
 #define emit_shr32          STEPNAME(emit_shr32)
 #define emit_shr32c         STEPNAME(emit_shr32c)
-#define emit_sar16          STEPNAME(emit_sar16)
-#define emit_sar16c         STEPNAME(emit_sar16c)
-#define emit_sar32c         STEPNAME(emit_sar32c)
-#define emit_shld32c        STEPNAME(emit_shld32c)
+#define emit_shr8           STEPNAME(emit_shr8)
+#define emit_shrd16         STEPNAME(emit_shrd16)
+#define emit_shrd16c        STEPNAME(emit_shrd16c)
+#define emit_shrd32         STEPNAME(emit_shrd32)
 #define emit_shrd32c        STEPNAME(emit_shrd32c)
-#define emit_ror32          STEPNAME(emit_ror32)
-#define emit_ror32c         STEPNAME(emit_ror32c)
-#define emit_rol32          STEPNAME(emit_rol32)
-#define emit_rol32c         STEPNAME(emit_rol32c)
+#define emit_sub16          STEPNAME(emit_sub16)
+#define emit_sub32          STEPNAME(emit_sub32)
+#define emit_sub32c         STEPNAME(emit_sub32c)
+#define emit_sub8           STEPNAME(emit_sub8)
+#define emit_sub8c          STEPNAME(emit_sub8c)
+#define emit_test16         STEPNAME(emit_test16)
+#define emit_test32         STEPNAME(emit_test32)
+#define emit_test32c        STEPNAME(emit_test32c)
+#define emit_test8          STEPNAME(emit_test8)
+#define emit_test8c         STEPNAME(emit_test8c)
+#define emit_xor16          STEPNAME(emit_xor16)
+#define emit_xor32          STEPNAME(emit_xor32)
+#define emit_xor32c         STEPNAME(emit_xor32c)
+#define emit_xor8           STEPNAME(emit_xor8)
+#define emit_xor8c          STEPNAME(emit_xor8c)
 
 #define emit_pf STEPNAME(emit_pf)
 
-#define x87_restoreround  STEPNAME(x87_restoreround)
+#define x87_do_push           STEPNAME(x87_do_push)
+#define x87_do_push_empty     STEPNAME(x87_do_push_empty)
+#define x87_do_pop            STEPNAME(x87_do_pop)
+#define x87_get_current_cache STEPNAME(x87_get_current_cache)
+#define x87_get_cache         STEPNAME(x87_get_cache)
+#define x87_get_lsxcache      STEPNAME(x87_get_lsxcache)
+#define x87_get_st            STEPNAME(x87_get_st)
+#define x87_get_st_empty      STEPNAME(x87_get_st)
+#define x87_free              STEPNAME(x87_free)
+#define x87_refresh           STEPNAME(x87_refresh)
+#define x87_forget            STEPNAME(x87_forget)
+#define x87_reget_st          STEPNAME(x87_reget_st)
+#define x87_stackcount        STEPNAME(x87_stackcount)
+#define x87_unstackcount      STEPNAME(x87_unstackcount)
+#define x87_swapreg           STEPNAME(x87_swapreg)
+#define x87_setround          STEPNAME(x87_setround)
+#define x87_restoreround      STEPNAME(x87_restoreround)
+#define x87_reflectcount      STEPNAME(x87_reflectcount)
+#define x87_unreflectcount    STEPNAME(x87_unreflectcount)
+#define x87_purgecache        STEPNAME(x87_purgecache)
+
 #define sse_setround      STEPNAME(sse_setround)
 #define mmx_get_reg       STEPNAME(mmx_get_reg)
 #define mmx_get_reg_empty STEPNAME(mmx_get_reg_empty)
-#define x87_forget        STEPNAME(x87_forget)
 #define sse_purge07cache  STEPNAME(sse_purge07cache)
 #define sse_get_reg       STEPNAME(sse_get_reg)
 #define sse_get_reg_empty STEPNAME(sse_get_reg_empty)
@@ -1259,7 +1321,6 @@
 #define fpu_propagate_stack STEPNAME(fpu_propagate_stack)
 #define fpu_purgecache      STEPNAME(fpu_purgecache)
 #define mmx_purgecache      STEPNAME(mmx_purgecache)
-#define x87_purgecache      STEPNAME(x87_purgecache)
 #define fpu_reflectcache    STEPNAME(fpu_reflectcache)
 #define fpu_unreflectcache  STEPNAME(fpu_unreflectcache)
 
@@ -1271,7 +1332,7 @@
 uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, uint8_t* ed, uint8_t hint, uint8_t scratch, int64_t* fixaddress, rex_t rex, int* l, int i12, int delta);
 
 /* setup r2 to address pointed by */
-uintptr_t geted32(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, uint8_t* ed, uint8_t hint, uint8_t scratch, int64_t* fixaddress, rex_t rex, int* l, int i12, int delta);
+uintptr_t geted16(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, uint8_t* ed, uint8_t hint, uint8_t scratch, int64_t* fixaddress, rex_t rex, int i12);
 
 // generic x64 helper
 void jump_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst);
@@ -1281,100 +1342,160 @@ void ret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex);
 void retn_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n);
 void iret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is64bits);
 void call_c(dynarec_la64_t* dyn, int ninst, la64_consts_t fnc, int reg, int ret, int saveflags, int save_reg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6);
+void call_n(dynarec_la64_t* dyn, int ninst, void* fnc, int w);
 void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg);
-void emit_cmp8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
-void emit_cmp16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
-void emit_cmp32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5, int s6);
-void emit_cmp8_0(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
-void emit_cmp16_0(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
-void emit_cmp32_0(dynarec_la64_t* dyn, int ninst, rex_t rex, uint8_t nextop, int s1, int s3, int s4, int s5);
-void emit_test8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_test8c(dynarec_la64_t* dyn, int ninst, int s1, uint8_t c, int s3, int s4, int s5);
-void emit_test16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_test32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
-void emit_test32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4, int s5);
+void emit_adc16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_adc32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5, int s6);
+void emit_adc8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_adc8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4, int s5, int s6);
+void emit_add16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
 void emit_add32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
 void emit_add32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s2, int s3, int s4, int s5);
 void emit_add8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
 void emit_add8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s2, int s3, int s4);
-void emit_add16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_adc32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5, int s6);
-void emit_adc8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_adc8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4, int s5, int s6);
-void emit_adc16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sub16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sub32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
-void emit_sub32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s2, int s3, int s4, int s5);
-void emit_sub8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sub8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s2, int s3, int s4, int s5);
-void emit_sbb8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sbb8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4, int s5, int s6);
-void emit_sbb16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sbb32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
-void emit_neg8(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
-void emit_neg16(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
-void emit_neg32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3);
-void emit_inc8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
-void emit_inc16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
-void emit_inc32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
-void emit_dec8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_and16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_and32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
+void emit_and32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4);
+void emit_and8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_and8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4);
+void emit_cmp16_0(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
+void emit_cmp16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
+void emit_cmp32_0(dynarec_la64_t* dyn, int ninst, rex_t rex, uint8_t nextop, int s1, int s3, int s4, int s5);
+void emit_cmp32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5, int s6);
+void emit_cmp8_0(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
+void emit_cmp8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
 void emit_dec16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
 void emit_dec32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_dec8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_inc16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_inc32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_inc8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_neg16(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
+void emit_neg32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3);
+void emit_neg8(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
+void emit_or16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
 void emit_or32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
 void emit_or32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4);
 void emit_or8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
 void emit_or8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s2, int s3, int s4);
-void emit_or16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
-void emit_xor8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
-void emit_xor8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4);
-void emit_xor16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_xor32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4);
-void emit_xor32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
-void emit_and8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
-void emit_and8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4);
-void emit_and16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
-void emit_and32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
-void emit_and32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4);
+void emit_rcl16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_rcl32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_rcl32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4, int s5);
+void emit_rcl8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_rcl8c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_rcr16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_rcr32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_rcr32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4, int s5);
+void emit_rcr8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_rcr8c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_rol16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int s5);
+void emit_rol32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
+void emit_rol32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
+void emit_rol8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_rol8c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int s5);
+void emit_ror16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_ror32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
+void emit_ror32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
+void emit_ror8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_ror8c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_sar16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_sar16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int s5);
+void emit_sar32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
+void emit_sar32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
+void emit_sar8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_sbb16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_sbb32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_sbb8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_sbb8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4, int s5, int s6);
 void emit_shl16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
 void emit_shl16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int s5);
 void emit_shl32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
 void emit_shl32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4, int s5);
 void emit_shl8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_shr8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sar8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_shld16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
+void emit_shld16c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, uint32_t c, int s3, int s4, int s5);
+void emit_shld32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s5, int s3, int s4, int s6);
+void emit_shld32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, uint32_t c, int s3, int s4);
 void emit_shr16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
 void emit_shr16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int s5);
 void emit_shr32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
 void emit_shr32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
-void emit_sar16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
-void emit_sar16c(dynarec_la64_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int s5);
-void emit_sar32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
-void emit_shld32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, uint32_t c, int s3, int s4);
+void emit_shr8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_shrd16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5, int s6);
+void emit_shrd16c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, uint32_t c, int s3, int s4, int s5);
+void emit_shrd32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s5, int s3, int s4, int s6);
 void emit_shrd32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, uint32_t c, int s3, int s4);
-void emit_ror32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
-void emit_ror32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
-void emit_rol32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
-void emit_rol32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
+void emit_sub16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_sub32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_sub32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s2, int s3, int s4, int s5);
+void emit_sub8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_sub8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s2, int s3, int s4, int s5);
+void emit_test16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_test32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5);
+void emit_test32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4, int s5);
+void emit_test8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_test8c(dynarec_la64_t* dyn, int ninst, int s1, uint8_t c, int s3, int s4, int s5);
+void emit_xor16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
+void emit_xor32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4);
+void emit_xor32c(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int64_t c, int s3, int s4);
+void emit_xor8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4);
+void emit_xor8c(dynarec_la64_t* dyn, int ninst, int s1, int32_t c, int s3, int s4);
 
 void emit_pf(dynarec_la64_t* dyn, int ninst, int s1, int s3, int s4);
 
 // common coproc helpers
+
+// x87 helper
+// cache of the local stack counter, to avoid update at every call
+int x87_stackcount(dynarec_la64_t* dyn, int ninst, int scratch);
+// restore local stack counter
+void x87_unstackcount(dynarec_la64_t* dyn, int ninst, int scratch, int count);
+// fpu push. Return the Dd value to be used
+int x87_do_push(dynarec_la64_t* dyn, int ninst, int s1, int t);
+// fpu push. Do not allocate a cache register. Needs a scratch register to do x87stack synch (or 0 to not do it)
+void x87_do_push_empty(dynarec_la64_t* dyn, int ninst, int s1);
+// fpu pop. All previous returned Dd should be considered invalid
+void x87_do_pop(dynarec_la64_t* dyn, int ninst, int s1);
+// get cache index for a x87 reg, return -1 if cache doesn't exist
+int x87_get_current_cache(dynarec_la64_t* dyn, int ninst, int st, int t);
+// get cache index for a x87 reg, create the entry if needed
+int x87_get_cache(dynarec_la64_t* dyn, int ninst, int populate, int s1, int s2, int a, int t);
+// get extcache index for a x87 reg
+int x87_get_lsxcache(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a);
+// get vfpu register for a x87 reg, create the entry if needed
+int x87_get_st(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a, int t);
+// get vfpu register for a x87 reg, create the entry if needed. Do not fetch the Stx if not already in cache
+int x87_get_st_empty(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a, int t);
+// Free st, using the FFREE opcode (so it's freed but stack is not moved)
+void x87_free(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int st);
+// refresh a value from the cache ->emu (nothing done if value is not cached)
+void x87_refresh(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st);
+// refresh a value from the cache ->emu and then forget the cache (nothing done if value is not cached)
+void x87_forget(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st);
+// refresh the cache value from emu
+void x87_reget_st(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st);
+// swap 2 x87 regs
+void x87_swapreg(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a, int b);
+// Set rounding according to cw flags, return reg to restore flags
+int x87_setround(dynarec_la64_t* dyn, int ninst, int s1, int s2);
+// Restore round flag
+void x87_restoreround(dynarec_la64_t* dyn, int ninst, int s1);
+// Set rounding according to mxcsr flags, return reg to restore flags
+void x87_reflectcount(dynarec_la64_t* dyn, int ninst, int s1, int s2);
+void x87_unreflectcount(dynarec_la64_t* dyn, int ninst, int s1, int s2);
+void x87_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1, int s2, int s3);
+
 // reset the cache with n
 void fpu_reset_cache(dynarec_la64_t* dyn, int ninst, int reset_n);
 void fpu_propagate_stack(dynarec_la64_t* dyn, int ninst);
 void fpu_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1, int s2, int s3);
 void mmx_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1);
-void x87_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1, int s2, int s3);
 void fpu_reflectcache(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_unreflectcache(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3);
 void fpu_pushcache(dynarec_la64_t* dyn, int ninst, int s1, int not07);
 void fpu_popcache(dynarec_la64_t* dyn, int ninst, int s1, int not07);
-// Restore round flag
-void x87_restoreround(dynarec_la64_t* dyn, int ninst, int s1);
 // Set rounding according to mxcsr flags, return reg to restore flags
 int sse_setround(dynarec_la64_t* dyn, int ninst, int s1, int s2);
-// refresh a value from the cache ->emu and then forget the cache (nothing done if value is not cached)
-void x87_forget(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st);
 
 // SSE/SSE2 helpers
 // purge the XMM0..XMM7 cache (before function call)
@@ -1417,18 +1538,47 @@ void la64_move32(dynarec_la64_t* dyn, int ninst, int reg, int32_t val, int zerou
 #define CHECK_CACHE() (cacheupd = CacheNeedsTransform(dyn, ninst))
 #endif
 
-uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
+#define lsxcache_st_coherency STEPNAME(lsxcache_st_coherency)
+int lsxcache_st_coherency(dynarec_la64_t* dyn, int ninst, int a, int b);
+
+#if STEP == 0
+#define ST_IS_F(A)        0
+#define ST_IS_I64(A)      0
+#define X87_COMBINE(A, B) LSX_CACHE_ST_D
+#define X87_ST0           LSX_CACHE_ST_D
+#define X87_ST(A)         LSX_CACHE_ST_D
+#elif STEP == 1
+#define ST_IS_F(A)        (lsxcache_get_current_st(dyn, ninst, A) == LSX_CACHE_ST_F)
+#define ST_IS_I64(A)      (lsxcache_get_current_st(dyn, ninst, A) == LSX_CACHE_ST_I64)
+#define X87_COMBINE(A, B) lsxcache_combine_st(dyn, ninst, A, B)
+#define X87_ST0           lsxcache_no_i64(dyn, ninst, 0, lsxcache_get_current_st(dyn, ninst, 0))
+#define X87_ST(A)         lsxcache_no_i64(dyn, ninst, A, lsxcache_get_current_st(dyn, ninst, A))
+#else
+#define ST_IS_F(A)   (lsxcache_get_st(dyn, ninst, A) == LSX_CACHE_ST_F)
+#define ST_IS_I64(A) (lsxcache_get_st(dyn, ninst, A) == LSX_CACHE_ST_I64)
+#if STEP == 3
+#define X87_COMBINE(A, B) lsxcache_st_coherency(dyn, ninst, A, B)
+#else
+#define X87_COMBINE(A, B) lsxcache_get_st(dyn, ninst, A)
+#endif
+#define X87_ST0   lsxcache_get_st(dyn, ninst, 0)
+#define X87_ST(A) lsxcache_get_st(dyn, ninst, A)
+#endif
+
+
+uintptr_t dynarec64_00(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
-uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int seg, int* ok, int* need_epilog);
-uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
+uintptr_t dynarec64_64(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int seg, int* ok, int* need_epilog);
+uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_6664(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int seg, int* ok, int* need_epilog);
-uintptr_t dynarec64_67(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
+uintptr_t dynarec64_67(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_6764(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int seg, int* ok, int* need_epilog);
 uintptr_t dynarec64_660F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
-uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
+uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_66F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_66F30F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
-uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int rep, int* ok, int* need_epilog);
+uintptr_t dynarec64_F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_F20F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_AVX(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 uintptr_t dynarec64_AVX_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
@@ -1441,6 +1591,14 @@ uintptr_t dynarec64_AVX_F2_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
 uintptr_t dynarec64_AVX_F2_0F3A(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 uintptr_t dynarec64_AVX_F3_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
 uintptr_t dynarec64_AVX_F3_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog);
+uintptr_t dynarec64_D8(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_D9(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_DA(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_DB(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_DC(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_DD(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_DE(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
+uintptr_t dynarec64_DF(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 
 
 #if STEP < 3
@@ -1490,11 +1648,11 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
         break;                                                                                               \
     case B + 0x8:                                                                                            \
         INST_NAME(T1 "S " T2);                                                                               \
-        GO(ANDI(tmp1, xFlags, 1 << F_SF), EQZ, NEZ, _, _, X_SF, X64_JMP_JS);                                 \
+        GO(ANDI(tmp1, xFlags, 1 << F_SF), EQZ, NEZ, GE, LT, X_SF, X64_JMP_JS);                               \
         break;                                                                                               \
     case B + 0x9:                                                                                            \
         INST_NAME(T1 "NS " T2);                                                                              \
-        GO(ANDI(tmp1, xFlags, 1 << F_SF), NEZ, EQZ, _, _, X_SF, X64_JMP_JNS);                                \
+        GO(ANDI(tmp1, xFlags, 1 << F_SF), NEZ, EQZ, LT, GE, X_SF, X64_JMP_JNS);                              \
         break;                                                                                               \
     case B + 0xA:                                                                                            \
         INST_NAME(T1 "P " T2);                                                                               \
@@ -1538,12 +1696,20 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
 // Dummy macros
 #define B__safe(a, b, c) XOR(xZR, xZR, xZR)
 #define B_(a, b, c)      XOR(xZR, xZR, xZR)
+#define S_(a, b, c)      XOR(xZR, xZR, xZR)
+#define MV_(a, b, c, d)  XOR(xZR, xZR, xZR)
 
 #define NATIVEJUMP_safe(COND, val) \
     B##COND##_safe(dyn->insts[ninst].nat_flags_op1, dyn->insts[ninst].nat_flags_op2, val);
 
 #define NATIVEJUMP(COND, val) \
     B##COND(dyn->insts[ninst].nat_flags_op1, dyn->insts[ninst].nat_flags_op2, val);
+
+#define NATIVESET(COND, rd) \
+    S##COND(rd, dyn->insts[ninst].nat_flags_op1, dyn->insts[ninst].nat_flags_op2);
+
+#define NATIVEMV(COND, rd, rs) \
+    MV##COND(rd, rs, dyn->insts[ninst].nat_flags_op1, dyn->insts[ninst].nat_flags_op2);
 
 #define NOTEST(s1)                                       \
     if (BOX64ENV(dynarec_test)) {                        \
@@ -1570,6 +1736,61 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             opcode = F8;                           \
         }
 
+
+#define FCOM(w, v1, v2, s1, s2, s3)                            \
+    LD_HU(s3, xEmu, offsetof(x64emu_t, sw));                   \
+    MOV32w(s1, 0b1011100011111111); /* mask off c0,c1,c2,c3 */ \
+    AND(s3, s3, s1);                                           \
+    FCMP_##w(fcc0, v1, v2, cOR);                               \
+    BCEQZ(fcc0, 28); /* undefined/NaN */                       \
+    FCMP_##w(fcc1, v1, v2, cEQ);                               \
+    BCNEZ(fcc1, 32);             /* equal */                   \
+    FCMP_##w(fcc2, v1, v2, cLT); /* x2 = (v1<v2)?1:0 */        \
+    MOVCF2GR(s2, fcc2);                                        \
+    SLLI_D(s1, s2, 8);                                         \
+    B(20); /* end */                                           \
+    /* undefined/NaN */                                        \
+    LU12I_W(s1, 4);                                            \
+    ADDI_D(s1, s1, 0b010100000000);                            \
+    B(8); /* end */                                            \
+    /* equal */                                                \
+    LU12I_W(s1, 4);                                            \
+    /* end */                                                  \
+    OR(s3, s3, s1);                                            \
+    ST_H(s3, xEmu, offsetof(x64emu_t, sw));
+
+#define FCOMS(v1, v2, s1, s2, s3) FCOM(S, v1, v2, s1, s2, s3)
+#define FCOMD(v1, v2, s1, s2, s3) FCOM(D, v1, v2, s1, s2, s3)
+
+#define FCOMI(w, v1, v2, s1, s2)                               \
+    IFX (X_OF | X_AF | X_SF | X_PEND) {                        \
+        MOV64x(s2, ((1 << F_OF) | (1 << F_AF) | (1 << F_SF))); \
+        ANDN(xFlags, xFlags, s2);                              \
+    }                                                          \
+    IFX (X_CF | X_PF | X_ZF | X_PEND) {                        \
+        MOV32w(s2, 0b01000101);                                \
+        ANDN(xFlags, xFlags, s2);                              \
+        FCMP_##w(fcc0, v1, v2, cOR);                           \
+        BCEQZ(fcc0, 24); /* undefined/NaN */                   \
+        FCMP_##w(fcc1, v1, v2, cEQ);                           \
+        BCNEZ(fcc1, 24);             /* equal */               \
+        FCMP_##w(fcc2, v1, v2, cLT); /* s1 = (v1<v2)?1:0 */    \
+        MOVCF2GR(s1, fcc2);                                    \
+        B(4 * 4); /* end */                                    \
+        /* undefined/NaN */                                    \
+        MV(s1, s2);                                            \
+        B(2 * 4); /* end */                                    \
+        /* equal */                                            \
+        ADDI_D(s1, xZR, 0b01000000);                           \
+        /* end */                                              \
+        OR(xFlags, xFlags, s1);                                \
+    }                                                          \
+    SPILL_EFLAGS();                                            \
+    SET_DFNONE()
+
+#define FCOMIS(v1, v2, s1, s2) FCOMI(S, v1, v2, s1, s2)
+#define FCOMID(v1, v2, s1, s2) FCOMI(D, v1, v2, s1, s2)
+
 // Restore xFlags from LBT.eflags
 #define RESTORE_EFLAGS(s)             \
     do {                              \
@@ -1589,5 +1810,124 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
     } while (0)
 
 #define PURGE_YMM()
+
+#define ALIGNED_ATOMICxw ((fixedaddress && !(fixedaddress & (((1 << (2 + rex.w)) - 1)))) || BOX64ENV(dynarec_aligned_atomics))
+#define ALIGNED_ATOMICH  ((fixedaddress && !(fixedaddress & 1)) || BOX64ENV(dynarec_aligned_atomics))
+
+
+// lock op related macros
+/*
+  LOCK_3264_CROSS_8BYTE cross 8byte, lock lower part 8byte.
+  use ll.d lock lower 8byte. ld.d load ed to likely emulate atomic 4byte/8byte operation
+    op = atomic function
+    s1 = original ed
+    wback = ed addr
+    s4 = result
+    s5 = 8 byte lower block for sc
+    s6 = aligned addr
+*/
+#define LOCK_3264_CROSS_8BYTE(op, s1, wback, s4, s5, s6) \
+    MV(s6, wback);                                       \
+    BSTRINS_D(s6, xZR, 2, 0);                            \
+    MARKLOCK2;                                           \
+    LDxw(s1, wback, 0);                                  \
+    LL_D(s5, s6, 0);                                     \
+    op;                                                  \
+    SC_D(s5, s6, 0);                                     \
+    BEQZ_MARKLOCK2(s5);                                  \
+    SDxw(s4, wback, 0);
+
+/*
+    LOCK_3264_IN_8BYTE unaligned but in 8 bytes.
+    use ll.d/sc.d to atomic operation. use amcas.db.d when possible
+    s1 = original ed
+    wback = ed addr / aligned ed addr
+    s3 = offset
+    s4 = result
+    s5 = 8 byte block
+    s6 = mask, amcas orignal val
+*/
+#define LOCK_32_IN_8BYTE(op, s1, wback, s3, s4, s5, s6) \
+    ed = wback;                                         \
+    if (wback != x2) {                                  \
+        ed = x2;                                        \
+        MV(ed, wback);                                  \
+    }                                                   \
+    BSTRINS_D(ed, xZR, 2, 0);                           \
+    SLLI_W(s3, s3, 3);                                  \
+    if (cpuext.lamcas) {                                \
+        LD_D(s5, ed, 0);                                \
+        MARKLOCK;                                       \
+    } else {                                            \
+        MARKLOCK;                                       \
+        LL_D(s5, ed, 0);                                \
+    }                                                   \
+    SRL_D(s1, s5, s3);                                  \
+    BSTRPICK_D(s1, s1, 31, 0);                          \
+    op;                                                 \
+    BSTRPICK_D(s4, s4, 31, 0);                          \
+    SLL_D(s4, s4, s3);                                  \
+    ADDI_D(s6, xZR, -1);                                \
+    BSTRINS_D(s6, xZR, 63, 32);                         \
+    SLL_D(s6, s6, s3);                                  \
+    ANDN(s6, s5, s6);                                   \
+    OR(s4, s6, s4);                                     \
+    if (cpuext.lamcas) {                                \
+        MV(s6, s5);                                     \
+        AMCAS_DB_D(s5, s4, ed);                         \
+        BNE_MARKLOCK(s5, s6);                           \
+    } else {                                            \
+        SC_D(s4, ed, 0);                                \
+        BEQZ_MARKLOCK(s4);                              \
+    }
+
+/*
+    LOCK_8_OP 8bits lock opcode macro.
+    use ll.w/sc.w to atomic it. use amcas.db.b when possible
+    s1 = original ed
+    wback = ed addr / aligned ed addr
+    s3 = offset
+    s4 = result
+    s5 = 4 byte block
+    s6 = mask
+*/
+#define LOCK_8_OP(op, s1, wback, s3, s4, s5, s6)    \
+    if (cpuext.lamcas) {                            \
+        LD_BU(s5, wback, 0);                        \
+        MV(s1, s5);                                 \
+        MARKLOCK2;                                  \
+        MV(s6, s5);                                 \
+        op;                                         \
+        AMCAS_DB_B(s5, s4, wback);                  \
+        BSTRPICK_D(s5, s5, 7, 0);                   \
+        BNE_MARKLOCK2(s5, s6);                      \
+    } else {                                        \
+        ANDI(s3, wback, 0b11);                      \
+        if (wback != x2) {                          \
+            ed = x2;                                \
+            MV(ed, wback);                          \
+        } else {                                    \
+            ed = wback; /* wback == x2, change it*/ \
+        }                                           \
+        BSTRINS_D(ed, xZR, 1, 0);                   \
+        SLLI_D(s3, s3, 3);                          \
+        MARKLOCK2;                                  \
+        LL_W(s5, ed, 0);                            \
+        SRL_W(s1, s5, s3);                          \
+        BSTRPICK_D(s1, s1, 7, 0);                   \
+        op;                                         \
+        BSTRPICK_D(s4, s4, 7, 0);                   \
+        SLL_W(s4, s4, s3);                          \
+        ADDI_W(s6, xZR, 0xff);                      \
+        SLL_W(s6, s6, s3);                          \
+        ANDN(s6, s5, s6);                           \
+        OR(s4, s6, s4);                             \
+        SC_W(s4, ed, 0);                            \
+        BEQZ_MARKLOCK2(s4);                         \
+    }
+
+#ifndef SCRATCH_USAGE
+#define SCRATCH_USAGE(usage)
+#endif
 
 #endif //__DYNAREC_LA64_HELPER_H__

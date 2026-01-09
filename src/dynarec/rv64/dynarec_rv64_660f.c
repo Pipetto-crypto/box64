@@ -1170,7 +1170,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
         case 0xA3:
             INST_NAME("BT Ew, Gw");
-            if (!BOX64ENV(dynarec_safeflags)) {
+            if (!BOX64DRENV(dynarec_safeflags)) {
                 SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
             } else {
                 SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1202,18 +1202,39 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             }
             break;
         case 0xA4:
-            nextop = F8;
             INST_NAME("SHLD Ew, Gw, Ib");
-            SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
-            GETEW(x1, 0);
+            nextop = F8;
+            u8 = geted_ib(dyn, addr, ninst, nextop) & 0x1f;
+            if (u8) {
+                SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
+                GETEW(x1, 1);
+                GETGW(x2);
+                u8 = F8;
+                emit_shld16c(dyn, ninst, rex, ed, gd, u8, x6, x4, x5);
+                EWBACK;
+            } else {
+                FAKEED;
+                F8;
+            }
+            break;
+        case 0xA5:
+            nextop = F8;
+            INST_NAME("SHLD Ew, Gw, CL");
+            if (BOX64DRENV(dynarec_safeflags) > 1) {
+                READFLAGS(X_ALL);
+                SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_FUSION);
+            } else
+                SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
             GETGW(x2);
-            u8 = F8;
-            emit_shld16c(dyn, ninst, rex, ed, gd, u8, x6, x4, x5);
+            GETEW(x1, 0);
+            ANDI(x4, xRCX, 0x1f);
+            UFLAG_IF { BEQ_NEXT(x4, xZR); }
+            emit_shld16(dyn, ninst, ed, gd, x4, x5, x6, x7);
             EWBACK;
             break;
         case 0xAB:
             INST_NAME("BTS Ew, Gw");
-            if (!BOX64ENV(dynarec_safeflags)) {
+            if (!BOX64DRENV(dynarec_safeflags)) {
                 SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
             } else {
                 SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1256,15 +1277,60 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
         case 0xAC:
             nextop = F8;
             INST_NAME("SHRD Ew, Gw, Ib");
-            SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
-            GETEW(x1, 0);
+            u8 = geted_ib(dyn, addr, ninst, nextop) & 0x1f;
+            if (u8) {
+                SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
+                GETEW(x1, 1);
+                GETGW(x2);
+                u8 = F8;
+                emit_shrd16c(dyn, ninst, rex, ed, gd, u8, x6, x4, x5);
+                EWBACK;
+            } else {
+                FAKEED;
+                F8;
+            }
+            break;
+        case 0xAD:
+            nextop = F8;
+            INST_NAME("SHRD Ew, Gw, CL");
+            if (BOX64DRENV(dynarec_safeflags) > 1) {
+                READFLAGS(X_ALL);
+                SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_FUSION);
+            } else
+                SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
             GETGW(x2);
-            u8 = F8;
-            emit_shrd16c(dyn, ninst, rex, ed, gd, u8, x6, x4, x5);
+            GETEW(x1, 0);
+            ANDI(x4, xRCX, 0x1f);
+            UFLAG_IF { BEQ_NEXT(x4, xZR); }
+            emit_shrd16(dyn, ninst, ed, gd, x4, x5, x6, x7);
             EWBACK;
             break;
+        case 0xAE:
+            nextop = F8;
+            if (MODREG)
+                switch (nextop) {
+                    default: DEFAULT;
+                }
+            else
+                switch ((nextop >> 3) & 7) {
+                    case 6:
+                        INST_NAME("CLWB Ed");
+                        FAKEED;
+                        // Placebo, TODO: we need Zicbom
+                        SMDMB();
+                        break;
+                    case 7:
+                        INST_NAME("CLFLUSHOPT Ed");
+                        FAKEED;
+                        // Placebo, TODO: we need Zicbom
+                        SMDMB();
+                        break;
+                    default:
+                        DEFAULT;
+                }
+            break;
         case 0xAF:
-            INST_NAME("IMUL Gw,Ew");
+            INST_NAME("IMUL Gw, Ew");
             SETFLAGS(X_ALL, SF_PENDING, NAT_FLAGS_NOFUSION);
             nextop = F8;
             GETSEW(x1, 0);
@@ -1277,7 +1343,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
         case 0xB3:
             INST_NAME("BTR Ew, Gw");
-            if (!BOX64ENV(dynarec_safeflags)) {
+            if (!BOX64DRENV(dynarec_safeflags)) {
                 SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
             } else {
                 SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1350,7 +1416,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             switch ((nextop >> 3) & 7) {
                 case 4:
                     INST_NAME("BT Ew, Ib");
-                    if (!BOX64ENV(dynarec_safeflags)) {
+                    if (!BOX64DRENV(dynarec_safeflags)) {
                         SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                     } else {
                         SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1367,7 +1433,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     break;
                 case 5:
                     INST_NAME("BTS Ew, Ib");
-                    if (!BOX64ENV(dynarec_safeflags)) {
+                    if (!BOX64DRENV(dynarec_safeflags)) {
                         SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                     } else {
                         SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1395,7 +1461,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     break;
                 case 6:
                     INST_NAME("BTR Ew, Ib");
-                    if (!BOX64ENV(dynarec_safeflags)) {
+                    if (!BOX64DRENV(dynarec_safeflags)) {
                         SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                     } else {
                         SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1423,7 +1489,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     break;
                 case 7:
                     INST_NAME("BTC Ew, Ib");
-                    if (!BOX64ENV(dynarec_safeflags)) {
+                    if (!BOX64DRENV(dynarec_safeflags)) {
                         SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                     } else {
                         SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1451,7 +1517,7 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
         case 0xBB:
             INST_NAME("BTC Ew, Gw");
-            if (!BOX64ENV(dynarec_safeflags)) {
+            if (!BOX64DRENV(dynarec_safeflags)) {
                 SETFLAGS(X_ALL & ~X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
             } else {
                 SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
@@ -1493,36 +1559,53 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
         case 0xBC:
             INST_NAME("BSF Gw, Ew");
-            SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+            if (BOX64DRENV(dynarec_safeflags)) {
+                SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_NOFUSION);
+                IFX (X_ALL) CLEAR_FLAGS();
+            } else
+                SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
             SET_DFNONE();
             nextop = F8;
             GETEW(x5, 0);
             GETGW(x4);
             BNE_MARK(ed, xZR);
-            ORI(xFlags, xFlags, 1 << F_ZF);
-            B_NEXT_nocond;
+            IFX (X_ZF) ORI(xFlags, xFlags, 1 << F_ZF);
+            B_MARK2_nocond;
             MARK;
-            // gd is undefined if ed is all zeros, don't worry.
+            IFXA (X_ZF, !BOX64DRENV(dynarec_safeflags))
+                ANDI(xFlags, xFlags, ~(1 << F_ZF));
             CTZxw(gd, ed, 0, x1, x2);
-            ANDI(xFlags, xFlags, ~(1 << F_ZF));
             GWBACK;
+            MARK2;
+            if (BOX64DRENV(dynarec_safeflags)) {
+                IFX (X_PF) emit_pf(dyn, ninst, gd, x1, x2);
+            }
             break;
         case 0xBD:
             INST_NAME("BSR Gw, Ew");
-            SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+            if (BOX64DRENV(dynarec_safeflags)) {
+                SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_NOFUSION);
+                IFX (X_ALL) CLEAR_FLAGS();
+            } else
+                SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
             SET_DFNONE();
             nextop = F8;
             GETEW(x5, 0);
             GETGW(x4);
             BNE_MARK(ed, xZR);
-            ORI(xFlags, xFlags, 1 << F_ZF);
-            B_NEXT_nocond;
+            IFX (X_ZF) ORI(xFlags, xFlags, 1 << F_ZF);
+            B_MARK2_nocond;
             MARK;
-            ANDI(xFlags, xFlags, ~(1 << F_ZF));
+            IFXA (X_ZF, !BOX64DRENV(dynarec_safeflags))
+                ANDI(xFlags, xFlags, ~(1 << F_ZF));
             CLZxw(gd, ed, 1, x1, x2, x6);
             ADDI(x1, xZR, 63);
             SUB(gd, x1, gd);
             GWBACK;
+            MARK2;
+            if (BOX64DRENV(dynarec_safeflags)) {
+                IFX (X_PF) emit_pf(dyn, ninst, gd, x1, x2);
+            }
             break;
         case 0xBE:
             INST_NAME("MOVSX Gw, Eb");
@@ -1668,14 +1751,9 @@ uintptr_t dynarec64_660F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             if (rex.w) {
                 REV8xw(gd, gd, x1, x2, x3, x4);
             } else {
-                ANDI(x1, gd, 0xff);
-                SRLI(x2, gd, 8);
-                SLLI(x1, x1, 8);
-                ANDI(x2, x2, 0xff);
+                // undefined behaviour
                 SRLI(gd, gd, 16);
-                OR(x1, x1, x2);
                 SLLI(gd, gd, 16);
-                OR(gd, gd, x1);
             }
             break;
         case 0xD1:

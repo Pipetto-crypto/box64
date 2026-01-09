@@ -206,12 +206,12 @@ static void* findGstGLWindowCBFct(void* fct)
 
 EXPORT void* my_gst_gl_context_get_proc_address_with_platform(x64emu_t* emu, int type, int gl_api, const char* name)
 {
-    return getGLProcAddress(emu, findGetProcAddressPlatformFct(type, gl_api), name);
+    return getGLProcAddress(emu, NULL, findGetProcAddressPlatformFct(type, gl_api), name);
 }
 
 EXPORT void* my_gst_gl_context_default_get_proc_address(x64emu_t* emu, int gl_api, const char* name)
 {
-    return getGLProcAddress(emu, findGetProcAddressAPIFct(gl_api), name);
+    return getGLProcAddress(emu, NULL, findGetProcAddressAPIFct(gl_api), name);
 }
 
 EXPORT void my_gst_gl_context_thread_add(x64emu_t* emu, void* context, void* f, void* data)
@@ -264,9 +264,8 @@ EXPORT void my_gst_gl_window_set_resize_callback(x64emu_t* emu, void* window, vo
     my->gst_gl_window_set_resize_callback(window, findGstGLWindowCBFct(f), data, findDestroyFct(d));
 }
 
-#define PRE_INIT    \
-    if(BOX64ENV(nogtk)) \
-        return -1;
+#define PRE_INIT \
+    if (BOX64ENV(nogtk)) return -2;
 
 #define CUSTOM_INIT \
     SetGstGLBaseFilterID(my->gst_gl_base_filter_get_type());        \

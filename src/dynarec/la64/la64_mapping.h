@@ -26,7 +26,7 @@ r17     t5     x4           Temporary                       Scratch             
 r18     t6     x5           Temporary                       Scratch                 Caller
 r19     t7     x6           Temporary                       Scratch                 Caller
 r20     t8     x7           Temporary                       Scratch                 Caller
-r21     rx     -            Reserved                        N/A                     -
+r21     rx     -            Reserved                        X87 Precision Control   -
 r22     fp     SavedSP      Saved register/frame pointer    -                       Callee
 r23     s0     R10          Saved register                  -                       Callee
 r24     s1     R11          Saved register                  -                       Callee
@@ -64,6 +64,7 @@ r31     s8     xEmu         Saved register                  The Emu struct      
 
 // convert a x86 register to native according to the register mapping
 #define TO_NAT(A) (((uint8_t[]) { 12, 7, 6, 10, 11, 13, 5, 4, 8, 9, 23, 24, 25, 26, 27, 28 })[(A)])
+#define IS_GPR(A) (((uint8_t[]) { 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0 })[(A)])
 
 // scratch registers
 #define x1 14
@@ -73,6 +74,8 @@ r31     s8     xEmu         Saved register                  The Emu struct      
 #define x5 18
 #define x6 19
 #define x7 20
+
+#define x87pc 21
 
 // emu is $r31
 #define xEmu 31

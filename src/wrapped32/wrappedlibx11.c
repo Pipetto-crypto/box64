@@ -95,6 +95,7 @@ static int my32_rev_wire_to_event_##A(void* dpy, void* re, void* event)         
     static my_XEvent_t re_l = {0};                                                                  \
     int ret = my32_rev_wire_to_event_fct_##A (getDisplay(dpy), &re_l, event);                       \
     convertXEvent(re, &re_l);                                                                       \
+    return ret;                                                                                     \
 }
 SUPER()
 #undef GO
@@ -1419,7 +1420,8 @@ EXPORT int32_t my32_XIfEvent(x64emu_t* emu, void* d,void* ev, EventHandler h, vo
 {
     my_XEvent_t event = {0};
     int32_t ret = my->XIfEvent(d, &event, findxifeventFct(h), arg);
-    convertXEvent(ev, &event);
+    if(ret)
+        convertXEvent(ev, &event);
     return ret;
 }
 
@@ -1427,14 +1429,16 @@ EXPORT int32_t my32_XCheckIfEvent(x64emu_t* emu, void* d,void* ev, EventHandler 
 {
     my_XEvent_t event = {0};
     int32_t ret = my->XCheckIfEvent(d, &event, findxifeventFct(h), arg);
-    convertXEvent(ev, &event);
+    if(ret)
+        convertXEvent(ev, &event);
     return ret;
 }
 EXPORT int32_t my32_XPeekIfEvent(x64emu_t* emu, void* d,void* ev, EventHandler h, void* arg)
 {
     my_XEvent_t event = {0};
     int32_t ret = my->XPeekIfEvent(d, &event, findxifeventFct(h), arg);
-    convertXEvent(ev, &event);
+    if(ret)
+        convertXEvent(ev, &event);
     return ret;
 }
 
@@ -1456,7 +1460,8 @@ EXPORT int my32_XCheckMaskEvent(x64emu_t* emu, void* dpy, long mask, my_XEvent_3
 {
     my_XEvent_t event = {0};
     int32_t ret = my->XCheckMaskEvent(dpy, mask, &event);
-    convertXEvent(evt, &event);
+    if(ret)
+        convertXEvent(evt, &event);
     return ret;
 }
 
@@ -1652,14 +1657,32 @@ EXPORT int my32_XUnregisterIMInstantiateCallback(x64emu_t* emu, void* d, void* d
 {
     return my->XUnregisterIMInstantiateCallback(d, db, res_name, res_class, reverse_register_imFct(my_lib, cb), data);
 }
+extern int my32_xinput_opcode;
 EXPORT int my32_XQueryExtension(x64emu_t* emu, void* display, char* name, int* major, int* first_event, int* first_error)
 {
-    int ret = my->XQueryExtension(display, name, major, first_event, first_error);
+    int fevent;
+    int ret = my->XQueryExtension(display, name, major, &fevent, first_error);
+    if(first_event) *first_event = fevent;
     if(!ret && name && !strcmp(name, "GLX") && BOX64ENV(x11glx)) {
         // hack to force GLX to be accepted, even if not present
         // left major and first_XXX to default...
         ret = 1;
-    }
+    } else if(!strcmp(name, "XInputExtension") && major) {
+        my32_xinput_opcode = *major;
+    } else if(!strcmp(name, "XFIXES")) {
+        register_XFixes_events(fevent);
+    } /*else if(ret && first_event) {
+        printf_log(LOG_INFO, "X11 Extension \"%s\" first XEvent %d\n", name, *first_event);
+    }*/
+    return ret;
+}
+EXPORT int my32_XkbQueryExtension(x64emu_t* emu, void* display, char* opcode, int* event_base, int* error, int* major, int* minor)
+{
+    int fallback;
+    int *event = event_base?event_base:&fallback;
+    int ret = my->XkbQueryExtension(display, opcode, event, error, major, minor);
+    if(!ret) return ret;
+    register_Xkb_events(*event);
     return ret;
 }
 EXPORT int my32_XAddConnectionWatch(x64emu_t* emu, void* display, char* f, void* data)
@@ -1779,14 +1802,20 @@ EXPORT int my32_XGetEventData(x64emu_t* emu, void* dpy, my_XEvent_32_t* evt)
     my_XEvent_t event = {0};
     if(evt) unconvertXEvent(&event, evt);
     int ret = my->XGetEventData(dpy, &event);
-    if(ret) convertXEvent(evt, &event);
+    if(ret) {
+        inplace_XEventData_shring(&event);
+        convertXEvent(evt, &event);
+    }
     return ret;
 }
 
 EXPORT void my32_XFreeEventData(x64emu_t* emu, void* dpy, my_XEvent_32_t* evt)
 {
     my_XEvent_t event = {0};
-    if(evt) unconvertXEvent(&event, evt);
+    if(evt) {
+        unconvertXEvent(&event, evt);
+        inplace_XEventData_enlarge(&event);
+    }
     my->XFreeEventData(dpy, &event);
     convertXEvent(evt, &event);
 }
@@ -1816,6 +1845,38 @@ EXPORT void* my32_XGetKeyboardMapping(x64emu_t* emu, void* dpy, uint8_t first, i
             ret_s[i] = to_ulong(ret[i]);
     }
     return ret;
+}
+
+EXPORT int my32_XkbRefreshKeyboardMapping(x64emu_t* emu, my_XkbMapNotifyEvent_32_t* evt)
+{
+    my_XkbMapNotifyEvent_t event = {0};
+    event.type = evt->type;
+    event.serial = from_ulong(evt->serial);
+    event.send_event = evt->send_event;
+    event.display = getDisplay(from_ptrv(evt->display));
+    event.time = from_ulong(evt->time);
+    event.xkb_type = evt->xkb_type;
+    event.device = evt->device;
+    event.changed = evt->changed;
+    event.flags = evt->flags;
+    event.first_type = evt->first_type;
+    event.num_types = evt->num_types;
+    event.min_key_code = evt->min_key_code;
+    event.max_key_code = evt->max_key_code;
+    event.first_key_sym = evt->first_key_sym;
+    event.first_key_act = evt->first_key_act;
+    event.first_key_behavior = evt->first_key_behavior;
+    event.first_key_explicit = evt->first_key_explicit;
+    event.first_modmap_key = evt->first_modmap_key;
+    event.first_vmodmap_key = evt->first_vmodmap_key;
+    event.num_key_syms = evt->num_key_syms;
+    event.num_key_acts = evt->num_key_acts;
+    event.num_key_behaviors = evt->num_key_behaviors;
+    event.num_key_explicit = evt->num_key_explicit;
+    event.num_modmap_keys = evt->num_modmap_keys;
+    event.num_vmodmap_keys = evt->num_vmodmap_keys;
+    event.vmods = evt->vmods;
+    return my->XkbRefreshKeyboardMapping(&event);
 }
 
 EXPORT unsigned long my32_XLookupKeysym(x64emu_t* emu, my_XEvent_32_t* evt, int index)
@@ -1889,7 +1950,7 @@ EXPORT void* my32_XGetWMHints(x64emu_t* emu, void* dpy, XID window)
     return ret;
 }
 
-EXPORT int my32_XSetWMNormalHints(x64emu_t* emu, void* dpy, XID window, void* hints)
+EXPORT void my32_XSetWMNormalHints(x64emu_t* emu, void* dpy, XID window, void* hints)
 {
     inplace_enlarge_wmsizehints(hints);
     my->XSetWMNormalHints(dpy, window, hints);
@@ -2000,13 +2061,23 @@ EXPORT int my32_XGetWindowAttributes(x64emu_t* emu, void* dpy, XID window, my_XW
 
 EXPORT int my32_XChangeProperty(x64emu_t* emu, void* dpy, XID window, XID prop, XID type, int fmt, int mode, void* data, int n)
 {
-    unsigned long data_l[n];
+    unsigned long data_l[10];
+    void* tmp = NULL;
+    unsigned long* pdata_l = (unsigned long*)&data_l;
     if(fmt==32) {
+        if(n>10) {
+            // there can be properties too big to fit on the stack
+            tmp = box_malloc(n*sizeof(unsigned long));
+            pdata_l = tmp;
+        }
         for(int i=0; i<n; ++i)
-            data_l[i] = from_ulong(((ulong_t*)data)[i]);
-        data = data_l;
+            pdata_l[i] = from_ulong(((ulong_t*)data)[i]);
+        data = pdata_l;
     }
-    return my->XChangeProperty(dpy, window, prop, type, fmt, mode, data, n);
+    int ret = my->XChangeProperty(dpy, window, prop, type, fmt, mode, data, n);
+    if(tmp)
+        box_free(tmp);
+    return ret;
 }
 
 EXPORT void my32_XSetWMProperties(x64emu_t* emu, void* dpy, XID window, void* window_name, void* icon_name, ptr_t* argv, int argc, void* normal_hints, my_XWMHints_32_t* wm_hints, ptr_t* class_hints)
@@ -2127,7 +2198,7 @@ EXPORT int my32_XQueryTree(x64emu_t* emu, void* dpy, XID window, XID_32* root, X
     *parent = to_ulong(parent_l);
     *children = to_ptrv(children_l);
     if(children_l)
-        for(int i=0; i<*n; ++i)
+        for(uint32_t i=0; i<*n; ++i)
             ((XID_32*)children_l)[i] = to_ulong(children_l[i]);
     return ret;
 }
@@ -2357,6 +2428,7 @@ EXPORT int my32_XFontsOfFontSet(x64emu_t* emu, my_XFontSet_32_t* set, ptr_t* fon
             set->fonts[j][i] = to_ptrv(((void**)fonts_ret_l)[i]);
         *fonts_ret = to_ptrv(set->fonts[j]);
     }
+    return ret;
 }
 
 EXPORT void* my32_XExtentsOfFontSet(x64emu_t* emu, my_XFontSet_32_t* set)
@@ -2526,8 +2598,8 @@ EXPORT int my32_XGetWindowProperty(x64emu_t* emu, void* dpy, XID window, XID pro
         // inplace shrink
         unsigned long *src = prop_l;
         ulong_t* dst = prop_l;
-        for(int i=0; i<*nitems_return; ++i)
-            dst[i] = to_ulong(src[i]);
+        for(ulong_t i=0; i<*nitems_return; ++i)
+            dst[i] = to_ulong_silent(src[i]);
     }
     return ret;
 }
@@ -2680,13 +2752,35 @@ EXPORT int my32__XReply(x64emu_t* emu, void* dpy, void* rep, int extra, int disc
     return ret;
 }
 
+EXPORT void* my32_XGetICValues(x64emu_t* emu, void* ic, ptr_t* V)
+{
+    void* ret = NULL;
+    while(!ret && *V) {
+        char* name = from_ptrv(V[0]);
+        void* val = from_ptrv(V[1]);
+        V+=2;
+        if(!strcmp(name, "filterEvents")) {
+            unsigned long fevent;
+            ret = my->XGetICValues(ic, name, &fevent, NULL);
+            // I got a value of 0xFFFF00000003, but this seems to be a valid
+            // value of KeyPressMask | KeyReleaseMask, so just silently truncate
+            if(!ret) *(ulong_t*)val = to_ulong_silent(fevent);
+        } else {
+            printf_log_prefix(2, LOG_INFO, "Warning, unknown XGetICValues of %s\n", name);
+            ret = my->XGetICValues(ic, name, val, NULL);
+        }
+    }
+    return ret;
+}
+
 #define CUSTOM_INIT                 \
     AddAutomaticBridge(lib->w.bridge, vFp_32, *(void**)dlsym(lib->w.lib, "_XLockMutex_fn"), 0, "_XLockMutex_fn"); \
     AddAutomaticBridge(lib->w.bridge, vFp_32, *(void**)dlsym(lib->w.lib, "_XUnlockMutex_fn"), 0, "_XUnlockMutex_fn"); \
     if(BOX64ENV(x11threads)) my->XInitThreads();    \
     my_context->libx11 = lib;
 
-#define CUSTOM_FINI     \
+#define CUSTOM_FINI             \
+    unregister_Xkb_events();    \
     my_context->libx11 = NULL;
 #if 0
 #ifdef ANDROID

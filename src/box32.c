@@ -18,7 +18,7 @@ KHASH_MAP_INIT_STR(strings, ptr_t);
 static kh_from_t*   hash_from = NULL;
 static kh_to_t*     hash_to = NULL;
 #define HASH_MSK    0xf000000f
-#define HASH_VAL    0x00ffffff
+#define HASH_VAL    0x007fffff
 #define HASH_SHIFT  4
 static uint32_t     hash_cnt = 1;
 static pthread_rwlock_t hash_lock = {0};

@@ -384,7 +384,7 @@ GO(XGetGeometry, iFXLbL_pppppp)
 GO(_XGetHostname, iFpi)
 GO(XGetIconName, iFXLbp_)
 GO(XGetIconSizes, iFXLbp_p)
-GO(XGetICValues, pFpppppppppp)      // use varargs...
+GOM(XGetICValues, pFEpV)      // use varargs...
 GOM(XGetImage, pFEXLiiuuLi)     // return an XImage with callbacks that needs wrapping
 GOM(XGetIMValues, pFEpV)
 GO(XGetInputFocus, iFXBL_p)
@@ -662,7 +662,7 @@ GO(XkbDeviceBellEvent, iFXLiiiiL)
 //GO(XkbFindOverlayForKey, pFppp)
 GO(XkbForceBell, iFXi)
 GO(XkbForceDeviceBell, iFXiiii)
-//GO(XkbFreeClientMap, vFpui)
+GO(XkbFreeClientMap, vFpui)
 //GO(XkbFreeCompatMap, vFpui)
 //GO(XkbFreeComponentList, vFbiiiiiibWp_bWp_bWp_bWp_bWp_bWp__)
 //GO(XkbFreeControls, vFpui)
@@ -745,7 +745,7 @@ GO(XkbLookupKeySym, iFXCupbL_)
 //GO(XkbNoteNameChanges, vFbuCCCCCCCCWLC_biLiXLiiuiiiiiiuuuii_u)
 GO(XkbOpenDisplay, XFpppppp)
 //GO(_XkbPeekAtReadBuffer, 
-GO(XkbQueryExtension, iFXppppp)
+GOM(XkbQueryExtension, iFEXppppp)
 //GO(_XkbReadBufferCopy32, 
 //GO(_XkbReadBufferCopyKeySyms, 
 //GO(_XkbReadCopyData32, 
@@ -755,7 +755,7 @@ GO(XkbQueryExtension, iFXppppp)
 //GO(_XkbReadGetIndicatorMapReply, 
 //GO(_XkbReadGetMapReply, 
 //GO(_XkbReadGetNamesReply, 
-//GO(XkbRefreshKeyboardMapping, iFbiLiXLiiuuiiCCCCCCCCiiiiiiu_)
+GOM(XkbRefreshKeyboardMapping, iEEp)
 //GO(_XkbReloadDpy, 
 //GO(XkbResizeDeviceButtonActions, iFpu)
 //GO(XkbResizeKeyActions, pFpii)
@@ -942,8 +942,8 @@ GO(XOpenOM, pFXppp)
 //GO(_XParseBaseFontNameList, 
 GO(XParseColor, iFXLpbLWWWcc_)
 GO(XParseGeometry, iFppppp)
-GOM(XPeekEvent, iFEXp) // Warning: failed to confirm
-GOM(XPeekIfEvent, iFEpppp)
+GOM(XPeekEvent, iFEXp)
+GOM(XPeekIfEvent, iFEXppp)
 GO(XPending, iFX)
 GO(Xpermalloc, pFu)
 //GOM(XPlanesOfScreen, iFEbpXLiiiiipippLLLiiiil_)

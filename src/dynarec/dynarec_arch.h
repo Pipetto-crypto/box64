@@ -58,7 +58,7 @@ extern void* create_updateflags();
 #define MAXBLOCK_SIZE ((1 << 27) - 200)
 
 #define RAZ_SPECIFIC(A, N)
-#define UPDATE_SPECIFICS(A)
+#define UPDATE_SPECIFICS(A)    propagateFpuBarrier(A)
 #define PREUPDATE_SPECIFICS(A) updateNativeFlags(A)
 #define POSTUPDATE_SPECIFICS(A)
 
@@ -67,9 +67,9 @@ extern void* create_updateflags();
 #define ARCH_ADJUST(A, B, C, D) {}
 #define STOP_NATIVE_FLAGS(A, B) {}
 #define ARCH_UNALIGNED(A, B) 0
+extern uint32_t la64_crc(void* p, uint32_t len);
+#define ARCH_CRC(A, B)       return la64_crc(A, B)
 
-// NYI
-#define NATIVE_RESTORE_X87PC()
 #elif defined(RV64)
 
 #define instruction_native_t        instruction_rv64_t

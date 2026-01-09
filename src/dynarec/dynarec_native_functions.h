@@ -35,6 +35,15 @@ void native_frstor(x64emu_t* emu, uint8_t* ed);
 void native_frstor16(x64emu_t* emu, uint8_t* ed);
 void native_fprem1(x64emu_t* emu);
 
+double direct_f2xm1(x64emu_t* emu, double a);
+double direct_fyl2x(x64emu_t* emu, double a, double b);
+double direct_fyl2xp1(x64emu_t* emu, double a, double b);
+double direct_fpatan(x64emu_t* emu, double a, double b);
+double direct_fsin(x64emu_t* emu, double a);
+double direct_fcos(x64emu_t* emu, double a);
+double direct_ftan(x64emu_t* emu, double a);
+double direct_fscale(x64emu_t* emu, double a, double b);
+
 void native_aesd(x64emu_t* emu, int xmm);
 void native_aesd_y(x64emu_t* emu, int ymm);
 void native_aese(x64emu_t* emu, int xmm);
@@ -49,8 +58,6 @@ void native_aeskeygenassist(x64emu_t* emu, int gx, int ex, void* p, uint32_t u8)
 void native_pclmul(x64emu_t* emu, int gx, int ex, void* p, uint32_t u8);
 void native_pclmul_x(x64emu_t* emu, int gx, int vx, void* p, uint32_t u8);
 void native_pclmul_y(x64emu_t* emu, int gy, int vy, void* p, uint32_t u8);
-
-void native_clflush(x64emu_t* emu, void* p);
 
 void native_ud(x64emu_t* emu);
 void native_br(x64emu_t* emu);
@@ -81,6 +88,7 @@ typedef struct register_mapping_s {
 } register_mapping_t;
 
 void x64disas_add_register_mapping_annotations(char* buf, const char* disas, const register_mapping_t* mappings, size_t mappings_sz);
+void dynarec_stopped(uintptr_t x64addr, int is32bits);
 
 ADDITIONNAL_DEFINITION()
 

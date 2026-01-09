@@ -212,6 +212,24 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             }
             break;
 
+        #define GO(GETFLAGS, NO, YES, F)                                                                                                                  \
+            READFLAGS(F);                                                                                                                                 \
+            GETFLAGS;                                                                                                                                     \
+            nextop = F8;                                                                                                                                  \
+            GETGD;                                                                                                                                        \
+            if (MODREG) {                                                                                                                                 \
+                ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                                                                 \
+                CSELxw(gd, ed, gd, YES);                                                                                                                  \
+            } else {                                                                                                                                      \
+                addr = geted(dyn, addr, ninst, nextop, &ed, x2, &fixedaddress, &unscaled, 0xfff << (2 + rex.w), (1 << (2 + rex.w)) - 1, rex, NULL, 0, 0); \
+                Bcond(NO, +8);                                                                                                                            \
+                LDxw(gd, ed, fixedaddress);                                                                                                               \
+                if (!rex.w) { MOVw_REG(gd, gd); }                                                                                                         \
+            }
+
+        GOCOND(0x40, "CMOV", "Gd, Ed");
+        #undef GO
+
         case 0x51:
             INST_NAME("SQRTSS Gx, Ex");
             nextop = F8;
@@ -503,15 +521,32 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
         case 0xAE:
             nextop = F8;
             switch((nextop>>3)&7) {
+                case 0:
+                case 1:
+                    if(rex.is32bits || !MODREG) {
+                        INST_NAME("Illegal AE");
+                        FAKEED;
+                        UDF(0);
+                    } else {
+                        if(((nextop>>3)&7)==1) {INST_NAME("RDGSBASE");} else {INST_NAME("RDFSBASE");}
+                        ed = TO_NAT((nextop & 7) + (rex.b << 3));
+                        int seg = _FS + ((nextop>>3)&7);
+                        grab_segdata(dyn, addr, ninst, x4, seg, (MODREG));
+                        MOVxw_REG(ed, x4);
+                    }
+                     break;
                 case 2:
-                    INST_NAME("(unsupported) WRFSBASE Ed");
-                    FAKEED;
-                    UDF(0);
-                    break;
                 case 3:
-                    INST_NAME("(unsupported) WRGSBASE Ed");
-                    FAKEED;
-                    UDF(0);
+                    if(rex.is32bits || !MODREG) {
+                        INST_NAME("Illegal AE");
+                        FAKEED;
+                        UDF(0);
+                    } else {
+                        if(((nextop>>3)&7)==3) {INST_NAME("WRGSBASE");} else {INST_NAME("WRFSBASE");}
+                        ed = TO_NAT((nextop & 7) + (rex.b << 3));
+                        int seg = _FS + ((nextop>>3)&7)-2;
+                        STRx_U12(ed, xEmu, offsetof(x64emu_t, segs_offs[seg]));
+                    }
                     break;
                 case 5:
                     INST_NAME("(unsupported) INCSSPD/INCSSPQ Ed");
@@ -574,7 +609,7 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
 
         case 0xBC:
             INST_NAME("TZCNT Gd, Ed");
-            if(!BOX64ENV(dynarec_safeflags)) {
+            if (!BOX64DRENV(dynarec_safeflags)) {
                 SETFLAGS(X_CF|X_ZF, SF_SUBSET);
             } else {
                 if(BOX64ENV(cputype)) {
@@ -599,7 +634,7 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 CSETw(x3, cEQ);
                 BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
             }
-            if(BOX64ENV(dynarec_safeflags)) {
+            if (BOX64DRENV(dynarec_safeflags)) {
                 IFX(X_AF) BFCw(xFlags, F_AF, 1);
                 IFX(X_PF) BFCw(xFlags, F_PF, 1);
                 IFX(X_SF) BFCw(xFlags, F_SF, 1);
@@ -608,7 +643,7 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
             break;
         case 0xBD:
             INST_NAME("LZCNT Gd, Ed");
-            if(!BOX64ENV(dynarec_safeflags)) {
+            if (!BOX64DRENV(dynarec_safeflags)) {
                 SETFLAGS(X_CF|X_ZF, SF_SUBSET);
             } else {
                 if(BOX64ENV(cputype)) {
@@ -632,7 +667,7 @@ uintptr_t dynarec64_F30F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 CSETw(x3, cEQ);
                 BFIw(xFlags, x3, F_ZF, 1);  // ZF = is dest 0?
             }
-            if(BOX64ENV(dynarec_safeflags)) {
+            if (BOX64DRENV(dynarec_safeflags)) {
                 IFX(X_AF) BFCw(xFlags, F_AF, 1);
                 IFX(X_PF) BFCw(xFlags, F_PF, 1);
                 IFX(X_SF) BFCw(xFlags, F_SF, 1);

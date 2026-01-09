@@ -88,7 +88,7 @@ GO(pthread_join, iEHBp_)
 GOM(__pthread_key_create, iEEpp)
 GOM(pthread_key_create, iEEpp)
 GO(pthread_key_delete, iEu)
-GO(pthread_kill, iEhi)
+GOM(pthread_kill, iEEhi)
 GO2(pthread_kill@GLIBC_2.0, iEEhi, my32_pthread_kill_old)
 // pthread_kill_other_threads_np
 GO(__pthread_mutexattr_destroy, iEp)
@@ -163,13 +163,13 @@ GO(pthread_spin_lock, iEp)
 GO(pthread_spin_trylock, iEp)
 GO(pthread_spin_unlock, iEp)
 GO(pthread_testcancel, vEv)
-GO(pthread_timedjoin_np, iEppp)
-GO(pthread_tryjoin_np, iEpp)
+GO(pthread_timedjoin_np, iEhpp) // will leak handle
+GO(pthread_tryjoin_np, iEhp)    // will leak handle
 GOM(__pthread_unregister_cancel, vEEp)
 // __pthread_unregister_cancel_restore
 // __pthread_unwind
 GOM(__pthread_unwind_next, vEEp)
-GO(pthread_yield, iEv)
+GOM(pthread_yield, iEEv)
 // raise
 // __res_state
 GOM(sem_close, iEp) //%noE

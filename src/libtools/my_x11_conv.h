@@ -9,6 +9,8 @@
 
 void convertXEvent(my_XEvent_32_t* dst, my_XEvent_t* src);
 void unconvertXEvent(my_XEvent_t* dst, my_XEvent_32_t* src);
+void inplace_XEventData_shring(my_XEvent_t* evt);
+void inplace_XEventData_enlarge(my_XEvent_t* evt);
 void convert_XErrorEvent_to_32(void* d, void* s);
 void convert_XErrorEvent_to_64(void* d, void* s);
 
@@ -22,6 +24,8 @@ void* getDisplay(void* d);
 void delDisplay(void* d);
 // refresh the 32bits from the 64bits version
 void refreshDisplay(void* dpy);
+// register an xcb for a display
+void regXCBDisplay(void* d, void* xcb);
 
 void convert_Screen_to_32(void* d, void* s);
 void* getScreen64(void* dpy, void* a);
@@ -99,6 +103,8 @@ void register_XFixes_events(int event_base);
 void unregister_XFixes_events();
 void register_XRandR_events(int event_base);
 void unregister_XRandR_events();
+void register_Xkb_events(int event_base);
+void unregister_Xkb_events();
 
 void convert_XShmSegmentInfo_to_32(void* d, void* s);
 void convert_XShmSegmentInfo_to_64(void* d, void* s);
@@ -118,5 +124,7 @@ void* inplace_XFilters_enlarge(void* a);
 
 void* inplace_XRRMonitorInfo_shrink(void* a, int n);
 void* inplace_XRRMonitorInfo_enlarge(void* a, int n);
+
+void* inplace_XRRCrtcTransformAttributes_shrink(void* a);
 
 #endif//MY_X11_CONV

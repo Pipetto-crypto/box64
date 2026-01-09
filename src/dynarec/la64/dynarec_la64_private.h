@@ -75,6 +75,8 @@ typedef struct lsxcache_s {
     int8_t          x87stack;       // cache stack counter
     int8_t          mmxcount;       // number of mmx register used (not both mmx and x87 at the same time)
     int8_t          fpu_scratch;    // scratch counter
+    uint16_t        xmm_used;       // mask of the xmm regs used in this opcode
+    uint16_t        ymm_used;       // mask of the ymm regs used in this opcode
 } lsxcache_t;
 
 typedef struct flagcache_s {
@@ -111,9 +113,17 @@ typedef struct instruction_la64_s {
     uint8_t             nat_flags_nofusion:1;
     uint8_t             nat_flags_carry:1;
     uint8_t             nat_flags_sign:1;
+    uint8_t             nat_flags_sf:1;
     uint8_t             nat_flags_needsign:1;
+    uint8_t             no_scratch_usage : 1; // this opcode does not use scratch register
     uint8_t             nat_flags_op1;
     uint8_t             nat_flags_op2;
+    uint8_t             x87precision:1; // this opcode can handle x87pc
+    unsigned            mmx_used:1; // no fine tracking, just a global "any reg used"
+    unsigned            x87_used:1; // no fine tracking, just a global "any reg used"
+    unsigned            fpu_used:1; // any xmm/ymm/x87/mmx reg used
+    unsigned            fpupurge:1;   // this opcode will purge all fpu regs
+    uint16_t            nat_next_inst;
     flagcache_t         f_exit;     // flags status at end of instruction
     lsxcache_t          lsx;        // lsxcache at end of instruction (but before poping)
     flagcache_t         f_entry;    // flags status before the instruction begin
@@ -126,6 +136,7 @@ typedef struct dynarec_la64_s {
     uintptr_t            start;      // start of the block
     uintptr_t            end;        // maximum end of the block (only used in pass0)
     uint32_t             isize;      // size in bytes of x64 instructions included
+    uint32_t             prefixsize; // size in byte of the prefix of the block
     void*                block;      // memory pointer where next instruction is emitted
     uintptr_t            native_start;  // start of the arm code
     size_t               native_size;   // size of emitted arm code
@@ -157,13 +168,17 @@ typedef struct dynarec_la64_s {
     uint8_t              smwrite;    // for strongmem model emulation
     uint8_t              always_test;
     uint8_t              abort;
-    void*               gdbjit_block;
-    uint32_t            need_x87check; // x87 low precision check
-    uint32_t            need_dump;     // need to dump the block
-    int                 need_reloc; // does the dynablock need relocations
-    int                 reloc_size;
-    uint32_t*           relocs;
-    box64env_t*         env;
+    uint8_t              use_x87:1;  // set if x87 regs are used
+    uint8_t              use_mmx:1;
+    uint8_t              use_xmm:1;
+    uint8_t              use_ymm:1;
+    void*                gdbjit_block;
+    uint32_t             need_x87check; // x87 low precision check
+    uint32_t             need_dump;     // need to dump the block
+    int                  need_reloc; // does the dynablock need relocations
+    int                  reloc_size;
+    uint32_t*            relocs;
+    box64env_t*          env;
 } dynarec_la64_t;
 
 void add_next(dynarec_la64_t *dyn, uintptr_t addr);
@@ -172,7 +187,6 @@ void add_jump(dynarec_la64_t *dyn, int ninst);
 int get_first_jump(dynarec_la64_t *dyn, int next);
 int get_first_jump_addr(dynarec_la64_t *dyn, uintptr_t next);
 int is_nops(dynarec_la64_t *dyn, uintptr_t addr, int n);
-int is_instructions(dynarec_la64_t *dyn, uintptr_t addr, int n);
 
 int isTable64(dynarec_la64_t *dyn, uint64_t val); // return 1 if val already in Table64
 int Table64(dynarec_la64_t *dyn, uint64_t val, int pass);  // add a value to table64 (if needed) and gives back the imm19 to use in LDR_literal

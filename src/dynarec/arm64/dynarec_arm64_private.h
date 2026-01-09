@@ -84,10 +84,16 @@ typedef struct neoncache_s {
     uint64_t            ymm_regs;       // 4bits (0-15) position of 16 ymmXX regs removed
 } neoncache_t;
 
-typedef struct flagcache_s {
+typedef enum flagcache_s {
+    status_unk = 0,         // unknown deferred flags status
+    status_set,             // deferred flags set to something (not 0)
+    status_none_pending,    // deferred flags set to 0, but still pending the write to x64emu_t
+    status_none,            // deferred flags set to 0, written to x64emu_t
+} flagcache_t;
+/*typedef struct flagcache_s {
     int                 pending;    // is there a pending flags here, or to check?
     uint8_t             dfnone;     // if deferred flags is already set to df_none
-} flagcache_t;
+} flagcache_t;*/
 
 typedef struct instruction_arm64_s {
     instruction_x64_t   x64;
@@ -137,6 +143,9 @@ typedef struct instruction_arm64_s {
     flagcache_t         f_exit;     // flags status at end of instruction
     neoncache_t         n;          // neoncache at end of instruction (but before poping)
     flagcache_t         f_entry;    // flags status before the instruction begin
+    int                 cacheupd;
+    uint32_t            preload_xmmymm;
+    int                 preload_from;
 } instruction_arm64_t;
 
 typedef struct dynarec_arm_s {
@@ -146,6 +155,7 @@ typedef struct dynarec_arm_s {
     uintptr_t           start;      // start of the block
     uintptr_t           end;        // maximum end of the block (only used in pass0)
     uint32_t            isize;      // size in bytes of x64 instructions included
+    uint32_t            prefixsize; // size in byte of the prefix of the block
     void*               block;      // memory pointer where next instruction is emitted
     uintptr_t           native_start;  // start of the arm code
     size_t              native_size;   // size of emitted arm code
@@ -179,6 +189,11 @@ typedef struct dynarec_arm_s {
     uint8_t             doublepop;
     uint8_t             always_test;
     uint8_t             abort;      // abort the creation of the block
+    uint8_t             use_x87:1;  // set if x87 regs are used
+    uint8_t             use_mmx:1;
+    uint8_t             use_xmm:1;
+    uint8_t             use_ymm:1;
+    uint8_t             have_purge:1;   // set to 1 if block can be purged
     void*               gdbjit_block;
     uint32_t            need_x87check;  // needs x87 precision control check if non-null, or 0 if not
     uint32_t            need_dump;     // need to dump the block
@@ -194,7 +209,6 @@ void add_jump(dynarec_arm_t *dyn, int ninst);
 int get_first_jump(dynarec_arm_t *dyn, int next);
 int get_first_jump_addr(dynarec_arm_t *dyn, uintptr_t next);
 int is_nops(dynarec_arm_t *dyn, uintptr_t addr, int n);
-int is_instructions(dynarec_arm_t *dyn, uintptr_t addr, int n);
 
 int isTable64(dynarec_arm_t *dyn, uint64_t val); // return 1 if val already in Table64
 int Table64(dynarec_arm_t *dyn, uint64_t val, int pass);  // add a value to table64 (if needed) and gives back the imm19 to use in LDR_literal

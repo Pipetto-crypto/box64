@@ -1,5 +1,5 @@
 #if !(defined(GO) && defined(GOM) && defined(GO2) && defined(DATA))
-error Meh...
+#error Meh...
 #endif
 
 //DATA(_nettle_aeads, 
@@ -157,7 +157,7 @@ GO(nettle_ccm_aes256_update, vFpLp)
 GOM(nettle_ccm_decrypt_message, iFEppLpLpLLpp)
 //GO(nettle_ccm_digest, 
 //GO(nettle_ccm_encrypt, 
-GOM(nettle_ccm_encrypt_message,vFEppLpLpLLpp)
+GOM(nettle_ccm_encrypt_message, vFEppLpLpLLpp)
 //GO(nettle_ccm_set_nonce, 
 //GO(nettle_ccm_update, 
 GOM(nettle_cfb8_decrypt, vFEppLpLpp)
@@ -185,7 +185,7 @@ GO(nettle_chacha_set_nonce, vFpp)
 GO(nettle_chacha_set_nonce96, vFpp)
 //DATA(_nettle_ciphers, 
 GOM(nettle_cmac128_digest, vFEppppup)
-GO(nettle_cmac128_init,vFp)
+GO(nettle_cmac128_init, vFp)
 GOM(nettle_cmac128_set_key, vFEppp)
 GOM(nettle_cmac128_update, vFEpppLp)
 GOM(nettle_cmac64_digest, vFEppppup)
@@ -283,7 +283,7 @@ GO(nettle_gcm_sm4_digest, vFpLp)
 //GO(nettle_gcm_sm4_set_iv, 
 GO(nettle_gcm_sm4_set_key, vFpp)
 GO(nettle_gcm_sm4_update, vFpLp)
-GO(nettle_gcm_update,vFppLp)
+GO(nettle_gcm_update, vFppLp)
 GO(nettle_get_aeads, pFv)
 GO(nettle_get_armors, pFv)
 GO(nettle_get_ciphers, pFv)
@@ -303,7 +303,7 @@ GO(nettle_gosthash94_init, vFp)
 //DATA(_nettle_hashes, 
 GOM(nettle_hkdf_expand, vFEpppLLpLp)
 GOM(nettle_hkdf_extract, vFEpppLLpp)
-GO(nettle_hmac_digest, vFppppLp)
+GOM(nettle_hmac_digest, vFEppppLp)
 GO(nettle_hmac_gosthash94cp_digest, vFpLp)
 GO(nettle_hmac_gosthash94cp_set_key, vFpip)
 GO(nettle_hmac_gosthash94cp_update, vFpLp)
@@ -318,7 +318,7 @@ GO(nettle_hmac_md5_update, vFpLp)
 GO(nettle_hmac_ripemd160_digest, vFpLp)
 //GO(nettle_hmac_ripemd160_set_key, 
 GO(nettle_hmac_ripemd160_update, vFpLp)
-GO(nettle_hmac_set_key, vFppppLp)
+GOM(nettle_hmac_set_key, vFEppppLp)
 //DATA(nettle_hmac_sha1, 
 GO(nettle_hmac_sha1_digest, vFpLp)
 GO(nettle_hmac_sha1_set_key, vFpip)
@@ -348,7 +348,7 @@ GO(nettle_hmac_streebog256_set_key, vFpLp)
 GO(nettle_hmac_streebog512_digest, vFpip)
 GO(nettle_hmac_streebog512_set_key, vFpip)
 GO(nettle_hmac_streebog512_update, vFpip)
-//GO(nettle_hmac_update, 
+GOM(nettle_hmac_update, vFEppLp)
 GO(nettle_knuth_lfib_get, uFp)
 GO(nettle_knuth_lfib_get_array, vFpLp)
 GO(nettle_knuth_lfib_init, vFpu)
@@ -462,7 +462,7 @@ GO(nettle_sha3_256_shake_output, vFpLp)
 GO(nettle_sha3_256_update, vFpLp)
 //DATA(nettle_sha3_384, 
 GO(nettle_sha3_384_digest, vFpLp)
-GO(nettle_sha3_384_init, vFp) 
+GO(nettle_sha3_384_init, vFp)
 GO(nettle_sha3_384_update, vFpLp)
 //DATA(nettle_sha3_512, 
 GO(nettle_sha3_512_digest, vFpLp)
@@ -494,15 +494,15 @@ GO(nettle_siv_cmac_aes128_set_key, vFpp)
 GO(nettle_siv_cmac_aes256_decrypt_message, iFpLpLpLpp)
 GO(nettle_siv_cmac_aes256_encrypt_message, vFpLpLpLpp)
 GO(nettle_siv_cmac_aes256_set_key, vFpp)
-//GO(nettle_siv_cmac_decrypt_message, 
-//GO(nettle_siv_cmac_encrypt_message, 
-//GO(nettle_siv_cmac_set_key, 
+//GOM(nettle_siv_cmac_decrypt_message, 
+//GOM(nettle_siv_cmac_encrypt_message, 
+//GOM(nettle_siv_cmac_set_key, 
 GO(nettle_siv_gcm_aes128_decrypt_message, iFpLpLpLpp)
 GO(nettle_siv_gcm_aes128_encrypt_message, vFpLpLpLpp)
 GO(nettle_siv_gcm_aes256_decrypt_message, iFpLpLpLpp)
 GO(nettle_siv_gcm_aes256_encrypt_message, vFpLpLpLpp)
-//GO(nettle_siv_gcm_decrypt_message, 
-//GO(nettle_siv_gcm_encrypt_message, 
+//GOM(nettle_siv_gcm_decrypt_message, 
+//GOM(nettle_siv_gcm_encrypt_message, 
 //GO(_nettle_siv_ghash_set_key, 
 //GO(_nettle_siv_ghash_update, 
 //DATA(nettle_sm3, 

@@ -215,6 +215,7 @@ EXPORT int my32_FcPatternAdd(void* p, void* object, int type, fcvalue_32_t t, in
             break;
         case 2:
             val.u.d = t.d;
+            break;
         case 1:
         case 4: // just in case
             val.u.i = t.i;
@@ -295,6 +296,29 @@ EXPORT int my32_FcFontSetAdd(x64emu_t* emu, void* set, void* pattern)
     int ret = my->FcFontSetAdd(set, pattern);
     inplace_FcFontSet_shrink(set);
     return ret;
+}
+
+EXPORT void* my32_FcConfigGetFonts(x64emu_t* emu, void* config, uint32_t name)
+{
+    return inplace_FcFontSet_shrink(my->FcConfigGetFonts(config, name));   // that's probably a bad idea, as the font is own by the config
+}
+
+EXPORT void* my32_FcFontSetSort(x64emu_t* emu, void* config, ptr_t* sets, int nsets, void* pattern, int trim, ptr_t* csp, void* result)
+{
+    void** sets_l[nsets];
+    void* csp_l = csp?from_ptrv(*csp):NULL;
+    for(int i=0; i<nsets; ++i)
+        inplace_FcFontSet_enlarge((sets_l[i]=from_ptrv(sets[i])));
+
+    void* ret = my->FcFontSetSort(config, sets_l, nsets, pattern, trim, csp?(&csp_l):NULL, result);
+
+    for(int i=0; i<nsets; ++i)
+        inplace_FcFontSet_shrink(from_ptrv(sets[i]));
+    
+    if(csp)
+        *csp = to_ptrv(csp_l);
+    
+    return inplace_FcFontSet_shrink(ret);
 }
 
 #define NEEDED_LIBS "libexpat.so.1", "libfreetype.so.6"

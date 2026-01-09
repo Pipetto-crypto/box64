@@ -94,7 +94,7 @@ void PrintTrace(x64emu_t* emu, uintptr_t ip, int dynarec)
             } else if(peek==0x57 && rex.b) {
                 printf_log_prefix(0, LOG_NONE, " => STACK_TOP: %p", *(void**)(R_RSP));
                 PrintFunctionAddr(ip, "here: ");
-            } else if((peek==0x55 /*|| peek==0x53*/) && !is32bits) {
+            } else if((peek==0x55 || (peek==0x53 && rex.rex==0x40)) && !is32bits) {
                 if(!PrintFunctionAddr(*(uintptr_t*)(R_RSP), " STACK_TOP: "))
                     printf_log_prefix(0, LOG_NONE, " STACK_TOP: %p ", (void*)*(uintptr_t*)(R_RSP));
             } else if((peek==0x55 || peek==0x56 || peek==0x53 || peek==0x57) && is32bits) {
@@ -104,8 +104,8 @@ void PrintTrace(x64emu_t* emu, uintptr_t ip, int dynarec)
                 uintptr_t nextaddr = *(uintptr_t*)(R_RSP);
                 if(!PrintFunctionAddr(nextaddr, "=> "))
                     printf_log_prefix(0, LOG_NONE, " => %p", (void*)nextaddr);
-            } else if((peek==0x81 || peek==0x83) && PK(1)==0xEC && is32bits) {
-                uintptr_t nextaddr = *(ptr_t*)from_ptrv(R_ESP);
+            } else if((peek==0x81 || peek==0x83) && PK(1)==0xEC /*&& is32bits*/) {
+                uintptr_t nextaddr = is32bits?(*(ptr_t*)from_ptrv(R_ESP)):(*(uintptr_t*)R_RSP);
                 if(!PrintFunctionAddr(nextaddr, "STACK_TOP: "))
                     printf_log_prefix(0, LOG_NONE, " STACK_TOP: %p", (void*)nextaddr);
             } else if(peek==0xE8 || peek==0xE9) { // Call & Jmp
@@ -233,8 +233,9 @@ reg64_t* GetECommon_32(x64emu_t* emu, uintptr_t* addr, uint8_t m, uint32_t base)
         return (reg64_t*)(uintptr_t)base;
     }
 }
-reg64_t* GetECommon_16(x64emu_t *emu, uintptr_t* addr, uint8_t m, uint16_t base)
+reg64_t* GetECommon_16(x64emu_t *emu, uintptr_t* addr, uint8_t m, uint32_t offset)
 {
+    uint16_t base = 0;
     switch(m&7) {
         case 0: base+= R_BX+R_SI; break;
         case 1: base+= R_BX+R_DI; break;
@@ -251,7 +252,7 @@ reg64_t* GetECommon_16(x64emu_t *emu, uintptr_t* addr, uint8_t m, uint16_t base)
         // case 0 is already dealt with on case 6
         // case 3 is C0..C7, already dealt with
     }
-    return (reg64_t*)(uintptr_t)base;
+    return (reg64_t*)(uintptr_t)(offset+base);
 }
 
 reg64_t* GetECommon_64(x64emu_t* emu, uintptr_t* addr, rex_t rex, uint8_t m, uint8_t delta, uintptr_t base)
@@ -522,9 +523,6 @@ uintptr_t GetEA(x64emu_t *emu, uintptr_t* addr, rex_t rex, uint8_t v, uint8_t de
          return (uintptr_t)&emu->regs[(m&0x07)+(rex.b<<3)];
     } else return (uintptr_t)GetECommon(emu, addr, rex, m, delta);
 }
-
-#define GetEw GetEd
-#define TestEw TestEd
 
 reg64_t* GetEw16(x64emu_t *emu, uintptr_t* addr, rex_t rex, uint8_t v)
 {

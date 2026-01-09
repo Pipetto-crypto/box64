@@ -7,18 +7,17 @@
 
 #define MESSAGE(A, ...) do {} while (0)
 #define READFLAGS(A)    \
-        dyn->insts[ninst].x64.use_flags = A; dyn->f.dfnone = 1;\
+        dyn->insts[ninst].x64.use_flags = A; if(dyn->f!=status_none_pending) dyn->f = status_none;\
         if(!BOX64ENV(dynarec_df) && (A)&X_PEND) dyn->insts[ninst].x64.use_flags = X_ALL; \
-        dyn->f.pending=SF_SET
+        dyn->f = status_none
 #define SETFLAGS(A,B)   \
         dyn->insts[ninst].x64.set_flags = A;    \
         dyn->insts[ninst].x64.state_flags = (B)&~SF_DF;  \
-        dyn->f.pending=(B)&SF_SET_PENDING;      \
-        dyn->f.dfnone=((B)&SF_SET)?(((B)==SF_SET_NODF)?0:1):0;  \
-        if(!BOX64ENV(dynarec_df)) {dyn->f.dfnone=1; dyn->f.pending=0; if((A)==SF_PENDING){printf_log(LOG_INFO, "Warning, some opcode use SF_PENDING, forcing deferedflags ON\n"); SET_BOX64ENV(dynarec_df, 1); }}
+        dyn->f=((B)&SF_SET)?(((B)==SF_SET_NODF)?dyn->f:status_none_pending):(((B)&SF_SET_PENDING)?status_set:status_none_pending);  \
+        if(!BOX64ENV(dynarec_df)) {dyn->f=status_none; if((A)==SF_PENDING){printf_log(LOG_INFO, "Warning, some opcode use SF_PENDING, forcing deferedflags ON\n"); SET_BOX64ENV(dynarec_df, 1); }}
 #define EMIT(A)         dyn->native_size+=4
 #define JUMP(A, C)         add_jump(dyn, ninst); add_next(dyn, (uintptr_t)A); SMEND(); dyn->insts[ninst].x64.jmp = A; dyn->insts[ninst].x64.jmp_cond = C; dyn->insts[ninst].x64.jmp_insts = 0
-#define BARRIER(A)      if(A!=BARRIER_MAYBE) {fpu_purgecache(dyn, ninst, 0, x1, x2, x3); dyn->insts[ninst].x64.barrier = A;} else dyn->insts[ninst].barrier_maybe = 1
+#define BARRIER(A)      if(A!=BARRIER_MAYBE) {fpu_purgecache(dyn, ninst, 0, x1, x2, x3, 0); dyn->insts[ninst].x64.barrier = A;} else dyn->insts[ninst].barrier_maybe = 1
 #define SET_HASCALLRET()    dyn->insts[ninst].x64.has_callret = 1
 #define NEW_INST \
         ++dyn->size;                            \
@@ -39,19 +38,9 @@
     --dyn->size;                                                                                                              \
     *ok = -1;                                                                                                                 \
     if (ninst) { dyn->insts[ninst - 1].x64.size = ip - dyn->insts[ninst - 1].x64.addr; }                                      \
-    if (BOX64ENV(dynarec_log) >= LOG_INFO || dyn->need_dump || BOX64ENV(dynarec_missing) == 1)                        \
-        if (!dyn->size || BOX64ENV(dynarec_log) > LOG_INFO || dyn->need_dump) {                                       \
-            dynarec_log(LOG_NONE, "%p: Dynarec stopped because of %s Opcode ", (void*)ip, rex.is32bits ? "x86" : "x64");      \
-            zydis_dec_t* dec = rex.is32bits ? my_context->dec32 : my_context->dec;                                            \
-            if (dec) {                                                                                                        \
-                dynarec_log_prefix(0, LOG_NONE, "%s", DecodeX64Trace(dec, dyn->insts[ninst].x64.addr, 1));                    \
-            } else {                                                                                                          \
-                dynarec_log_prefix(0, LOG_NONE, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", \
-                    PKip(0), PKip(1), PKip(2), PKip(3), PKip(4), PKip(5), PKip(6), PKip(7), PKip(8), PKip(9),                 \
-                    PKip(10), PKip(11), PKip(12), PKip(13), PKip(14));                                                        \
-            }                                                                                                                 \
-            PrintFunctionAddr(ip, " => ");                                                                                    \
-            dynarec_log_prefix(0, LOG_NONE, "\n");                                                                            \
+    if (BOX64ENV(dynarec_log) >= LOG_INFO || dyn->need_dump || BOX64ENV(dynarec_missing) == 1)                                \
+        if (!dyn->size || BOX64ENV(dynarec_log) > LOG_INFO || dyn->need_dump) {                                               \
+            dynarec_stopped(dyn->insts[ninst].x64.addr, rex.is32bits);                                                        \
         }
 
 

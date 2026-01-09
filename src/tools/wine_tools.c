@@ -73,6 +73,7 @@ static void remove_prereserve(int idx)
     }
 }
 
+void preserve_highest32();
 void wine_prereserve(const char* reserve)
 {
     init_custommem_helper(my_context);
@@ -100,6 +101,8 @@ void wine_prereserve(const char* reserve)
             ++idx;
         }
     }
+
+    preserve_highest32();
 
     wine_preloaded = 1;
 }
@@ -142,8 +145,8 @@ void DetectUnityPlayer(char* filename)
     if (filename && BOX64ENV(unityplayer) && !unityplayer_detected && !strcmp(filename, "unityplayer.dll")) {
         printf_log(LOG_INFO, "Detected UnityPlayer.dll\n");
 #ifdef DYNAREC
-        if (!BOX64ENV(dynarec_strongmem)) {
-            SET_BOX64ENV(dynarec_strongmem, 1);
+        if (!BOX64ENV(unity)) {
+            SET_BOX64ENV(unity, 1);
             PrintEnvVariables(&box64env, LOG_INFO);
         }
 #endif

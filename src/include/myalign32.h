@@ -1,6 +1,7 @@
 #ifndef __MY_ALIGN32__H_
 #define __MY_ALIGN32__H_
 #include <stdint.h>
+#include <net/if.h>
 #include "box32.h"
 
 #define X64_VA_MAX_REG  (6*8)
@@ -79,7 +80,6 @@ typedef struct  va_list {
 void myStackAlign32(const char* fmt, uint32_t* st, uint64_t* mystack);
 size_t myStackAlignScanf32(const char* fmt, uint32_t* st, uint64_t* mystack, size_t nb_elem); // return the number of long/ptr_t conversion pending
 void myStackAlignScanf32_final(const char* fmt, uint32_t* st, uint64_t* mystack, size_t nb_elem, int n); // convert the long/ptr_t scanf results
-void myStackAlignGVariantNew32(const char* fmt, uint32_t* st, uint64_t* mystack);
 size_t myStackAlignScanfW32(const char* fmt, uint32_t* st, uint64_t* mystack, size_t nb_elem);
 void myStackAlignScanfW32_final(const char* fmt, uint32_t* st, uint64_t* mystack, size_t nb_elem, int n);
 void myStackAlignW32(const char* fmt, uint32_t* st, uint64_t* mystack);
@@ -90,6 +90,7 @@ void* add_xcb_connection32(void* src);
 void del_xcb_connection32(void* src);
 
 void UnalignStat64_32(const void* source, void* dest);
+void UnalignStat64_32_t64(const void* source, void* dest);
 
 void UnalignStatFS_32(const void* source, void* dest);
 void UnalignStatFS64_32(const void* source, void* dest);
@@ -136,6 +137,27 @@ struct i386_stat64 {
 	uint32_t	st_ctime;
 	uint32_t	st_ctime_nsec;
 	uint64_t	st_ino;
+} __attribute__((packed, aligned(4)));  // important for this one
+
+struct i386_stat64_t64 {
+	uint64_t	  st_dev;
+	uint64_t	  st_ino;
+	uint32_t		st_mode;
+	uint32_t		st_nlink;
+	uint32_t		st_uid;
+	uint32_t		st_gid;
+	uint64_t	  st_rdev;
+	int64_t		  st_size;
+	uint32_t		st_blksize;
+	int64_t		  st_blocks;
+	uint64_t	  st_atime;
+	uint64_t	  st_atime_nsec;
+	uint64_t	  st_mtime;
+	uint64_t	  st_mtime_nsec;
+	uint64_t	  st_ctime;
+	uint64_t	  st_ctime_nsec;
+	uint32_t	  __reserved4;
+  uint32_t	  __reserved5;
 } __attribute__((packed, aligned(4)));  // important for this one
 
 struct i386_fsid {
@@ -656,5 +678,41 @@ struct my_obstack_32_t
 
 void convert_obstack_to_32(void* d, void* s);
 void convert_obstack_to_64(void* d, void* s);
+
+typedef struct i386_ifmap_s {
+  ulong_t         mem_start;
+  ulong_t         mem_end;
+  unsigned short  base_addr;
+  unsigned char   irq;
+  unsigned char   dma;
+  unsigned char   port;
+} i386_ifmap_t;
+
+typedef struct i386_ifreq_s {
+  char i386_ifr_name[16]; /* Interface name */
+  union {
+    struct sockaddr i386_ifr_addr;
+    struct sockaddr i386_ifr_dstaddr;
+    struct sockaddr i386_ifr_broadaddr;
+    struct sockaddr i386_ifr_netmask;
+    struct sockaddr i386_ifr_hwaddr;
+    short           i386_ifr_flags;
+    int             i386_ifr_ifindex;
+    int             i386_ifr_metric;
+    int             i386_ifr_mtu;
+    i386_ifmap_t    i386_ifr_map;
+    char            i386_ifr_slave[16];
+    char            i386_ifr_newname[16];
+    ptr_t           i386_ifr_data; // char*
+  };
+} i386_ifreq_t;
+
+typedef struct i386_ifconf_s {
+  int ifc_len;
+  union {
+    ptr_t i386_ifc_buf; // char*
+    ptr_t i386_ifc_req; // i386_ifreq_t*
+  };
+} i386_ifconf_t;
 
 #endif//__MY_ALIGN32__H_

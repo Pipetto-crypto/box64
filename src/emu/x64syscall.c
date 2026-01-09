@@ -39,6 +39,7 @@
 #include "emit_signals.h"
 #include "x64tls.h"
 #include "elfloader.h"
+#include "x64int_private.h"
 
 typedef struct x64_sigaction_s x64_sigaction_t;
 typedef struct x64_stack_s x64_stack_t;
@@ -68,6 +69,7 @@ void* my_mremap(x64emu_t* emu, void* old_addr, size_t old_size, size_t new_size,
 int32_t my_epoll_ctl(x64emu_t* emu, int32_t epfd, int32_t op, int32_t fd, void* event);
 int32_t my_epoll_wait(x64emu_t* emu, int32_t epfd, void* events, int32_t maxevents, int32_t timeout);
 int32_t my_epoll_pwait(x64emu_t* emu, int32_t epfd, void* events, int32_t maxevents, int32_t timeout, const sigset_t *sigmask);
+int32_t my_epoll_pwait2(x64emu_t* emu, int epfd, void* events, int maxevents, struct timespec *timeout, sigset_t * sigmask);
 #endif
 pid_t my_vfork(x64emu_t* emu);
 int32_t my_fcntl(x64emu_t* emu, int32_t a, int32_t b, void* c);
@@ -155,6 +157,7 @@ static const scwrap_t syscallwrap[] = {
     //[72] = {__NR_fnctl, 3}, // Needs wrapping, and not always defined anyway
     [73] = {__NR_flock, 2},
     [74] = {__NR_fsync, 1},
+    [77] = {__NR_ftruncate, 2},
     #ifdef __NR_getdents
     [78] = {__NR_getdents, 3},
     #endif
@@ -276,7 +279,7 @@ static const scwrap_t syscallwrap[] = {
     [274] = {__NR_get_robust_list, 3},
     [280] = {__NR_utimensat, 4},
     #ifdef NOALIGN
-    [281] = {__NR_epoll_pwait, 6},
+    [281] = {__NR_epoll_pwait, 5},
     #endif
     //[282] = {__NR__signalfd, 3},
     #ifdef _NR_eventfd
@@ -312,11 +315,23 @@ static const scwrap_t syscallwrap[] = {
     // TODO: implement fallback if __NR_statx is not defined
     [332] = {__NR_statx, 5},
     #endif
+    #ifdef __NR_io_uring_setup
+    [425] = {__NR_io_uring_setup, 2},
+    #endif
+    #ifdef __NR_io_uring_enter
+    [426] = {__NR_io_uring_enter, 6},
+    #endif
+    #ifdef __NR_io_uring_register
+    [427] = {__NR_io_uring_register, 4},
+    #endif
     #ifdef __NR_fchmodat4
     [434] = {__NR_fchmodat4, 4},
     #endif
     #ifdef __NR_faccessat2
     [439] = {__NR_faccessat2, 4},
+    #endif
+    #if defined(__NR_epoll_pwait2) && defined(NOALIGN)
+    [441] = {__NR_epoll_pwait2, 5},
     #endif
     #ifdef __NR_landlock_create_ruleset	
     [444] = {__NR_landlock_create_ruleset, 3},
@@ -419,14 +434,16 @@ typedef struct old_utsname_s {
 typedef struct clone_s {
     x64emu_t* emu;
     void* stack2free;
+    void* tls;
 } clone_t;
 
-static int clone_fn(void* arg)
+static int clone_fn_syscall(void* arg)
 {
     clone_t* args = arg;
     x64emu_t *emu = args->emu;
     thread_forget_emu();
     thread_set_emu(emu);
+    //TODO: do something with TLS. Refresh libc tls with that?
     R_RAX = 0;
     DynaRun(emu);
     int ret = R_EAX;
@@ -442,8 +459,6 @@ static int clone_fn(void* arg)
 
 void EXPORT x64Syscall(x64emu_t *emu)
 {
-    RESET_FLAGS(emu);
-    uint32_t s = R_EAX; // EAX? (syscalls only go up to 547 anyways)
     // check if it's a wine process, then filter the syscall (simulate SECCMP)
     if(box64_wine && !box64_is32bits) {
         //64bits only here...
@@ -454,6 +469,12 @@ void EXPORT x64Syscall(x64emu_t *emu)
             return;
         }
     }
+    return x64Syscall_linux(emu);
+}
+void EXPORT x64Syscall_linux(x64emu_t *emu)
+{
+    RESET_FLAGS(emu);
+    uint32_t s = R_EAX; // EAX? (syscalls only go up to 547 anyways)
     int log = 0;
     char t_buff[256] = "\0";
     char t_buffret[128] = "\0";
@@ -476,18 +497,31 @@ void EXPORT x64Syscall(x64emu_t *emu)
         int sc = syscallwrap[s].nats;
         switch(syscallwrap[s].nbpars) {
             case 0: S_RAX = syscall(sc); break;
-            case 1: S_RAX = syscall(sc, R_RDI); break;
-            case 2: if(s==33) {if(log) snprintf(buff2, 127, " [sys_access(\"%s\", %ld)]", (char*)R_RDI, R_RSI);}; S_RAX = syscall(sc, R_RDI, R_RSI); break;
-            case 3: if(s==42) {if(log) snprintf(buff2, 127, " [sys_connect(%d, %p[type=%d], %d)]", R_EDI, (void*)R_RSI, *(unsigned short*)R_RSI, R_EDX);}; if(s==258) {if(log) snprintf(buff2, 127, " [sys_mkdirat(%d, %s, 0x%x]", R_EDI, (char*)R_RSI, R_EDX);}; S_RAX = syscall(sc, R_RDI, R_RSI, R_RDX); break;
+            case 1: 
+                if(s==80) {if(log) snprintf(buff2, 127, " [sys_chdir(\"%s\")]", (char*)R_RDI);}; 
+                S_RAX = syscall(sc, R_RDI); 
+                break;
+            case 2: 
+                if(s==33) {if(log) snprintf(buff2, 127, " [sys_access(\"%s\", %ld)]", (char*)R_RDI, R_RSI);}; 
+                S_RAX = syscall(sc, R_RDI, R_RSI); 
+                break;
+            case 3: 
+                if(s==42) {if(log) snprintf(buff2, 127, " [sys_connect(%d, %p[type=%d], %d)]", R_EDI, (void*)R_RSI, *(unsigned short*)R_RSI, R_EDX);}; 
+                if(s==258) {if(log) snprintf(buff2, 127, " [sys_mkdirat(%d, %s, 0x%x]", R_EDI, (char*)R_RSI, R_EDX);}; 
+                S_RAX = syscall(sc, R_RDI, R_RSI, R_RDX); 
+                break;
             case 4: S_RAX = syscall(sc, R_RDI, R_RSI, R_RDX, R_R10); break;
-            case 5: S_RAX = syscall(sc, R_RDI, R_RSI, R_RDX, R_R10, R_R8); break;
+            case 5: 
+                if(s==165) {if(log) snprintf(buff2, 127, " [sys_mount(%s, %s, %s, 0x%lx, %s]", (char*)R_RDI, (char*)R_RSI, (char*)R_RDX, R_R10, R_R8?(char*)R_R8:"(nil)");}; 
+                S_RAX = syscall(sc, R_RDI, R_RSI, R_RDX, R_R10, R_R8); 
+                break;
             case 6: S_RAX = syscall(sc, R_RDI, R_RSI, R_RDX, R_R10, R_R8, R_R9); break;
             default:
                 printf_log(LOG_NONE, "ERROR, Unimplemented syscall wrapper (%d, %d)\n", s, syscallwrap[s].nbpars);
                 emu->quit = 1;
                 return;
         }
-        if(S_RAX==-1 && errno>0)
+        if(S_EAX==-1 && errno>0)
             S_RAX = -errno;
         if(log) snprintf(buffret, 127, "0x%x%s", R_EAX, buff2);
         if(log && !BOX64ENV(rolling_log)) printf_log(LOG_NONE, "=> %s\n", buffret);
@@ -590,6 +624,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
             S_RAX = pipe((void*)R_RDI);
             if(S_RAX==-1)
                 S_RAX = -errno;
+            else if(log) printf_log(LOG_INFO, "[%d, %d]", ((int*)R_RDI)[0], ((int*)R_RDI)[1]);
             break;
         #endif
         #ifndef __NR_select
@@ -620,6 +655,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
             } else {
                 if(R_RSI)
                 {
+                    uint64_t flags = R_RDI;
                     void* stack_base = (void*)R_RSI;
                     int stack_size = 0;
                     uintptr_t sp = R_RSI;
@@ -629,6 +665,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
                     clone_t* args = box_calloc(1, sizeof(clone_t));
                     newemu->regs[_SP].q[0] = sp;  // setup new stack pointer
                     args->emu = newemu;
+                    if(flags&CLONE_SETTLS) args->tls = (void*)R_R9;
                     void* mystack = NULL;
                     if(my_context->stack_clone_used) {
                         args->stack2free = mystack = box_malloc(1024*1024);  // stack for own process...
@@ -638,7 +675,8 @@ void EXPORT x64Syscall(x64emu_t *emu)
                         mystack = my_context->stack_clone;
                         my_context->stack_clone_used = 1;
                     }
-                    int64_t ret = clone(clone_fn, (void*)((uintptr_t)mystack+1024*1024), R_RDI, args, R_RDX, R_R8, R_R10);
+                    flags&=~CLONE_SETTLS;   // to be handled differently
+                    int64_t ret = clone(clone_fn_syscall, (void*)((uintptr_t)mystack+1024*1024), flags, args, R_RDX, R_R8, R_R10);
                     S_RAX = ret;
                 }
                 else
@@ -817,7 +855,7 @@ void EXPORT x64Syscall(x64emu_t *emu)
                 S_RAX = -errno;
             break;
         #ifndef NOALIGN
-        case 281:   // sys_epool_pwait
+        case 281:   // sys_epoll_pwait
             S_RAX = my_epoll_pwait(emu, S_EDI, (void*)R_RSI, S_EDX, S_R10d, (void*)R_R8);
             if(S_RAX==-1)
                 S_RAX = -errno;
@@ -867,6 +905,13 @@ void EXPORT x64Syscall(x64emu_t *emu)
         #ifndef __NR_faccessat2
         case 439:
             S_RAX = faccessat(S_EDI, (void*)R_RSI, (mode_t)R_RDX, S_R10d);
+            if(S_RAX==-1)
+                S_RAX = -errno;
+            break;
+        #endif
+        #if !defined(__NR_epoll_pwait2) || !defined(NOALIGN)
+        case 441:   // sys_epoll_pwait2
+            S_RAX = my_epoll_pwait2(emu, S_EDI, (void*)R_RSI, S_EDX, (void*)S_R10, (void*)R_R8);
             if(S_RAX==-1)
                 S_RAX = -errno;
             break;
@@ -1025,7 +1070,7 @@ long EXPORT my_syscall(x64emu_t *emu)
                     my_context->stack_clone_used = 1;
                 }
                 // x86_64 raw clone is long clone(unsigned long flags, void *stack, int *parent_tid, int *child_tid, unsigned long tls);
-                long ret = clone(clone_fn, (void*)((uintptr_t)mystack+1024*1024), R_ESI, newemu, R_RCX, R_R9, R_R8);
+                long ret = clone(clone_fn_syscall, (void*)((uintptr_t)mystack+1024*1024), R_ESI, newemu, R_RCX, R_R9, R_R8);
                 return ret;
             }
             else
@@ -1103,6 +1148,10 @@ long EXPORT my_syscall(x64emu_t *emu)
         case 201: // sys_time
             return (intptr_t)time((void*)R_RSI);
         #endif
+        #ifndef __NR_epoll_create
+        case 213:
+            return epoll_create(S_ESI);
+        #endif
         #if !defined(__NR_epoll_wait) || !defined(NOALIGN)
         case 232:
             return my_epoll_wait(emu, S_ESI, (void*)R_RDX, S_ECX, S_R8d);
@@ -1128,7 +1177,7 @@ long EXPORT my_syscall(x64emu_t *emu)
         case 267:   // sys_readlinkat
             return my_readlinkat(emu, S_RSI, (void*)R_RDX, (void*)R_RCX, R_R8); 
         #ifndef NOALIGN
-        case 281:   // sys_epool_pwait
+        case 281:   // sys_epoll_pwait
             return my_epoll_pwait(emu, S_ESI, (void*)R_RDX, S_ECX, S_R8d, (void*)R_R9);
         #endif
         case 282:   // sys_signalfd
@@ -1147,6 +1196,10 @@ long EXPORT my_syscall(x64emu_t *emu)
         case 284:   // sys_eventfd
             return eventfd(S_ESI, 0);
         #endif
+        #ifndef NOALIGN
+        case 291:   // sys__epoll_create1
+            return epoll_create1(of_convert(S_EDI));
+        #endif
         case 317:   // sys_seccomp
             return 0;  // ignoring call
         #ifndef __NR_fchmodat4
@@ -1156,6 +1209,11 @@ long EXPORT my_syscall(x64emu_t *emu)
         #ifndef __NR_faccessat2
         case 439:
             return faccessat(S_ESI, (void*)R_RDX, (mode_t)R_RCX, S_R8d);
+        #endif
+        #if !defined(__NR_epoll_pwait2) || !defined(NOALIGN)
+        case 441:
+            return my_epoll_pwait2(emu, S_ESI, (void*)R_RDX, S_ECX, (void*)S_R8, (void*)R_R9);
+            break;
         #endif
         case 449:
             #if defined(__NR_futex_waitv) && !defined(BAD_SIGNAL)

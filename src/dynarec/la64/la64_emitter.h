@@ -69,13 +69,43 @@
 
 // tmp = (GR[rj][31:0] << imm) + GR[rk][31:0]
 // GR[rd] = SignExtend(tmp[31:0], GRLEN)
-#define ALSL_W(rd, rj, rk, imm) EMIT(type_3RI2(0b000000000000010, (imm - 1), rk, rj, rd))
+#define ALSL_W(rd, rj, rk, imm)                                          \
+    do {                                                                 \
+        if (imm)                                                         \
+            EMIT(type_3RI2(0b000000000000010, ((imm) - 1), rk, rj, rd)); \
+        else                                                             \
+            ADD_W(rd, rj, rk);                                           \
+    } while (0)
+
 // tmp = (GR[rj][31:0] << imm) + GR[rk][31:0]
 // GR[rd] = ZeroExtend(tmp[31:0], GRLEN)
-#define ALSL_WU(rd, rj, rk, imm) EMIT(type_3RI2(0b000000000000011, (imm - 1), rk, rj, rd))
+#define ALSL_WU(rd, rj, rk, imm)                                         \
+    do {                                                                 \
+        if (imm)                                                         \
+            EMIT(type_3RI2(0b000000000000011, ((imm) - 1), rk, rj, rd)); \
+        else {                                                           \
+            ADD_W(rd, rj, rk);                                           \
+            ZEROUP(rd);                                                  \
+        }                                                                \
+    } while (0)
+
 // tmp = (GR[rj][63:0] << imm) + GR[rk][63:0]
 // GR[rd] = tmp[63:0]
-#define ALSL_D(rd, rj, rk, imm) EMIT(type_3RI2(0b000000000010110, (imm - 1), rk, rj, rd))
+#define ALSL_D(rd, rj, rk, imm)                                          \
+    do {                                                                 \
+        if (imm)                                                         \
+            EMIT(type_3RI2(0b000000000010110, ((imm) - 1), rk, rj, rd)); \
+        else                                                             \
+            ADD_D(rd, rj, rk);                                           \
+    } while (0)
+
+#define ALSLy(rd, rj, rk, imm)        \
+    do {                              \
+        if (rex.is32bits || rex.is67) \
+            ALSL_WU(rd, rj, rk, imm); \
+        else                          \
+            ALSL_D(rd, rj, rk, imm);  \
+    } while (0)
 
 // GR[rd] = SignExtend({imm20, 12'b0}, GRLEN)
 #define LU12I_W(rd, imm20) EMIT(type_1RI20(0b0001010, imm20, rd))
@@ -95,10 +125,10 @@
 // GR[rd] = (unsigned(GR[rj]) < unsigned(tmp)) ? 1 : 0
 #define SLTUI(rd, rj, imm12) EMIT(type_2RI12(0b1001, imm12, rj, rd))
 
-// rd = rs1 == 0
-#define SEQZ(rd, rs1) SLTUI(rd, rs1, 1)
-// rd = rs1 != 0
-#define SNEZ(rd, rs1) SLTU(rd, xZR, rs1)
+// rd = rj == 0
+#define SEQZ(rd, rj) SLTUI(rd, rj, 1)
+// rd = rj != 0
+#define SNEZ(rd, rj) SLTU(rd, xZR, rj)
 
 // GR[rd] = PC + SignExtend({imm20, 2'b0}, GRLEN)
 #define PCADDI(rd, imm20) EMIT(type_1RI20(0b0001100, imm20, rd))
@@ -231,59 +261,57 @@
     } while (0)
 
 // Shift Left Immediate
-#define SLLIxw(rd, rs1, imm)      \
-    do {                          \
-        if (rex.w) {              \
-            SLLI_D(rd, rs1, imm); \
-        } else {                  \
-            SLLI_W(rd, rs1, imm); \
-            ZEROUP(rd);           \
-        }                         \
+#define SLLIxw(rd, rj, imm)      \
+    do {                         \
+        if (rex.w) {             \
+            SLLI_D(rd, rj, imm); \
+        } else {                 \
+            SLLI_W(rd, rj, imm); \
+            ZEROUP(rd);          \
+        }                        \
     } while (0)
+#define SLLIy(rd, rj, imm)              \
+    do {                                \
+        if (rex.is32bits || rex.is67) { \
+            SLLI_W(rd, rj, imm);        \
+            ZEROUP(rd);                 \
+        } else                          \
+            SLLI_D(rd, rj, imm);        \
+    } while (0)
+
 // Shift Right Logical Immediate
-#define SRLIxw(rd, rs1, imm)            \
+#define SRLIxw(rd, rj, imm)             \
     do {                                \
         if (rex.w) {                    \
-            SRLI_D(rd, rs1, imm);       \
+            SRLI_D(rd, rj, imm);        \
         } else {                        \
-            SRLI_W(rd, rs1, imm);       \
+            SRLI_W(rd, rj, imm);        \
             if ((imm) == 0) ZEROUP(rd); \
         }                               \
     } while (0)
 
 // Shift Right Arithmetic Immediate
-#define SRAIxw(rd, rs1, imm)      \
+#define SRAIxw(rd, rj, imm)      \
+    do {                         \
+        if (rex.w) {             \
+            SRAI_D(rd, rj, imm); \
+        } else {                 \
+            SRAI_W(rd, rj, imm); \
+            ZEROUP(rd);          \
+        }                        \
+    } while (0)
+
+#define ROTRIxw(rd, rj, imm)      \
     do {                          \
         if (rex.w) {              \
-            SRAI_D(rd, rs1, imm); \
+            ROTRI_D(rd, rj, imm); \
         } else {                  \
-            SRAI_W(rd, rs1, imm); \
+            ROTRI_W(rd, rj, imm); \
             ZEROUP(rd);           \
         }                         \
     } while (0)
 
-#define ROTRIxw(rd, rs1, imm)      \
-    do {                           \
-        if (rex.w) {               \
-            ROTRI_D(rd, rs1, imm); \
-        } else {                   \
-            ROTRI_W(rd, rs1, imm); \
-            ZEROUP(rd);            \
-        }                          \
-    } while (0)
-
-// rd = rj + (rk << imm6)
-#define ADDSL(rd, rs1, rs2, imm6, scratch) \
-    do {                                   \
-        if (!(imm6)) {                     \
-            ADD_D(rd, rs1, rs2);           \
-        } else {                           \
-            SLLI_D(scratch, rs2, imm6);    \
-            ADD_D(rd, rs1, scratch);       \
-        }                                  \
-    } while (0)
-
-#define SEXT_W(rd, rs1) SLLI_W(rd, rs1, 0)
+#define SEXT_W(rd, rj) SLLI_W(rd, rj, 0)
 
 // product = signed(GR[rj][31:0]) * signed(GR[rk][31:0])
 // GR[rd] = SignExtend(product[31:0], GRLEN)
@@ -467,6 +495,57 @@
 #define BGTU(rj, rd, imm13) BLTU(rd, rj, imm13)
 #define BLEU(rj, rd, imm13) BGEU(rd, rj, imm13)
 
+#define SEQ(rd, rj, rk)         \
+    do {                        \
+        if (rj == xZR) {        \
+            SEQZ(rd, rk);       \
+        } else if (rk == xZR) { \
+            SEQZ(rd, rj);       \
+        } else {                \
+            XOR(rd, rj, rk);    \
+            SEQZ(rd, rd);       \
+        }                       \
+    } while (0)
+
+#define SNE(rd, rj, rk)         \
+    do {                        \
+        if (rj == xZR) {        \
+            SNEZ(rd, rk);       \
+        } else if (rk == xZR) { \
+            SNEZ(rd, rj);       \
+        } else {                \
+            XOR(rd, rj, rk);    \
+            SNEZ(rd, rd);       \
+        }                       \
+    } while (0)
+
+#define SGE(rd, rj, rk)      \
+    do {                     \
+        if (rj == xZR) {     \
+            SLTI(rd, rk, 1); \
+        } else {             \
+            SLT(rd, rj, rk); \
+            XORI(rd, rd, 1); \
+        }                    \
+    } while (0)
+
+#define SGEU(rd, rj, rk)        \
+    do {                        \
+        if (rj == xZR) {        \
+            SEQZ(rd, rk);       \
+        } else if (rk == xZR) { \
+            ADDI_D(rd, xZR, 1); \
+        } else {                \
+            SLTU(rd, rj, rk);   \
+            XORI(rd, rd, 1);    \
+        }                       \
+    } while (0)
+
+#define SGT(rd, rj, rk)  SLT(rd, rk, rj);
+#define SLE(rd, rj, rk)  SGE(rd, rk, rj);
+#define SGTU(rd, rj, rk) SLTU(rd, rk, rj);
+#define SLEU(rd, rj, rk) SGEU(rd, rk, rj);
+
 #define BCEQZ(cj, imm23) EMIT(type_1RI21(0b010010, ((imm23) >> 2), 0b00000 | cj))
 #define BCNEZ(cj, imm23) EMIT(type_1RI21(0b010010, ((imm23) >> 2), 0b01000 | cj))
 
@@ -488,7 +567,7 @@
             NOP();                                 \
         } else {                                   \
             BNE(rj, rd, 8);                        \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -499,7 +578,7 @@
             NOP();                                 \
         } else {                                   \
             BEQ(rj, rd, 8);                        \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -510,7 +589,7 @@
             NOP();                                 \
         } else {                                   \
             BGE(rj, rd, 8);                        \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -521,7 +600,7 @@
             NOP();                                 \
         } else {                                   \
             BLT(rj, rd, 8);                        \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -532,7 +611,7 @@
             NOP();                                 \
         } else {                                   \
             BGEU(rj, rd, 8);                       \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -543,7 +622,7 @@
             NOP();                                 \
         } else {                                   \
             BLTU(rj, rd, 8);                       \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -554,7 +633,7 @@
             NOP();                                 \
         } else {                                   \
             BLE(rj, rd, 8);                        \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -565,7 +644,7 @@
             NOP();                                 \
         } else {                                   \
             BGT(rj, rd, 8);                        \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -576,7 +655,7 @@
             NOP();                                 \
         } else {                                   \
             BLEU(rj, rd, 8);                       \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -587,7 +666,7 @@
             NOP();                                 \
         } else {                                   \
             BGTU(rj, rd, 8);                       \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -598,7 +677,7 @@
             NOP();                                 \
         } else {                                   \
             BNEZ(rj, 8);                           \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -609,7 +688,7 @@
             NOP();                                 \
         } else {                                   \
             BEQZ(rj, 8);                           \
-            B(imm - 4);                            \
+            B((imm) - 4);                          \
         }                                          \
     } while (0)
 
@@ -675,6 +754,20 @@
 // paddr = AddressTranslation(vaddr)
 // MemoryStore(GR[rd][63:0], paddr, DOUBLEWORD)
 #define ST_D(rd, rj, imm12) EMIT(type_2RI12(0b0010100111, imm12, rj, rd))
+
+#define PRELD(hint, rj, imm12) EMIT(type_2RI12(0b0010101011, imm12, rj, hint))
+
+#define PRELDX(hint, rj, rk) EMIT(type_3R(0b00111000001011000, rk, rj, hint))
+
+#define PRELDX_LOAD_L3_1CACHELINE(rj, s1)                      \
+    do {                                                       \
+        MOV64x(s1, (0b0000000000000000ULL << 44) /* stride */  \
+                | (0b00000000ULL << 32)          /* 1 block */ \
+                | (0b000000ULL << 20)            /* 16-byte */ \
+                | (0b0ULL << 16)                 /* asc */     \
+                | 0x0000ULL);                    /* offset */  \
+        PRELDX(2 /* L3 load */, rj, s1);                       \
+    } while (0)
 
 #define LDX_B(rd, rj, rk)  EMIT(type_3R(0b00111000000000000, rk, rj, rd))
 #define LDX_H(rd, rj, rk)  EMIT(type_3R(0b00111000000001000, rk, rj, rd))
@@ -757,6 +850,18 @@
 #define FLD_S(fd, rj, imm12) EMIT(type_2RI12(0b0010101100, imm12, rj, fd))
 #define FST_D(fd, rj, imm12) EMIT(type_2RI12(0b0010101111, imm12, rj, fd))
 #define FST_S(fd, rj, imm12) EMIT(type_2RI12(0b0010101101, imm12, rj, fd))
+#define FLDX_D(fd, rj, rk)   EMIT(type_3R(0b00111000001101000, rk, rj, fd))
+#define FLDX_S(fd, rj, rk)   EMIT(type_3R(0b00111000001100000, rk, rj, fd))
+#define FSTX_D(fd, rj, rk)   EMIT(type_3R(0b00111000001111000, rk, rj, fd))
+#define FSTX_S(fd, rj, rk)   EMIT(type_3R(0b00111000001110000, rk, rj, fd))
+#define FLDGT_D(fd, rj, rk)  EMIT(type_3R(0b00111000011101001, rk, rj, fd))
+#define FLDGT_S(fd, rj, rk)  EMIT(type_3R(0b00111000011101000, rk, rj, fd))
+#define FLDLE_D(fd, rj, rk)  EMIT(type_3R(0b00111000011101011, rk, rj, fd))
+#define FLDLE_S(fd, rj, rk)  EMIT(type_3R(0b00111000011101010, rk, rj, fd))
+#define FSTGT_D(fd, rj, rk)  EMIT(type_3R(0b00111000011101101, rk, rj, fd))
+#define FSTGT_S(fd, rj, rk)  EMIT(type_3R(0b00111000011101100, rk, rj, fd))
+#define FSTLE_D(fd, rj, rk)  EMIT(type_3R(0b00111000011101111, rk, rj, fd))
+#define FSTLE_S(fd, rj, rk)  EMIT(type_3R(0b00111000011101110, rk, rj, fd))
 
 #define FADD_S(fd, fj, fk)       EMIT(type_3R(0b00000001000000001, fk, fj, fd))
 #define FADD_D(fd, fj, fk)       EMIT(type_3R(0b00000001000000010, fk, fj, fd))
@@ -1399,6 +1504,8 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VEXTRINS_B(vd, vj, imm8)     EMIT(type_2RI8(0b01110011100011, imm8, vj, vd))
 #define VLD(vd, rj, imm12)           EMIT(type_2RI12(0b0010110000, imm12, rj, vd))
 #define VST(vd, rj, imm12)           EMIT(type_2RI12(0b0010110001, imm12, rj, vd))
+#define VLDX(vd, rj, rk)             EMIT(type_3R(0b00111000010000000, rk, rj, vd))
+#define VSTX(vd, rj, rk)             EMIT(type_3R(0b00111000010001000, rk, rj, vd))
 #define VSTELM_D(vd, rj, imm8, imm1) EMIT(type_2RI9(0b0011000100010, (((imm1) << 8) | (imm8)), rj, vd))
 #define VSTELM_W(vd, rj, imm8, imm2) EMIT(type_2RI10(0b001100010010, (((imm2) << 8) | (imm8)), rj, vd))
 #define VSTELM_H(vd, rj, imm8, imm3) EMIT(type_2RI11(0b00110001010, (((imm3) << 8) | (imm8)), rj, vd))
@@ -1968,18 +2075,18 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VNEG_W(vd, vj)              EMIT(type_2R(0b0111011010011100001110, vj, vd))
 #define VNEG_D(vd, vj)              EMIT(type_2R(0b0111011010011100001111, vj, vd))
 
-#define XVLD(vd, rj, imm12)        EMIT(type_2RI12(0b0010110010, imm12, rj, vd))
-#define XVST(vd, rj, imm12)        EMIT(type_2RI12(0b0010110011, imm12, rj, vd))
-#define XVLDX(vd, vj, vk)          EMIT(type_3R(0b00111000010010000, vk, vj, vd))
-#define XVSTX(vd, vj, vk)          EMIT(type_3R(0b00111000010011000, vk, vj, vd))
-#define XVLDREPL_D(xd, rj, offset) EMIT(type_2RI9(0b0011001000010, (offset >> 3), rj, xd))
-#define XVLDREPL_W(xd, rj, offset) EMIT(type_2RI10(0b001100100010, (offset >> 2), rj, xd))
-#define XVLDREPL_H(xd, rj, offset) EMIT(type_2RI11(0b00110010010, (offset >> 1), rj, xd))
-#define XVLDREPL_B(xd, rj, offset) EMIT(type_2RI12(0b0011001010, offset, rj, xd))
-#define XVSTELM_D(xd, rj, offset, imm2)         EMIT(type_2RI10(0b001100110001, ((imm2) << 8) | (offset), rj, xd))
-#define XVSTELM_W(xd, rj, offset, imm3)         EMIT(type_2RI11(0b00110011001, ((imm3) << 8) | (offset), rj, xd))
-#define XVSTELM_H(xd, rj, offset, imm4)         EMIT(type_2RI12(0b0011001101, ((imm4) << 8) | (offset), rj, xd))
-#define XVSTELM_B(xd, rj, offset, imm5)         EMIT(type_2RI13(0b001100111, ((imm5) << 8) | (offset), rj, xd))
+#define XVLD(vd, rj, imm12)             EMIT(type_2RI12(0b0010110010, imm12, rj, vd))
+#define XVST(vd, rj, imm12)             EMIT(type_2RI12(0b0010110011, imm12, rj, vd))
+#define XVLDX(vd, vj, vk)               EMIT(type_3R(0b00111000010010000, vk, vj, vd))
+#define XVSTX(vd, vj, vk)               EMIT(type_3R(0b00111000010011000, vk, vj, vd))
+#define XVLDREPL_D(xd, rj, offset)      EMIT(type_2RI9(0b0011001000010, (offset >> 3), rj, xd))
+#define XVLDREPL_W(xd, rj, offset)      EMIT(type_2RI10(0b001100100010, (offset >> 2), rj, xd))
+#define XVLDREPL_H(xd, rj, offset)      EMIT(type_2RI11(0b00110010010, (offset >> 1), rj, xd))
+#define XVLDREPL_B(xd, rj, offset)      EMIT(type_2RI12(0b0011001010, offset, rj, xd))
+#define XVSTELM_D(xd, rj, offset, imm2) EMIT(type_2RI10(0b001100110001, ((imm2) << 8) | (offset), rj, xd))
+#define XVSTELM_W(xd, rj, offset, imm3) EMIT(type_2RI11(0b00110011001, ((imm3) << 8) | (offset), rj, xd))
+#define XVSTELM_H(xd, rj, offset, imm4) EMIT(type_2RI12(0b0011001101, ((imm4) << 8) | (offset), rj, xd))
+#define XVSTELM_B(xd, rj, offset, imm5) EMIT(type_2RI13(0b001100111, ((imm5) << 8) | (offset), rj, xd))
 
 #define XVHSELI_D(vd, vj, imm5)      EMIT(type_2RI5(0b01110110100111111, imm5, vj, vd))
 #define XVROTRI_B(vd, vj, imm3)      EMIT(type_2RI3(0b0111011010100000001, imm3, vj, vd))
@@ -2340,18 +2447,28 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define X64_RCLI_D(rj, imm6)  EMIT(type_2RI6(0x55, imm6, rj, 0x1b))
 
 // Warning, these are LBT addons that uses LBT4.eflags internally
-#define ADC_B(rd, rj, rk) EMIT(type_3R(0x60, rk, rj, rd))
-#define ADC_H(rd, rj, rk) EMIT(type_3R(0x61, rk, rj, rd))
-#define ADC_W(rd, rj, rk) EMIT(type_3R(0x62, rk, rj, rd))
-#define ADC_D(rd, rj, rk) EMIT(type_3R(0x63, rk, rj, rd))
-#define SBC_B(rd, rj, rk) EMIT(type_3R(0x64, rk, rj, rd))
-#define SBC_H(rd, rj, rk) EMIT(type_3R(0x65, rk, rj, rd))
-#define SBC_W(rd, rj, rk) EMIT(type_3R(0x66, rk, rj, rd))
-#define SBC_D(rd, rj, rk) EMIT(type_3R(0x67, rk, rj, rd))
-#define RCR_B(rd, rj, rk) EMIT(type_3R(0x68, rk, rj, rd))
-#define RCR_H(rd, rj, rk) EMIT(type_3R(0x69, rk, rj, rd))
-#define RCR_W(rd, rj, rk) EMIT(type_3R(0x6a, rk, rj, rd))
-#define RCR_D(rd, rj, rk) EMIT(type_3R(0x6b, rk, rj, rd))
+#define ADC_B(rd, rj, rk)    EMIT(type_3R(0x60, rk, rj, rd))
+#define ADC_H(rd, rj, rk)    EMIT(type_3R(0x61, rk, rj, rd))
+#define ADC_W(rd, rj, rk)    EMIT(type_3R(0x62, rk, rj, rd))
+#define ADC_D(rd, rj, rk)    EMIT(type_3R(0x63, rk, rj, rd))
+#define SBC_B(rd, rj, rk)    EMIT(type_3R(0x64, rk, rj, rd))
+#define SBC_H(rd, rj, rk)    EMIT(type_3R(0x65, rk, rj, rd))
+#define SBC_W(rd, rj, rk)    EMIT(type_3R(0x66, rk, rj, rd))
+#define SBC_D(rd, rj, rk)    EMIT(type_3R(0x67, rk, rj, rd))
+#define RCR_B(rd, rj, rk)    EMIT(type_3R(0x68, rk, rj, rd))
+#define RCR_H(rd, rj, rk)    EMIT(type_3R(0x69, rk, rj, rd))
+#define RCR_W(rd, rj, rk)    EMIT(type_3R(0x6a, rk, rj, rd))
+#define RCR_D(rd, rj, rk)    EMIT(type_3R(0x6b, rk, rj, rd))
+#define RCRI_B(rd, rj, imm3) EMIT(type_2RI3(0b0000000001010000001, imm3, rj, rd))
+#define RCRI_H(rd, rj, imm4) EMIT(type_2RI4(0b000000000101000001, imm4, rj, rd))
+#define RCRI_W(rd, rj, imm5) EMIT(type_2RI5(0b00000000010100001, imm5, rj, rd))
+#define RCRI_D(rd, rj, imm6) EMIT(type_2RI6(0b0000000001010001, imm6, rj, rd))
+
+// Additional LBT inst
+#define ROTR_B(rd, rj, rk)    EMIT(type_3R(0b00000000000110100, rk, rj, rd))
+#define ROTR_H(rd, rj, rk)    EMIT(type_3R(0b00000000000110101, rk, rj, rd))
+#define ROTRI_B(rd, rj, imm3) EMIT(type_2RI3(0b0000000001001100001, imm3, rj, rd))
+#define ROTRI_H(rd, rj, imm4) EMIT(type_2RI4(0b000000000100110001, imm4, rj, rd))
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -2370,6 +2487,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
     } else {            \
         MOV64x(A, B);   \
     }
+#define MOV64y(A, B)                    \
+    do {                                \
+        if (rex.is32bits || rex.is67) { \
+            MOV32w(A, B);               \
+        } else {                        \
+            MOV64x(A, B);               \
+        }                               \
+    } while (0)
 
 // rd[63:0] = rj[63:0] (pseudo instruction)
 #define MV(rd, rj) ADDI_D(rd, rj, 0)
@@ -2410,6 +2535,15 @@ LSX instruction starts with V, LASX instruction starts with XV.
             ADDI_D(rd, rj, imm12); \
     } while (0)
 
+#define ADDIy(rd, rj, imm12)            \
+    do {                                \
+        if (rex.is32bits || rex.is67) { \
+            ADDI_W(rd, rj, imm12);      \
+            ZEROUP(rd);                 \
+        } else                          \
+            ADDI_D(rd, rj, imm12);      \
+    } while (0)
+
 #define ADDxw(rd, rj, rk)      \
     do {                       \
         if (rex.w)             \
@@ -2420,12 +2554,29 @@ LSX instruction starts with V, LASX instruction starts with XV.
 
 #define ADDz(rd, rj, rk)       \
     do {                       \
-        if (!rex.is32bits)     \
-            ADD_D(rd, rj, rk); \
-        else {                 \
+        if (rex.is32bits) {    \
             ADD_W(rd, rj, rk); \
             ZEROUP(rd);        \
-        }                      \
+        } else                 \
+            ADD_D(rd, rj, rk); \
+    } while (0)
+
+#define ADDy(rd, rj, rk)                \
+    do {                                \
+        if (rex.is32bits || rex.is67) { \
+            ADD_W(rd, rj, rk);          \
+            ZEROUP(rd);                 \
+        } else                          \
+            ADD_D(rd, rj, rk);          \
+    } while (0)
+
+#define ADDxREGy(rd, rj, rk, s1)        \
+    do {                                \
+        if (rex.is32bits || rex.is67) { \
+            ADDI_W(s1, rk, 0);          \
+            ADD_D(rd, rj, s1);          \
+        } else                          \
+            ADD_D(rd, rj, rk);          \
     } while (0)
 
 #define LDxw(rd, rj, imm12)       \
@@ -2485,7 +2636,7 @@ LSX instruction starts with V, LASX instruction starts with XV.
             ST_D(rd, rj, imm12); \
     } while (0)
 
-#define NEG_D(rd, rs1) SUB_D(rd, xZR, rs1)
+#define NEG_D(rd, rj) SUB_D(rd, xZR, rj)
 
 #define SUBxw(rd, rj, rk)      \
     do {                       \
@@ -2495,7 +2646,7 @@ LSX instruction starts with V, LASX instruction starts with XV.
             SUB_W(rd, rj, rk); \
     } while (0)
 
-#define NEGxw(rd, rs1) SUBxw(rd, xZR, rs1)
+#define NEGxw(rd, rj) SUBxw(rd, xZR, rj)
 
 #define SUBz(rd, rj, rk)       \
     do {                       \

@@ -1398,7 +1398,7 @@ void myStackAlignGVariantNewVa(x64emu_t* emu, const char* fmt, uint64_t* scratch
     } while (*p && (inblocks || state));                    
 }
 
-void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint64_t* mystack, int xmm)
+void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint64_t* mystack, int pos)
 {
     if (!fmt)
         return;
@@ -1408,6 +1408,7 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
     int state = 0;
     int inblocks = 0;
     int tmp;
+    int xmm = R_EAX;
 
     do {
         switch(state) {
@@ -1429,7 +1430,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                     case 'r': // GVariant* of tuple type
                     case 'x': // gint64
                     case 't': // guint64
-                        *mystack = *st;
+                        if (pos < 6)
+                            *mystack = emu->regs[regs_abi[pos++]].q[0];
+                        else
+                            *mystack = *st;
                         ++mystack;
                         ++st;
                         break;
@@ -1464,7 +1468,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                 }
                 if (*p == 'a') break;
                 if (tmp == 0) {
-                    *mystack = *st;
+                    if (pos < 6)
+                        *mystack = emu->regs[regs_abi[pos++]].q[0];
+                    else
+                        *mystack = *st;
                     ++mystack;
                     ++st;
                     state = 0;
@@ -1487,7 +1494,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                     case '(':
                     case ')':
                         // Add a gboolean or gboolean*, no char increment
-                        *mystack = *st;
+                        if (pos < 6)
+                            *mystack = emu->regs[regs_abi[pos++]].q[0];
+                        else
+                            *mystack = *st;
                         ++mystack;
                         ++st;
                         --p;
@@ -1510,7 +1520,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                         break;
 
                     default: // Default to add a gboolean & reinit state?
-                        *mystack = *st;
+                        if (pos < 6)
+                            *mystack = emu->regs[regs_abi[pos++]].q[0];
+                        else
+                            *mystack = *st;
                         ++mystack;
                         ++st;
                         --p;
@@ -1534,7 +1547,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                         break;
                 }
                 if (tmp == 0) {
-                    *mystack = *st;
+                    if (pos < 6)
+                        *mystack = emu->regs[regs_abi[pos++]].q[0];
+                    else
+                        *mystack = *st;
                     ++mystack;
                     ++st;
                     state = 0;
@@ -1547,7 +1563,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                 break;
             case 5: // ^a
                 if ((*p == 's') || (*p == 'o') || (*p == 'y')) {
-                    *mystack = *st;
+                    if (pos < 6)
+                        *mystack = emu->regs[regs_abi[pos++]].q[0];
+                    else
+                        *mystack = *st;
                     ++mystack;
                     ++st;
                     state = 0;
@@ -1557,7 +1576,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                 break;
             case 6: // ^a&
                 if ((*p == 's') || (*p == 'o')) {
-                    *mystack = *st;
+                    if (pos < 6)
+                        *mystack = emu->regs[regs_abi[pos++]].q[0];
+                    else
+                        *mystack = *st;
                     ++mystack;
                     ++st;
                     state = 0;
@@ -1566,7 +1588,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                 break;
             case 7: // ^aa / ^a&a
                 if (*p == 'y') {
-                    *mystack = *st;
+                    if (pos < 6)
+                        *mystack = emu->regs[regs_abi[pos++]].q[0];
+                    else
+                        *mystack = *st;
                     ++mystack;
                     ++st;
                     state = 0;
@@ -1578,7 +1603,10 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
                 break;
             case 9: // ^&a
                 if (*p == 'y') {
-                    *mystack = *st;
+                    if (pos < 6)
+                        *mystack = emu->regs[regs_abi[pos++]].q[0];
+                    else
+                        *mystack = *st;
                     ++mystack;
                     ++st;
                     state = 0;
@@ -1596,6 +1624,7 @@ void myStackAlignGVariantNew(x64emu_t* emu, const char* fmt, uint64_t* st, uint6
 #define NXCB 8
 static my_xcb_connection_t* my_xcb_connects[NXCB] = {0};
 static x64_xcb_connection_t x64_xcb_connects[NXCB] = {0};
+static void* xcb_display[NXCB] = {0};
 
 void* align_xcb_connection(void* src)
 {
@@ -1686,6 +1715,7 @@ void* add_xcb_connection(void* src)
     for(int i=0; i<NXCB; ++i)
         if(!my_xcb_connects[i]) {
             my_xcb_connects[i] = src;
+            xcb_display[i] = NULL;
             unalign_xcb_connection(src, &x64_xcb_connects[i]);
             return &x64_xcb_connects[i];
         }
@@ -1701,8 +1731,28 @@ void del_xcb_connection(void* src)
     for(int i=0; i<NXCB; ++i)
         if(src==&x64_xcb_connects[i]) {
             my_xcb_connects[i] = NULL;
+            xcb_display[i] = NULL;
             memset(&x64_xcb_connects[i], 0, sizeof(x64_xcb_connection_t));
             return;
         }
     printf_log(LOG_NONE, "Error, xcb_connect %p not found for deletion\n", src);
+}
+
+void register_xcb_display(void* d, void* xcb)
+{
+    for(int i=0; i<NXCB; ++i)
+        if(&x64_xcb_connects[i] == xcb) {
+            xcb_display[i] = d;
+            return;
+        }
+}
+
+void unregister_xcb_display(void* d)
+{
+    for(int i=0; i<NXCB; ++i)
+        if(&xcb_display[i] == d) {
+            my_xcb_connects[i] = NULL;
+            memset(&x64_xcb_connects[i], 0, sizeof(x64_xcb_connection_t));
+            return;
+        }
 }

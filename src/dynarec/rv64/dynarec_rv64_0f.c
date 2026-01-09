@@ -21,6 +21,7 @@
 #include "rv64_printer.h"
 #include "dynarec_rv64_private.h"
 #include "dynarec_rv64_functions.h"
+#include "elfloader.h"
 #include "../dynarec_helper.h"
 
 uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog)
@@ -116,7 +117,11 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             SMEND();
             GETIP(addr, x7);
             STORE_XEMU_CALL(x3);
-            CALL_S(const_x64syscall, -1, 0);
+            if(!box64_wine || FindElfAddress(my_context, ip)) {
+                CALL_S(const_x64syscall_linux, -1, 0);
+            } else {
+                CALL_S(const_x64syscall, -1, 0);
+            }
             LOAD_XEMU_CALL();
             TABLE64(x3, addr); // expected return address
             BNE_MARK(xRIP, x3);
@@ -955,6 +960,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             B##NO(tmp1, 8);                                                                      \
         }                                                                                        \
         LDxw(gd, ed, fixedaddress);                                                              \
+        if (!rex.w) ZEROUP(gd);                                                                  \
     }
 
             GOCOND(0x40, "CMOV", "Gd, Ed");
@@ -1865,11 +1871,12 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SRAI(x1, gd, 6);
                 else
                     SRAIW(x1, gd, 5);
-                ADDSL(x3, wback, x1, 2 + rex.w, x1);
+                if (!rex.w && !rex.is32bits) { ADDIW(x1, x1, 0); }
+                ADDSLy(x3, wback, x1, 2 + rex.w, x1);
                 LDxw(x1, x3, fixedaddress);
                 ed = x1;
             }
-            if (X_CF) {
+            IFX (X_CF) {
                 BEXT(x4, ed, gd, x2);
                 ANDI(xFlags, xFlags, ~1); // F_CF is 1
                 OR(xFlags, xFlags, x4);
@@ -1882,7 +1889,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
                 GETED(1);
                 GETGD;
-                u8 = F8;
+                u8 = F8 & (rex.w ? 63 : 31);
                 emit_shld32c(dyn, ninst, rex, ed, gd, u8, x3, x4, x5);
                 WBACK;
             } else {
@@ -1921,7 +1928,8 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SRAI(x1, gd, 6);
                 else
                     SRAIW(x1, gd, 5);
-                ADDSL(x3, wback, x1, 2 + rex.w, x1);
+                if (!rex.w && !rex.is32bits) { ADDIW(x1, x1, 0); }
+                ADDSLy(x3, wback, x1, 2 + rex.w, x1);
                 LDxw(x1, x3, fixedaddress);
                 ed = x1;
                 wback = x3;
@@ -1947,8 +1955,7 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
                 GETED(1);
                 GETGD;
-                u8 = F8;
-                u8 &= (rex.w ? 0x3f : 0x1f);
+                u8 = F8 & (rex.w ? 63 : 31);
                 emit_shrd32c(dyn, ninst, rex, ed, gd, u8, x3, x4, x5);
                 WBACK;
             } else {
@@ -2093,9 +2100,9 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         break;
                     case 7:
                         INST_NAME("CLFLUSH Ed");
-                        MESSAGE(LOG_DUMP, "Need Optimization?\n");
-                        addr = geted(dyn, addr, ninst, nextop, &ed, x1, x2, &fixedaddress, rex, NULL, 0, 0);
-                        CALL_(const_native_clflush, -1, 0, ed, 0);
+                        FAKEED;
+                        // Placebo, TODO: we need Zicbom
+                        SMDMB();
                         break;
                     default:
                         DEFAULT;
@@ -2152,7 +2159,8 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SRAI(x1, gd, 6);
                 else
                     SRAIW(x1, gd, 5);
-                ADDSL(x3, wback, x1, 2 + rex.w, x1);
+                if (!rex.w && !rex.is32bits) { ADDIW(x1, x1, 0); }
+                ADDSLy(x3, wback, x1, 2 + rex.w, x1);
                 LDxw(x1, x3, fixedaddress);
                 ed = x1;
                 wback = x3;
@@ -2325,7 +2333,8 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SRAI(x1, gd, 6);
                 else
                     SRAIW(x1, gd, 5);
-                ADDSL(x3, wback, x1, 2 + rex.w, x1);
+                if (!rex.w && !rex.is32bits) { ADDIW(x1, x1, 0); }
+                ADDSLy(x3, wback, x1, 2 + rex.w, x1);
                 LDxw(x1, x3, fixedaddress);
                 ed = x1;
                 wback = x3;
@@ -2346,8 +2355,13 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             break;
         case 0xBC:
             INST_NAME("BSF Gd, Ed");
-            SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+            if (!BOX64DRENV(dynarec_safeflags)) {
+                SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+            } else {
+                SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_NOFUSION);
+            }
             SET_DFNONE();
+            CLEAR_FLAGS();
             nextop = F8;
             GETED(0);
             GETGD;
@@ -2356,17 +2370,24 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 ed = x4;
             }
             BNE_MARK(ed, xZR);
-            ORI(xFlags, xFlags, 1 << F_ZF);
-            B_NEXT_nocond;
+            IFX (X_ZF) ORI(xFlags, xFlags, 1 << F_ZF);
+            B_MARK2_nocond;
             MARK;
-            // gd is undefined if ed is all zeros, don't worry.
             CTZxw(gd, ed, rex.w, x3, x5);
-            ANDI(xFlags, xFlags, ~(1 << F_ZF));
+            MARK2;
+            if (BOX64DRENV(dynarec_safeflags)) {
+                IFX (X_PF) emit_pf(dyn, ninst, gd, x2, x5);
+            }
             break;
         case 0xBD:
             INST_NAME("BSR Gd, Ed");
-            SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+            if (!BOX64DRENV(dynarec_safeflags)) {
+                SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+            } else {
+                SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_NOFUSION);
+            }
             SET_DFNONE();
+            CLEAR_FLAGS();
             nextop = F8;
             GETED(0);
             GETGD;
@@ -2375,13 +2396,16 @@ uintptr_t dynarec64_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 ed = x4;
             }
             BNE_MARK(ed, xZR);
-            ORI(xFlags, xFlags, 1 << F_ZF);
-            B_NEXT_nocond;
+            IFX (X_ZF) ORI(xFlags, xFlags, 1 << F_ZF);
+            B_MARK2_nocond;
             MARK;
-            ANDI(xFlags, xFlags, ~(1 << F_ZF));
             CLZxw(gd, ed, rex.w, x3, x5, x7);
             ADDI(x3, xZR, rex.w ? 63 : 31);
             SUB(gd, x3, gd);
+            MARK2;
+            if (BOX64DRENV(dynarec_safeflags)) {
+                IFX (X_PF) emit_pf(dyn, ninst, gd, x2, x5);
+            }
             break;
         case 0xBE:
             INST_NAME("MOVSX Gd, Eb");

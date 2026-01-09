@@ -57,6 +57,8 @@ void iFpppp(x64emu_t* emu, uintptr_t fnc);
 void iFppppp(x64emu_t* emu, uintptr_t fnc);
 void iFpu(x64emu_t* emu, uintptr_t fnc);
 void iFpupp(x64emu_t* emu, uintptr_t fnc);
+void iFppppi(x64emu_t* emu, uintptr_t fnc);
+void iFppppppi(x64emu_t* emu, uintptr_t fnc);
 void pFL(x64emu_t* emu, uintptr_t fnc);
 void pFLup(x64emu_t* emu, uintptr_t fnc);
 void pFp(x64emu_t* emu, uintptr_t fnc);
@@ -68,9 +70,11 @@ void pFpll(x64emu_t* emu, uintptr_t fnc);
 void pFpp(x64emu_t* emu, uintptr_t fnc);
 void pFppL(x64emu_t* emu, uintptr_t fnc);
 void pFppp(x64emu_t* emu, uintptr_t fnc);
+void pFppii(x64emu_t* emu, uintptr_t fnc);
 void pFpppp(x64emu_t* emu, uintptr_t fnc);
 void pFppppp(x64emu_t* emu, uintptr_t fnc);
 void pFpppppp(x64emu_t* emu, uintptr_t fnc);
+void pFppppppi(x64emu_t* emu, uintptr_t fnc);
 void pFv(x64emu_t* emu, uintptr_t fnc);
 void uFpp(x64emu_t* emu, uintptr_t fnc);
 void vFLp(x64emu_t* emu, uintptr_t fnc);
@@ -100,6 +104,8 @@ void vFpu(x64emu_t* emu, uintptr_t fnc);
 void vFpup(x64emu_t* emu, uintptr_t fnc);
 void vFpupp(x64emu_t* emu, uintptr_t fnc);
 void vFu(x64emu_t* emu, uintptr_t fnc);
+void vFppppppp(x64emu_t* emu, uintptr_t fnc);
+void vFppppppi(x64emu_t* emu, uintptr_t fnc);
 
 static bridge_t*        my_bridge           = NULL;
 static const char* (*g_type_name)(size_t)   = NULL;
@@ -1162,6 +1168,34 @@ static void bridgeGtkActionInstance(my_GtkAction_t* class)
     bridgeGObjectInstance(&class->parent);
 }
 
+// ----- GtkDrawingArea3Class ------
+
+// wrap (so bridge all calls, just in case)
+static void wrapGtkDrawingArea3Class(my_GtkDrawingArea3Class_t* class)
+{
+    wrapGtkWidget3Class(&class->parent_class);
+}
+// unwrap (and use callback if not a native call anymore)
+static void unwrapGtkDrawingArea3Class(my_GtkDrawingArea3Class_t* class)
+{
+    unwrapGtkWidget3Class(&class->parent_class);
+}
+// autobridge
+static void bridgeGtkDrawingArea3Class(my_GtkDrawingArea3Class_t* class)
+{
+    bridgeGtkWidget3Class(&class->parent_class);
+}
+
+static void unwrapGtkDrawingArea3Instance(my_GtkDrawingArea3_t* class)
+{
+    unwrapGtkWidget3Instance(&class->parent);
+}
+// autobridge
+static void bridgeGtkDrawingArea3Instance(my_GtkDrawingArea3_t* class)
+{
+    bridgeGtkWidget3Instance(&class->parent);
+}
+
 // ----- GtkMisc2Class ------
 
 // wrap (so bridge all calls, just in case)
@@ -1189,6 +1223,7 @@ static void bridgeGtkMisc2Instance(my_GtkMisc2_t* class)
 {
     bridgeGtkWidget2Instance(&class->parent);
 }
+
 // ----- GtkMisc3Class ------
 // no wrapper x86 -> natives of callbacks
 
@@ -1831,6 +1866,116 @@ static void bridgeMetaFrames2Instance(my_MetaFrames2_t* class)
 {
     bridgeGtkWindow2Instance(&class->parent);
 }
+// ----- GtkNotebook2Class ------
+WRAPPER(GtkNotebook2Class, switch_page, void, (void* notebook, void* page, uint32_t page_num), "ppp", notebook, page, page_num);
+WRAPPER(GtkNotebook2Class, select_page, int, (void* notebook, int move_focus), "pi", notebook, move_focus);
+WRAPPER(GtkNotebook2Class, focus_tab, int, (void* notebook, int type), "pi", notebook, type);
+WRAPPER(GtkNotebook2Class, change_current_page, int, (void* notebook, int offset), "pi", notebook, offset);
+WRAPPER(GtkNotebook2Class, move_focus_out,void , (void* notebook, int direction), "pi", notebook, direction);
+WRAPPER(GtkNotebook2Class, reorder_tab, int, (void* notebook, int direction, int move_to_last), "pii", notebook, direction, move_to_last);
+WRAPPER(GtkNotebook2Class, insert_page, int, (void* notebook, void* child, void* tab_label, void* menu_label, int position), "ppppi", notebook, child, tab_label, menu_label, position);
+WRAPPER(GtkNotebook2Class, create_window, void*, (void* notebook, void* page, int x, int y), "ppii", notebook, page, x, y);
+
+#define SUPERGO()                   \
+    GO(switch_page, vFppp);         \
+    GO(select_page, iFpi);          \
+    GO(focus_tab, iFpi);            \
+    GO(change_current_page, iFpi);  \
+    GO(move_focus_out, vFpi);       \
+    GO(reorder_tab, iFpii);         \
+    GO(insert_page, iFppppi);       \
+    GO(create_window, pFppii);      \
+
+// wrap (so bridge all calls, just in case)
+static void wrapGtkNotebook2Class(my_GtkNotebook2Class_t* class)
+{
+    wrapGtkContainer2Class(&class->parent_class);
+    #define GO(A, W) class->A = reverse_##A##_GtkNotebook2Class (W, class->A)
+    SUPERGO()
+    #undef GO
+}
+// unwrap (and use callback if not a native call anymore)
+static void unwrapGtkNotebook2Class(my_GtkNotebook2Class_t* class)
+{
+    unwrapGtkContainer2Class(&class->parent_class);
+    #define GO(A, W)   class->A = find_##A##_GtkNotebook2Class (W, class->A)
+    SUPERGO()
+    #undef GO
+}
+// autobridge
+static void bridgeGtkNotebook2Class(my_GtkNotebook2Class_t* class)
+{
+    bridgeGtkContainer2Class(&class->parent_class);
+    #define GO(A, W) autobridge_##A##_GtkNotebook2Class (W, class->A)
+    SUPERGO()
+    #undef GO
+}
+
+#undef SUPERGO
+
+static void unwrapGtkNotebook2Instance(my_GtkNotebook2_t* class)
+{
+    unwrapGtkContainer2Instance(&class->parent);
+}
+// autobridge
+static void bridgeGtkNotebook2Instance(my_GtkNotebook2_t* class)
+{
+    bridgeGtkContainer2Instance(&class->parent);
+}
+
+// ----- GtkCellRenderer2Class ------
+WRAPPER(GtkCellRenderer2Class, get_size, void, (void* cell, void* widget, void* cell_area, int* x_offset, int* y_offset, int* width, int* height), "ppppppp", cell, widget, cell_area, x_offset, y_offset, width, height);
+WRAPPER(GtkCellRenderer2Class, render, void, (void* cell, void* window, void* widget, void* background_area, void* cell_area, void* expose_area, int flags), "ppppppi", cell, window, widget, background_area, cell_area, expose_area, flags);
+WRAPPER(GtkCellRenderer2Class, activate, int, (void* cell, void* event, void* widget, void* path, void* background_area, void* cell_area, int flags), "ppppppi", cell, event, widget, path, background_area, cell_area, flags);
+WRAPPER(GtkCellRenderer2Class, start_editing, void*, (void* cell, void* event, void* widget, void* path, void* background_area, void* cell_area, int flags), "ppppppi", cell, event, widget, path, background_area, cell_area, flags);
+WRAPPER(GtkCellRenderer2Class, editing_canceled, void, (void* cell), "p", cell);
+WRAPPER(GtkCellRenderer2Class, editing_started, void, (void* cell, void* editable, void* path), "ppp", cell, editable, path);
+  
+#define SUPERGO()                   \
+    GO(get_size, vFppppppp);        \
+    GO(render, vFppppppi);          \
+    GO(activate, iFppppppi);        \
+    GO(start_editing, pFppppppi);   \
+    GO(editing_canceled, vFp);      \
+    GO(editing_started, vFppp);     \
+
+// wrap (so bridge all calls, just in case)
+static void wrapGtkCellRenderer2Class(my_GtkCellRenderer2Class_t* class)
+{
+    wrapGtkObjectClass(&class->parent_class);
+    #define GO(A, W) class->A = reverse_##A##_GtkCellRenderer2Class (W, class->A)
+    SUPERGO()
+    #undef GO
+}
+// unwrap (and use callback if not a native call anymore)
+static void unwrapGtkCellRenderer2Class(my_GtkCellRenderer2Class_t* class)
+{
+    unwrapGtkObjectClass(&class->parent_class);
+    #define GO(A, W)   class->A = find_##A##_GtkCellRenderer2Class (W, class->A)
+    SUPERGO()
+    #undef GO
+}
+// autobridge
+static void bridgeGtkCellRenderer2Class(my_GtkCellRenderer2Class_t* class)
+{
+    bridgeGtkObjectClass(&class->parent_class);
+    #define GO(A, W) autobridge_##A##_GtkCellRenderer2Class (W, class->A)
+    SUPERGO()
+    #undef GO
+}
+
+#undef SUPERGO
+
+static void unwrapGtkCellRenderer2Instance(my_GtkCellRenderer2_t* class)
+{
+    unwrapGtkObjectInstance(&class->parent);
+}
+// autobridge
+static void bridgeGtkCellRenderer2Instance(my_GtkCellRenderer2_t* class)
+{
+    bridgeGtkObjectInstance(&class->parent);
+}
+
 // ----- GDBusObjectManagerClientClass ------
 // wrapper x86 -> natives of callbacks
 WRAPPER(GDBusObjectManagerClient,interface_proxy_signal, void, (void* manager, void* object_proxy, void* interface_proxy, void* sender_name, void* signal_name, void* parameters), "pppppp", manager, object_proxy, interface_proxy, sender_name, signal_name, parameters);
@@ -5302,10 +5447,9 @@ static void* find_signal7_Fct(void* fct)
     printf_log(LOG_NONE, "Warning, no more slot for GTypeInfo signal7 callback\n");
     return NULL;
 }
-static const wrapper_t wrappers[] = {pFpp, pFppp, pFpppp, pFpppp, pFppppp, pFpppppp};
 typedef void* (*finder_t)(void*);
 static const finder_t finders[] = {find_signal2_Fct, find_signal3_Fct, find_signal4_Fct, find_signal5_Fct, find_signal6_Fct, find_signal7_Fct};
-#define MAX_SIGNAL_N 7
+#define MAX_SIGNAL_N (7-2)
 
 // ---- GTypeInfo ----
 // let's handle signal with offset, that are used to wrap custom signal function
@@ -5350,10 +5494,13 @@ void my_unwrap_signal_offset(void* klass)
     printf_log(LOG_DEBUG, "my_unwrap_signal_offset(%p) type=0x%zx with %d signals with offset\n", klass, itype, p->sz);
     for(int i=0; i<p->sz; ++i) {
         void** f = (void**)((uintptr_t)klass + p->a[i].offset);
-        if(!GetNativeFnc((uintptr_t)*f)) {
+        void* new_f = GetNativeFnc((uintptr_t)*f);
+        if(!new_f) {
             // Not a native function: autobridge it
-            void* new_f = finders[p->a[i].n-2](f);
-            printf_log(LOG_DEBUG, "Unwrapping %p -> %p (with alternate)\n", *f, new_f);
+            new_f = finders[p->a[i].n](f);
+        }
+        if(new_f != *f) {
+            printf_log(LOG_DEBUG, "Unwrapping %p[%p: offset=0x%x, n=%d] -> %p (with alternate)\n", *f, f, p->a[i].offset, p->a[i].n, new_f);
             if(!hasAlternate(new_f))
                 addAlternate(new_f, *f);
             *f = new_f;
@@ -5420,14 +5567,14 @@ static size_t parent_class_init_##A = 0;                                    \
 static int my_class_init_##A(void* a, void* b)                              \
 {                                                                           \
     printf_log(LOG_DEBUG, "Custom Class init %d for class %p (parent=%p:%s)\n", A, a, (void*)parent_class_init_##A, g_type_name(parent_class_init_##A));\
-    int ret = RunFunctionFmt(my_class_init_fct_##A, "pp", a, b);\
+    int ret = RunFunctionFmt(my_class_init_fct_##A, "pp", a, b);            \
     size_t type = parent_class_init_##A;                                    \
     while(checkRegisteredClass(type))                                       \
         type = g_type_parent(type);                                         \
     unwrapGTKClass(a, type);                                                \
     my_unwrap_signal_offset(a);                                             \
     if(!strcmp(g_type_name(type), "AtkUtil")) {                             \
-        my_AtkUtilClass_t* p = (my_AtkUtilClass_t*)g_type_class_peek(type);\
+        my_AtkUtilClass_t* p = (my_AtkUtilClass_t*)g_type_class_peek(type); \
         unwrapGTKClass(p, type);                                            \
     }                                                                       \
     return ret;                                                             \
@@ -5452,7 +5599,7 @@ void* find_class_init_Fct(void* fct, size_t parent)
 static uintptr_t my_class_finalize_fct_##A = 0;                                 \
 static int my_class_finalize_##A(void* a, void* b)                              \
 {                                                                               \
-    return RunFunctionFmt(my_class_finalize_fct_##A, "pp", a, b);   \
+    return RunFunctionFmt(my_class_finalize_fct_##A, "pp", a, b);               \
 }
 SUPER()
 #undef GO
@@ -5538,22 +5685,22 @@ SUPER()
 #undef GO
 // Then the static functions callback that may be used with the structure
 #define GO(A)   \
-static int fct_gtk_parent_##A = 0 ;                 \
-static uintptr_t fct_gtk_class_init_##A = 0;        \
-static int my_gtk_class_init_##A(void* g_class) {   \
+static int fct_gtk_parent_##A = 0 ;                                                 \
+static uintptr_t fct_gtk_class_init_##A = 0;                                        \
+static int my_gtk_class_init_##A(void* g_class) {                                   \
     printf_log(LOG_DEBUG, "Calling fct_gtk_class_init_" #A " wrapper\n");           \
-    int ret = (int)RunFunctionFmt(fct_gtk_class_init_##A, "p", g_class);\
+    int ret = (int)RunFunctionFmt(fct_gtk_class_init_##A, "p", g_class);            \
     unwrapGTKClass(g_class, fct_gtk_parent_##A);                                    \
     return ret;                                                                     \
-}   \
-static uintptr_t fct_gtk_object_init_##A = 0;                                           \
-static int my_gtk_object_init_##A(void* object, void* data) {                           \
-    printf_log(LOG_DEBUG, "Calling fct_gtk_object_init_" #A " wrapper\n");              \
-    return (int)RunFunctionFmt(fct_gtk_object_init_##A, "pp", object, data);\
-}   \
-static uintptr_t fct_gtk_base_class_init_##A = 0;                                               \
-static int my_gtk_base_class_init_##A(void* instance, void* data) {                             \
-    printf_log(LOG_DEBUG, "Calling fct_gtk_base_class_init_" #A " wrapper\n");                  \
+}                                                                                   \
+static uintptr_t fct_gtk_object_init_##A = 0;                                       \
+static int my_gtk_object_init_##A(void* object, void* data) {                       \
+    printf_log(LOG_DEBUG, "Calling fct_gtk_object_init_" #A " wrapper\n");          \
+    return (int)RunFunctionFmt(fct_gtk_object_init_##A, "pp", object, data);        \
+}                                                                                   \
+static uintptr_t fct_gtk_base_class_init_##A = 0;                                   \
+static int my_gtk_base_class_init_##A(void* instance, void* data) {                 \
+    printf_log(LOG_DEBUG, "Calling fct_gtk_base_class_init_" #A " wrapper\n");      \
     return (int)RunFunctionFmt(fct_gtk_base_class_init_##A, "pp", instance, data);  \
 }
 

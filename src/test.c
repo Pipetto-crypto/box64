@@ -28,10 +28,14 @@ extern FILE* ftrace;
 
 uint64_t regs[16] = { 0 };
 uint64_t ymmregs[16][4] = { { 0 } };
+uint64_t flags = 0;
 
 bool check_regs[16] = { 0 };
 bool check_xmmregs[16] = { 0 };
 bool check_ymmregs[16] = { 0 };
+bool check_flags = false;
+
+int cputype = 0;
 
 const char* regname[] = { "RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15" };
 
@@ -179,11 +183,26 @@ static void loadTest(const char** filepath, const char* include_path)
     REG(XMM15);
 #undef REG
 
+    if (regdata && regdata->type == json_type_object) {
+        struct json_value_s* flags_value = json_find(regdata->payload, "Flags");
+        if (flags_value && flags_value->type == json_type_string) {
+            struct json_string_s* string = (struct json_string_s*)flags_value->payload;
+            flags = fromstr(string->string);
+            check_flags = true;
+        }
+    }
+
     struct json_value_s* mode = json_find(config->payload, "Mode");
     if (mode && mode->type == json_type_string && !strcmp(((struct json_string_s*)mode->payload)->string, "32BIT")) {
         box64_is32bits = true;
         printf_log(LOG_INFO, "Test is in 32bits mode\n");
     }
+
+    struct json_value_s* cputype_value = json_find(config->payload, "CpuType");
+    if (cputype_value && cputype_value->type == json_type_string && !strcasecmp(((struct json_string_s*)cputype_value->payload)->string, "amd"))
+        cputype = 1; // 0 -> Intel[default], 1 -> AMD
+    else
+        cputype = 0;
 
     struct json_value_s* json_memory_regions = json_find(config->payload, "MemoryRegions");
     if (json_memory_regions && json_memory_regions->type == json_type_object) {
@@ -343,6 +362,8 @@ int unittest(int argc, const char** argv)
     }
 #endif
 
+    if (!box64env.is_cputype_overridden && cputype) SET_BOX64ENV(cputype, cputype);
+
     PrintEnvVariables(&box64env, LOG_INFO);
     my_context = NewBox64Context(argc - 1);
 
@@ -406,6 +427,13 @@ int unittest(int argc, const char** argv)
                 printf_log(LOG_NONE, "YMM%-2d: expected %016zx-%016zx, got %016zx-%016zx\n", i, ymmregs[i][3], ymmregs[i][2], emu->ymm[i].q[1], emu->ymm[i].q[0]);
                 retcode += 1;
             }
+        }
+    }
+
+    if (check_flags) {
+        if (flags != emu->eflags.x64) {
+            printf_log(LOG_NONE, "FLAGS: expected %016zx, got %016zx\n", flags, emu->eflags.x64);
+            retcode += 1;
         }
     }
 

@@ -70,7 +70,7 @@ GO(vkCmdEndRenderPass, vFp)
 GO(vkCmdExecuteCommands, vFpup)
 GO(vkCmdFillBuffer, vFpUUUu)
 GO(vkCmdNextSubpass, vFpi)
-GOM(vkCmdPipelineBarrier, vFEpuuuupupup)
+GO(vkCmdPipelineBarrier, vFpuuuupupup)
 GO(vkCmdPushConstants, vFpUuuup)
 GO(vkCmdResetEvent, vFpUu)
 GO(vkCmdResetQueryPool, vFpUuu)
@@ -139,7 +139,7 @@ GO(vkEnumeratePhysicalDevices, iFppp)
 GO(vkFlushMappedMemoryRanges, iFpup)    // should wrap the array of VkMappedMemoryRange
 GO(vkFreeCommandBuffers, vFpUup)
 GO(vkFreeDescriptorSets, iFpUup)
-GOM(vkFreeMemory, iFEpUp)
+GOM(vkFreeMemory, vFEpUp)
 GO(vkGetBufferMemoryRequirements, vFpUp)
 GO(vkGetDeviceMemoryCommitment, vFpUp)
 GOM(vkGetDeviceProcAddr, pFEpp)
@@ -153,10 +153,10 @@ GOM(vkGetInstanceProcAddr, pFEpp)
 GO(vkGetPhysicalDeviceFeatures, vFpp)
 GO(vkGetPhysicalDeviceFormatProperties, vFpip)
 GO(vkGetPhysicalDeviceImageFormatProperties, iFpiiiuup) // VkImageFormatProperties sems OK
-GOM(vkGetPhysicalDeviceMemoryProperties, vFEpp)
-GOM(vkGetPhysicalDeviceProperties, vFEpp)
+GO(vkGetPhysicalDeviceMemoryProperties, vFpp)
+GO(vkGetPhysicalDeviceProperties, vFpp)
 GO(vkGetPhysicalDeviceQueueFamilyProperties, vFppp)   //VkQueueFamilyProperties is OK
-GOM(vkGetPhysicalDeviceSparseImageFormatProperties, vFEpiiiuipp)
+GO(vkGetPhysicalDeviceSparseImageFormatProperties, vFpiiiuipp)
 GO(vkGetPipelineCacheData, iFpUpp)
 GO(vkGetQueryPoolResults, iFpUuuLpUu)
 GO(vkGetRenderAreaGranularity, vFpUp)
@@ -173,7 +173,7 @@ GO(vkResetEvent, iFpU)
 GO(vkResetFences, iFpup)
 GO(vkSetEvent, iFpU)
 GO(vkUnmapMemory, vFpU)
-GOM(vkUpdateDescriptorSets, vFEpupup)
+GO(vkUpdateDescriptorSets, vFpupup)
 GO(vkWaitForFences, iFpupuU)
 
 // VK_VERSION_1_1
@@ -354,10 +354,10 @@ GO(vkBindImageMemory2KHR, iFpup)
 GOM(vkCreateDisplayModeKHR, iFEpUppp)
 GOM(vkCreateDisplayPlaneSurfaceKHR, iFEpppp)
 GO(vkGetDisplayModePropertiesKHR, iFpUpp)   //VkDisplayModePropertiesKHR seems OK
-GOM(vkGetDisplayPlaneCapabilitiesKHR, iFEpUup)
+GO(vkGetDisplayPlaneCapabilitiesKHR, iFpUup)
 GO(vkGetDisplayPlaneSupportedDisplaysKHR, iFpupp)
 GO(vkGetPhysicalDeviceDisplayPlanePropertiesKHR, iFppp) //VkDisplayPlanePropertiesKHR is OK
-GOM(vkGetPhysicalDeviceDisplayPropertiesKHR, iFEppp)
+GO(vkGetPhysicalDeviceDisplayPropertiesKHR, iFppp)
 
 // VK_KHR_descriptor_update_template
 GOM(vkCreateDescriptorUpdateTemplateKHR, iFEpppp)
@@ -727,6 +727,9 @@ GO(vkGetPipelineExecutableStatisticsKHR, iFpppp)
 // VK_KHR_present_wait
 GO(vkWaitForPresentKHR, iFpUUU)
 
+// VK_KHR_present_wait2
+GO(vkWaitForPresent2KHR, iFpUp)
+
 // VK_KHR_ray_tracing_pipeline
 GO(vkCmdSetRayTracingPipelineStackSizeKHR, vFpu)
 GO(vkCmdTraceRaysIndirectKHR, vFpppppU)
@@ -1073,3 +1076,9 @@ GO(vkGetDataGraphPipelineSessionBindPointRequirementsARM, iFpppp)
 GO(vkGetDataGraphPipelineSessionMemoryRequirementsARM, vFppp)
 GO(vkGetPhysicalDeviceQueueFamilyDataGraphProcessingEnginePropertiesARM, vFppp)
 GO(vkGetPhysicalDeviceQueueFamilyDataGraphPropertiesARM, iFpupp)
+
+// VK_ARM_performance_counters_by_region
+GO(vkEnumeratePhysicalDeviceQueueFamilyPerformanceCountersByRegionARM, iFpuppp)
+
+// Layer stuffs
+//GO(vkNegotiateLoaderLayerInterfaceVersion, iFp)   // structure needs wrapping

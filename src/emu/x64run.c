@@ -25,6 +25,9 @@
 #ifdef DYNAREC
 #include "../dynarec/native_lock.h"
 #endif
+#ifdef HAVE_TRACE
+#include "elfloader.h"
+#endif
 
 #include "modrm.h"
 
@@ -53,7 +56,6 @@ int Run(x64emu_t *emu, int step)
     rex_t rex = {0};
     int unimp = 0;
     int is32bits = (emu->segs[_CS]==0x23);
-    int no_tf = 0;
     int tf = ACCESS_FLAG(F_TF);
 
     if(emu->quit)
@@ -86,8 +88,8 @@ x64emurun:
         #ifndef TEST_INTERPRETER
         // check the TRACE flag before going to next
         if(tf) {
-            if(no_tf)
-                no_tf = 0;
+            if(emu->flags.no_tf)
+                emu->flags.no_tf = 0;
             else {
                 R_RIP = addr;
                 EmitSignal(emu, X64_SIGTRAP, (void*)addr, 1);
@@ -104,12 +106,14 @@ x64emurun:
         rex.is32bits = is32bits;
         rex.is66 = 0;
         rex.is67 = 0;
+        rex.isf0 = 0;
         rex.rep = 0;
-        while((opcode==0xF2) || (opcode==0xF3) 
+        while((opcode==0xF2) || (opcode==0xF3) || (opcode==0xF0)
             || (opcode==0x3E) || (opcode==0x26) || (opcode==0x2e) || (opcode==0x36) 
             || (opcode==0x64) || (opcode==0x65) || (opcode==0x66) || (opcode==0x67)
             || (!is32bits && (opcode>=0x40 && opcode<=0x4f))) {
             switch (opcode) {
+                case 0xF0: rex.isf0 = 1; rex.rex = 0; break;
                 case 0xF2: rex.rep = 1; rex.rex = 0; break;
                 case 0xF3: rex.rep = 2; rex.rex = 0; break;
                 case 0x26: /* ES: */
@@ -127,9 +131,42 @@ x64emurun:
         }
 
         if(rex.seg)
+            #ifdef TEST_INTERPRETER
+            rex.offset = GetSegmentBaseEmu(test->ref, rex.seg);
+            #else
             rex.offset = GetSegmentBaseEmu(emu, rex.seg);
+            #endif
         
-        if(rex.is66) {
+        if(rex.isf0) {
+            /* LOCK prefix */
+            if(rex.is66 && !rex.w) {
+                #ifdef TEST_INTERPRETER
+                if(!(addr = Test66F0(test, rex, addr-1)))
+                    unimp = 1;
+                #else
+                if(!(addr =  Run66F0(emu, rex, addr-1))) {
+                    unimp = 1;
+                    goto fini;
+                }
+                #endif
+            } else {
+                #ifdef TEST_INTERPRETER
+                if(!(addr = TestF0(test, rex, addr-1)))
+                    unimp = 1;
+                #else
+                if(!(addr = RunF0(emu, rex, addr-1))) {
+                    unimp = 1;
+                    goto fini;
+                }
+                #endif
+            }
+            #ifndef TEST_INTERPRETER
+            if(emu->quit) {
+                R_RIP = addr;
+                goto fini;
+            }
+            #endif
+        } else if(rex.is66) {
             /* 16bits prefix */
             #ifdef TEST_INTERPRETER
             if(!(addr = Test66(test, rex, addr-1)))
@@ -207,7 +244,6 @@ x64emurun:
                 goto fini;
             }
             emu->segs[_ES] = Pop32(emu);    // no check, no use....
-            emu->segs_serial[_ES] = 0;
             break;
         GO(0x08, or)                    /*  OR 0x08 -> 0x0D */
         case 0x0E:                      /* PUSH CS */
@@ -284,7 +320,6 @@ x64emurun:
                 goto fini;
             }
             emu->segs[_SS] = Pop32(emu);    // no check, no use....
-            emu->segs_serial[_SS] = 0;
             tf = 0;
             break;
 
@@ -301,7 +336,6 @@ x64emurun:
                 goto fini;
             }
             emu->segs[_DS] = Pop32(emu);    // no check, no use....
-            emu->segs_serial[_DS] = 0;
             break;
 
         case 0x27:                  /* DAA */
@@ -770,9 +804,13 @@ x64emurun:
             break;
         case 0x8D:                      /* LEA Gd,M */
             nextop = F8;
+            if(MODREG) {
+                unimp = 2;
+                goto fini;
+            }
             GETGD;
             tmp64u = GETEA(0);
-            if(rex.w)
+            if (rex.w && !rex.is67)
                 GD->q[0] = tmp64u;
             else
                 GD->q[0] = tmp64u&0xffffffff;
@@ -786,9 +824,10 @@ x64emurun:
                 goto fini;
             }
             emu->segs[tmp8u] = ED->word[0];
-            emu->segs_serial[tmp8u] = 0;
+            if(((tmp8u==_FS) || (tmp8u==_GS)) && emu->segs[tmp8u])
+                GetSegmentBaseEmu(emu, tmp8u);  // refresh segs_offs
             if(tmp8u==_SS && tf)   // disable trace when SS is accessed
-                no_tf = 1;
+                emu->flags.no_tf = 1;
             break;
         case 0x8F:                      /* POP Ed */
             nextop = F8;
@@ -858,45 +897,29 @@ x64emurun:
             break;
         case 0x9A:                      /* CALL FAR seg:off*/
             if(is32bits) {
+                uint32_t new_addr = (rex.is32bits && rex.is66)?(F16):(F32);
                 uint16_t new_cs = F16;
-                uint32_t new_addr = F32;
                 Push32(emu, emu->segs[_CS]);
                 Push32(emu, addr);
                 #ifndef TEST_INTERPRETER
                 if((new_cs&3)!=3) {
                     // R_RIP doesn't advance
-                    printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x\n", new_cs);
+                    printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x at %p\n", new_cs, (void*)R_RIP);
                     R_RSP-=(rex.w?4:8)*2;
                     EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // GP if trying to change priv level
                     goto fini;
                 }
                 emu->segs[_CS] = new_cs;
-                emu->segs_serial[_CS] = 0;
-                R_RIP = new_addr;
+                addr = new_addr;
                 if(is32bits!=(emu->segs[_CS]==0x23)) {
                     is32bits = (emu->segs[_CS]==0x23);
-                    if(is32bits) {
-                        // Zero upper part of the 32bits regs
-                        R_RAX = R_EAX;
-                        R_RBX = R_EBX;
-                        R_RCX = R_ECX;
-                        R_RDX = R_EDX;
-                        R_RSP = R_ESP;
-                        R_RBP = R_EBP;
-                        R_RSI = R_ESI;
-                        R_RDI = R_EDI;
-                    }
-                    #ifndef TEST_INTERPRETER
-                    if(is32bits)
-                        running32bits = 1;
-                    #endif
                 }
                 #endif
             } else {
                 unimp = 2;
                 goto fini;
             }
-            STEP;
+            STEP2;
         case 0x9B:                      /* FWAIT */
             break;
         case 0x9C:                      /* PUSHF */
@@ -907,8 +930,10 @@ x64emurun:
                 Push64(emu, emu->eflags.x64);
             break;
         case 0x9D:                      /* POPF */
-            emu->eflags.x64 = (((rex.is32bits?Pop32(emu):Pop64(emu)) & 0x3F7FD7)/* & (0xffff-40)*/ ) | 0x202; // mask off res2 and res3 and on res1
+            emu->eflags.x64 = (((rex.is32bits?Pop32(emu):Pop64(emu)) & 0x3E7FD7)/* & (0xffff-40)*/ ) | 0x202; // mask off res2 and res3 and on res1
             RESET_FLAGS(emu);
+            if(!tf && ACCESS_FLAG(F_TF))
+                emu->flags.no_tf = 1;   // delay the effect to next opcode
             tf = ACCESS_FLAG(F_TF);
             break;
         case 0x9E:                      /* SAHF */
@@ -1402,7 +1427,6 @@ x64emurun:
                 GETED(0);
                 GETGD;
                 emu->segs[_ES] = *(uint16_t*)(((char*)ED) + 4);
-                emu->segs_serial[_ES] = 0;
                 GD->dword[0] = *(uint32_t*)ED;
             } else {
                 vex_t vex = {0};
@@ -1437,7 +1461,6 @@ x64emurun:
                 GETED(0);
                 GETGD;
                 emu->segs[_DS] = *(uint16_t*)(((char*)ED) + 4);
-                emu->segs_serial[_DS] = 0;
                 GD->dword[0] = *(uint32_t*)ED;
             } else {
                 vex_t vex = {0};
@@ -1528,14 +1551,13 @@ x64emurun:
             break;
         case 0xCA:                      /* FAR RETN */
             tmp16u = F16;
-            if(rex.is32bits) {
+            if(rex.is32bits || !rex.w) {
                 addr = Pop32(emu);
                 emu->segs[_CS] = Pop32(emu);    // no check, no use....
             } else {
                 addr = Pop64(emu);
                 emu->segs[_CS] = Pop64(emu);    // no check, no use....
             }
-            emu->segs_serial[_CS] = 0;
             R_RSP += tmp16u;
             is32bits = (R_CS==0x23);    // checking if CS changed
             #ifndef TEST_INTERPRETER
@@ -1545,14 +1567,13 @@ x64emurun:
             STEP2;
             break;
         case 0xCB:                      /* FAR RET */
-            if(rex.is32bits) {
+            if(rex.is32bits || !rex.w) {
                 addr = Pop32(emu);
-                emu->segs[_CS] = Pop32(emu);    // no check, no use....
+                emu->segs[_CS] = Pop32(emu);    // no check....
             } else {
                 addr = Pop64(emu);
-                emu->segs[_CS] = Pop64(emu);    // no check, no use....
+                emu->segs[_CS] = Pop64(emu);    // no check....
             }
-            emu->segs_serial[_CS] = 0;
             is32bits = (R_CS==0x23);    // checking if CS changed
             #ifndef TEST_INTERPRETER
             if(is32bits)
@@ -1591,7 +1612,7 @@ x64emurun:
                 EmitInterruption(emu, 0x29, (void*)R_RIP);
             } else if (tmp8u==0x80) {
                 R_RIP = addr;
-                if(tf) no_tf = 1;
+                if(tf) emu->flags.no_tf = 1;
                 // 32bits syscall
                 #ifndef TEST_INTERPRETER
                 EmuX86Syscall(emu);
@@ -1635,32 +1656,30 @@ x64emurun:
                 #ifndef TEST_INTERPRETER
                 if((new_cs&3)!=3) {
                     // R_RIP doesn't advance
-                    printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x\n", new_cs);
+                    printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x at %p\n", new_cs, (void*)R_RIP);
                     R_RSP-=(rex.w?4:8)*2;
                     EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // GP if trying to change priv level
                     goto fini;
                 }
                 #endif
                 RESET_FLAGS(emu);
-                uint64_t new_flags = ((((!rex.w)?Pop32(emu):Pop64(emu)) & 0x3F7FD7)/* & (0xffff-40)*/ ) | 0x2; // mask off res2 and res3 and on res1
+                uint64_t new_flags = ((((!rex.w)?Pop32(emu):Pop64(emu)) & 0x3E7FD7)/* & (0xffff-40)*/ ) | 0x2; // mask off res2 and res3 and on res1 and RF
                 if(!is32bits || (is32bits && (new_cs!=0x23))) {
                     uintptr_t new_sp = (!rex.w)?Pop32(emu):Pop64(emu);
                     uint32_t new_ss = ((!rex.w)?Pop32(emu):Pop64(emu))&0xffff;
                     if(!new_ss) {
                         // R_RIP doesn't advance
-                        printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x\n", new_cs);
+                        printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x at %p\n", new_cs, (void*)R_RIP);
                         R_RSP-=(rex.w?4:8)*5;
                         EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // GPF
                         goto fini;
                     }
                     R_RSP = new_sp;
                     emu->segs[_SS] = new_sp;
-                    emu->segs_serial[_SS] = 0;
                 }
                 emu->eflags.x64 = new_flags;
                 tf = ACCESS_FLAG(F_TF);
                 emu->segs[_CS] = new_cs;
-                emu->segs_serial[_CS] = 0;
                 addr = new_addr;
                 R_RIP = addr;
                 if(is32bits!=(emu->segs[_CS]==0x23)) {
@@ -1966,7 +1985,7 @@ x64emurun:
         case 0xE7:                      /* OUT XX, EAX */
             // this is a privilege opcode...
             #ifndef TEST_INTERPRETER
-            F8;
+            (void)F8;
             if(rex.is32bits && BOX64ENV(ignoreint3))
             {} else
             EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0);
@@ -1997,19 +2016,18 @@ x64emurun:
             break;
         case 0xEA:                      /* JMP FAR seg:off*/
             if(is32bits) {
-                uint16_t new_cs = F16;
                 uint32_t new_addr = (rex.is32bits && rex.is66)?(F16):(F32);
+                uint16_t new_cs = F16;
                 #ifndef TEST_INTERPRETER
                 if((new_cs&3)!=3) {
                     // R_RIP doesn't advance
-                    printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x\n", new_cs);
+                    printf_log(LOG_INFO, "Warning, unexpected new_cs=0x%x at %p\n", new_cs, (void*)R_RIP);
                     R_RSP-=(rex.w?4:8)*2;
                     EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // GP if trying to change priv level
                     goto fini;
                 }
                 emu->segs[_CS] = new_cs;
-                emu->segs_serial[_CS] = 0;
-                R_RIP = new_addr;
+                addr = new_addr;
                 if(is32bits!=(emu->segs[_CS]==0x23)) {
                     is32bits = (emu->segs[_CS]==0x23);
                     if(is32bits) {
@@ -2023,17 +2041,16 @@ x64emurun:
                         R_RSI = R_ESI;
                         R_RDI = R_EDI;
                     }
-                    #ifndef TEST_INTERPRETER
                     if(is32bits)
                         running32bits = 1;
-                    #endif
                 }
                 #endif
             } else {
                 unimp = 2;
                 goto fini;
             }
-            STEP;
+            STEP2
+            break;
         case 0xEB:                      /* JMP Ib */
             tmp32s = F8S; // jump is relative
             addr += tmp32s;
@@ -2051,21 +2068,7 @@ x64emurun:
             STEP;
             #endif
             break;
-        case 0xF0:                      /* LOCK prefix */
-            #ifdef TEST_INTERPRETER
-            if(!(addr = TestF0(test, rex, addr)))
-                unimp = 1;
-            #else
-            if(!(addr = RunF0(emu, rex, addr))) {
-                unimp = 1;
-                goto fini;
-            }
-            if(emu->quit) {
-                R_RIP = addr;
-                goto fini;
-            }
-            #endif
-            break;
+
         case 0xF1:                      /* INT1 */
             emu->old_ip = R_RIP;
             #ifndef TEST_INTERPRETER
@@ -2082,6 +2085,7 @@ x64emurun:
             } else
             #endif
             {
+                CHECK_FLAGS(emu);
                 printf_log(LOG_DEBUG, "HLT encountered in interpreter, exiting\n");
                 emu->quit = 1;
                 goto fini;
@@ -2296,6 +2300,11 @@ x64emurun:
                         tmp64u = (uintptr_t)getAlternate((void*)tmp64u);
                         Push64(emu, addr);
                     }
+                    #ifdef HAVE_TRACE
+                    if(!tmp64u) {
+                        printf_log(LOG_INFO, "Warning, calling to NULL address from x64addr=%p/%s\n", R_RIP, getAddrFunctionName(R_RIP));
+                    }
+                    #endif
                     addr = tmp64u;
                     STEP2
                     break;
@@ -2331,6 +2340,7 @@ x64emurun:
                                 R_RBP = R_EBP;
                                 R_RSI = R_ESI;
                                 R_RDI = R_EDI;
+                                addr = addr & 0xffffffff;   // including IP
                             }
                             #ifndef TEST_INTERPRETER
                             if(is32bits)
@@ -2346,6 +2356,11 @@ x64emurun:
                     else
                         addr = (uintptr_t)ED->q[0];
                     addr = (uintptr_t)getAlternate((void*)addr);
+                    #ifdef HAVE_TRACE
+                    if(!addr) {
+                        printf_log(LOG_INFO, "Warning, jumping to NULL address from x64addr=%p/%s\n", R_RIP, getAddrFunctionName(R_RIP));
+                    }
+                    #endif
                     STEP2
                     break;
                 case 5:                 /* JMP FAR Ed */

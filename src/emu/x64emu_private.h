@@ -37,6 +37,7 @@ typedef struct x64emu_s x64emu_t;
 
 typedef struct x64test_s {
     x64emu_t*   emu;
+    x64emu_t*   ref;
     uintptr_t   memaddr;
     int         memsize;
     int         test;
@@ -44,12 +45,14 @@ typedef struct x64test_s {
     uint8_t     mem[32];
 } x64test_t;
 
+#define FLAGS_NO_TF     7
 typedef struct emu_flags_s {
     uint32_t    need_jmpbuf:1;    // need a new jmpbuff for signal handling
     uint32_t    quitonlongjmp:2;  // quit if longjmp is called
     uint32_t    quitonexit:2;     // quit if exit/_exit is called
     uint32_t    longjmp:1;        // if quit because of longjmp
     uint32_t    jmpbuf_ready:1;   // the jmpbuf in the emu is ok and don't need refresh
+    uint32_t    no_tf:1;          // no TF on current opcode (to manage the delay of application of the flag)
 } emu_flags_t;
 
 #define N_SCRATCH 200
@@ -90,7 +93,6 @@ typedef struct x64emu_s {
     uint16_t    segs[6];        // only 32bits value?
     uint16_t    dummy_seg6, dummy_seg7; // to stay aligned
     uintptr_t   segs_offs[6];   // computed offset associate with segment
-    uint32_t    segs_serial[6];  // are seg offset clean (not 0) or does they need to be re-computed (0)? For GS, serial need to be the same as context->sel_serial
     // parent context
     box64context_t *context;
     // cpu helpers

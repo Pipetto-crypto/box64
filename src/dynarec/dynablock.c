@@ -221,16 +221,13 @@ void cancelFillBlock()
     LongJmp(GET_JUMPBUFF(dynarec_jmpbuf), 1);
 }
 
-#ifndef WIN32
-static int critical_filled = 0;
-static sigset_t critical_prot = {0};
-sigset_t old_sig = {0};
-#endif
-
-void cancelFillBlockCriticalSection()
+void dynablock_leave_runtime(dynablock_t* db)
 {
-    pthread_sigmask(SIG_SETMASK, &old_sig, NULL);
+    if(!db) return;
+    if(!db->tick) return;
+    __atomic_fetch_sub(&db->in_used, 1, __ATOMIC_ACQ_REL);
 }
+
 /* 
     return NULL if block is not found / cannot be created. 
     Don't create if create==0
@@ -240,6 +237,8 @@ static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t 
     if (hasAlternate((void*)filladdr))
         return NULL;
     const uint32_t req_prot = (box64_pagesize==4096)?(PROT_EXEC|PROT_READ):PROT_READ;
+    if(BOX64ENV(nodynarec_delay) && (addr>=BOX64ENV(nodynarec_start)) && (addr<BOX64ENV(nodynarec_end)))
+        return NULL;
     dynablock_t* block = getDB(addr);
     if(block || !create) {
         if(block && getNeedTest(addr) && (getProtection(addr)&req_prot)!=req_prot)
@@ -248,6 +247,9 @@ static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t 
     }
 
     #ifndef WIN32
+    static int critical_filled = 0;
+    static sigset_t critical_prot = {0};
+    sigset_t old_sig = {0};
     if(!critical_filled) {
         critical_filled = 1;
         sigfillset(&critical_prot);
@@ -351,6 +353,7 @@ dynablock_t* DBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int is32bits)
                     return db;
                 }
                 mutex_unlock(&my_context->mutex_dyndump);
+                dynarec_log(LOG_DEBUG, "Cannot run block (or previous) %p from %p:%p (hash:%X/%X, always_test:%d, previous=%p/hash=%X) for %p\n", db, db->x64_addr, db->x64_addr+db->x64_size-1, hash, db->hash, db->always_test,db->previous, db->previous?db->previous->hash:0,(void*)addr);
                 return NULL;    // will be handle when hotpage is over
             }
             db->done = 0;   // invalidating the block
@@ -441,10 +444,15 @@ dynablock_t* DBAlternateBlock(x64emu_t* emu, uintptr_t addr, uintptr_t filladdr,
 
 uintptr_t getX64Address(dynablock_t* db, uintptr_t native_addr)
 {
-    uintptr_t x64addr = (uintptr_t)db->x64_addr;
-    uintptr_t armaddr = (uintptr_t)db->block;
     if ((native_addr < (uintptr_t)db->block) || (native_addr > (uintptr_t)db->actual_block + db->size))
         return 0;
+    uintptr_t x64addr = (uintptr_t)db->x64_addr;
+    uintptr_t armaddr = (uintptr_t)db->block;
+    if (!db->isize) return x64addr;
+    if(native_addr<(uintptr_t)db->block+db->prefixsize)
+        // issue indide the prefix, return as the 1st opcode
+        return x64addr;
+    armaddr += db->prefixsize;
     int i = 0;
     do {
         int x64sz = 0;
@@ -470,6 +478,7 @@ int getX64AddressInst(dynablock_t* db, uintptr_t x64pc)
     int ret = 0;
     if (x64pc < (uintptr_t)db->x64_addr || x64pc > (uintptr_t)db->x64_addr + db->x64_size)
         return -1;
+    armaddr += db->prefixsize;
     int i = 0;
     do {
         int x64sz = 0;
@@ -487,4 +496,30 @@ int getX64AddressInst(dynablock_t* db, uintptr_t x64pc)
         ret++;
     } while (db->instsize[i].x64 || db->instsize[i].nat);
     return ret;
+}
+
+uintptr_t getX64InstAddress(dynablock_t* db, int inst)
+{
+    uintptr_t x64addr = (uintptr_t)db->x64_addr;
+    uintptr_t armaddr = (uintptr_t)db->block + db->prefixsize;
+    if (inst < 0 || inst > db->isize)
+        return (uintptr_t)-1LL;
+    int i = 0;
+    int ret = 0;
+    do {
+        if (inst == ret)
+            return x64addr;
+        int x64sz = 0;
+        int armsz = 0;
+        do {
+            x64sz += db->instsize[i].x64;
+            armsz += db->instsize[i].nat * 4;
+            ++i;
+        } while ((db->instsize[i - 1].x64 == 15) || (db->instsize[i - 1].nat == 15));
+        // if the opcode is a NOP on ARM side (so armsz==0), it cannot be an address to find
+        armaddr += armsz;
+        x64addr += x64sz;
+        ret++;
+    } while (db->instsize[i].x64 || db->instsize[i].nat);
+    return (uintptr_t)-1LL;
 }

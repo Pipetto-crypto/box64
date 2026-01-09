@@ -15,9 +15,12 @@ typedef struct dynablock_s {
     void*           block;  // block-sizeof(void*) == self
     void*           actual_block;   // the actual start of the block (so block-sizeof(void*))
     struct dynablock_s*    previous;   // a previous block that might need to be freed
+    uint32_t        in_used;// will be 0 if not in_used, >0 if used be some code
+    uint32_t        tick;    // last "tick" when dynablock was run
     void*           x64_addr;
     uintptr_t       x64_size;
     size_t          native_size;
+    uint32_t        prefixsize; // size in byte of the prefix of the block
     int             size;
     uint32_t        hash;
     uint8_t         done;

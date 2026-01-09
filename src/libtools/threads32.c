@@ -28,6 +28,7 @@
 #include "bridge.h"
 #include "threads32.h"
 #include "x64tls.h"
+#include "x64_signals.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #endif
@@ -38,6 +39,7 @@
 
 typedef void (*vFppp_t)(void*, void*, void*);
 typedef void (*vFpi_t)(void*, int);
+typedef int  (*iFv_t)(void);
 typedef int  (*iFLi_t)(unsigned long, int);
 //starting with glibc 2.34+, those 2 functions are in libc.so as versioned symbol only
 // So use dlsym to get the symbol unversioned, as simple link will not work.
@@ -46,6 +48,7 @@ static vFpi_t real_pthread_cleanup_pop_restore = NULL;
 // with glibc 2.34+, pthread_kill changed behaviour and might break some program, so using old version if possible
 // it will be pthread_kill@GLIBC_2.0+, need to be found, while it's GLIBC_2.0 on i386
 static iFLi_t real_phtread_kill_old = NULL;
+static iFv_t real_pthread_yield = NULL;
 // those function can be used simply
 void _pthread_cleanup_push(void* buffer, void* routine, void* arg);	// declare hidden functions
 void _pthread_cleanup_pop(void* buffer, int exec);
@@ -113,7 +116,7 @@ static void* pthread_routine(void* p)
 	et->hself = to_hash(et->self);
 	// setup callstack and run...
 	x64emu_t* emu = et->emu;
-	getTLSData(emu);
+	refreshTLSData(emu);
 	Push_32(emu, 0);	// PUSH 0 (backtrace marker: return address is 0)
 	Push_32(emu, 0);	// PUSH BP
 	R_EBP = R_ESP;	// MOV BP, SP
@@ -157,7 +160,7 @@ EXPORT int my32_pthread_attr_setstack(x64emu_t* emu, void* attr, void* stackaddr
 
 EXPORT int my32_pthread_create(x64emu_t *emu, void* t, void* attr, void* start_routine, void* arg)
 {
-	int stacksize = 2*1024*1024;	//default stack size is 2Mo
+	size_t stacksize = 2*1024*1024;	//default stack size is 2Mo
 	void* attr_stack;
 	size_t attr_stacksize;
 	int own;
@@ -228,6 +231,14 @@ EXPORT int my32_pthread_create(x64emu_t *emu, void* t, void* attr, void* start_r
 	if(BOX64ENV(dynarec)) {
 		// pre-creation of the JIT code for the entry point of the thread
 		DBGetBlock(emu, (uintptr_t)start_routine, 1, 1);
+	}
+	if(BOX64ENV(nodynarec_delay)) {
+		static int num_threads = 0;
+		++num_threads;
+		if(num_threads==2 && BOX64ENV(nodynarec_start)) {
+			BOX64ENV(nodynarec_start) = 0;
+			BOX64ENV(nodynarec_end) = 0;
+		}
 	}
 	#endif
 	// create thread
@@ -301,23 +312,27 @@ EXPORT int my32_pthread_rwlock_init(void* rdlock, void* attr)
 	// the structure is bigger, but the "active" part should be the same size, so just save/restoore the padding at init
 	uint8_t buff[sizeof(pthread_rwlock_t)];
 	if(rdlock && sizeof(pthread_rwlock_t)>X86_RWLOCK_SIZE) {
-		memcpy(buff, rdlock+32, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
+		memcpy(buff, rdlock+X86_RWLOCK_SIZE, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
 	}
 	int ret = pthread_rwlock_init(rdlock, attr);
-	memcpy(rdlock+32, buff, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
+	if(rdlock && sizeof(pthread_rwlock_t)>X86_RWLOCK_SIZE) {
+		memcpy(rdlock+X86_RWLOCK_SIZE, buff, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
+	}
 	return ret;
 }
 EXPORT int my32___pthread_rwlock_init(void*, void*) __attribute__((alias("my32_pthread_rwlock_init")));
 
 EXPORT int my32_pthread_rwlock_destroy(void* rdlock)
 {
-	// the structure is bigger, but the "active" part should be the same size, so just save/restoore the padding at init
+	// the structure is bigger, but the "active" part should be the same size, so just save/restore the padding at init
 	uint8_t buff[sizeof(pthread_rwlock_t)];
 	if(rdlock && sizeof(pthread_rwlock_t)>X86_RWLOCK_SIZE) {
-		memcpy(buff, rdlock+32, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
+		memcpy(buff, rdlock+X86_RWLOCK_SIZE, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
 	}
 	int ret = pthread_rwlock_destroy(rdlock);
-	memcpy(rdlock+32, buff, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
+	if(rdlock && sizeof(pthread_rwlock_t)>X86_RWLOCK_SIZE) {
+		memcpy(rdlock+X86_RWLOCK_SIZE, buff, sizeof(pthread_rwlock_t)-X86_RWLOCK_SIZE);
+	}
 	return ret;
 }
 
@@ -411,28 +426,33 @@ static void* findkey_destructorFct(void* fct)
 
 int EXPORT my32_pthread_once(x64emu_t* emu, int* once, void* cb)
 {
-	if(*once)	// quick test first
+	if(*once==1)	// quick test first
 		return 0;
-	// slow test now
-	#ifdef DYNAREC
-	int old = native_lock_xchg_d(once, 1);
-	#else
-	int old = *once;	// outside of the mutex in case once is badly formed
-	pthread_mutex_lock(&my_context->mutex_lock);
-	old = *once;
-	*once = 1;
-	pthread_mutex_unlock(&my_context->mutex_lock);
-	#endif
-	if(old)
-		return 0;
-    // make some room and align R_RSP before doing the call (maybe it would be simpler to just use Callback functions)
-    Push_32(emu, R_EBP); // push rbp
-    R_EBP = R_ESP;      // mov rbp, rsp
-    R_ESP -= 0x200;
-    R_ESP &= ~63LL;
-	DynaCall(emu, (uintptr_t)cb);
-	R_ESP = R_EBP;          // mov rsp, rbp
-	R_EBP = Pop32(emu);     // pop rbp
+	if(__sync_bool_compare_and_swap(once, 0, 2)) {
+		// make some room and align R_RSP before doing the call (maybe it would be simpler to just use Callback functions)
+		Push_32(emu, R_EBP); // push rbp
+		R_EBP = R_ESP;      // mov rbp, rsp
+		R_ESP -= 0x200;
+		R_ESP &= ~63LL;
+		DynaCall(emu, (uintptr_t)cb);
+		R_ESP = R_EBP;          // mov rsp, rbp
+		R_EBP = Pop32(emu);     // pop rbp
+		*once = 1;
+		__sync_synchronize();
+	} else {
+		// nope, functionis running, wait until it's done
+		// adding the same workaround as in 64bits version, just in case
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+		uint64_t t = ts.tv_sec*1000000000LL + ts.tv_nsec;
+		while(*once!=1) {
+			sched_yield();
+			clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+			if((ts.tv_sec*1000000000LL + ts.tv_nsec)-t>10*1000000LL)	// if wait last for more than 10ms, force as completed
+				*once = 1;
+			__sync_synchronize();
+		}
+	}
 	return 0;
 }
 EXPORT int my32___pthread_once(x64emu_t* emu, void* once, void* cb) __attribute__((alias("my32_pthread_once")));
@@ -455,7 +475,7 @@ kh_mapcond_t *mapcond = NULL;
 
 static pthread_cond_t* add_cond(void* cond)
 {
-	if(((uintptr_t)cond)&7==0)
+	if((((uintptr_t)cond)&7)==0)
 		return cond;
 	mutex_lock(&my_context->mutex_thread);
 	khint_t k;
@@ -472,24 +492,20 @@ static pthread_cond_t* add_cond(void* cond)
 }
 static pthread_cond_t* get_cond(void* cond)
 {
-	if(((uintptr_t)cond)&7==0)
+	if((((uintptr_t)cond)&7)==0)
 		return cond;
 	pthread_cond_t* ret;
 	int r;
 	mutex_lock(&my_context->mutex_thread);
-	khint_t k = kh_get(mapcond, mapcond, *(uintptr_t*)cond);
+	khint_t k = kh_get(mapcond, mapcond, (uintptr_t)cond);
 	if(k==kh_end(mapcond)) {
-		khint_t k = kh_get(mapcond, mapcond, (uintptr_t)cond);
-		if(k==kh_end(mapcond)) {
-			printf_log(LOG_DEBUG, "BOX32: Note: phtread_cond not found, create a new empty one\n");
-			ret = (pthread_cond_t*)box_calloc(1, sizeof(pthread_cond_t));
-			k = kh_put(mapcond, mapcond, (uintptr_t)cond, &r);
-			kh_value(mapcond, k) = ret;
-			//*(ptr_t*)cond = to_ptrv(cond);
-			//pthread_cond_init(ret, NULL);
-			memcpy(ret, cond, sizeof(pthread_cond_t));
-		} else
-			ret = kh_value(mapcond, k);
+		printf_log(LOG_DEBUG, "BOX32: Note: phtread_cond not found, create a new empty one\n");
+		ret = (pthread_cond_t*)box_calloc(1, sizeof(pthread_cond_t));
+		k = kh_put(mapcond, mapcond, (uintptr_t)cond, &r);
+		kh_value(mapcond, k) = ret;
+		//*(ptr_t*)cond = to_ptrv(cond);
+		//pthread_cond_init(ret, NULL);
+		memcpy(ret, cond, sizeof(pthread_cond_t));
 	} else
 		ret = kh_value(mapcond, k);
 	mutex_unlock(&my_context->mutex_thread);
@@ -497,13 +513,13 @@ static pthread_cond_t* get_cond(void* cond)
 }
 static void del_cond(void* cond)
 {
-	if(((uintptr_t)cond)&7==0)
+	if((((uintptr_t)cond)&7)==0)
 		return;
 	if(!mapcond)
 		return;
 	mutex_lock(&my_context->mutex_thread);
-	khint_t k = kh_get(mapcond, mapcond, *(uintptr_t*)cond);
-	if(k!=kh_end(mapcond)) {
+	khint_t k = kh_get(mapcond, mapcond, (uintptr_t)cond);
+	if(k==kh_end(mapcond)) {
 		box_free(kh_value(mapcond, k));
 		kh_del(mapcond, mapcond, k);
 	}
@@ -774,7 +790,7 @@ EXPORT int my32_pthread_attr_setstacksize(x64emu_t* emu, void* attr, size_t p)
 	GetStackSize((uintptr_t)attr, &pp, &size);
 	AddStackSize((uintptr_t)attr, pp, p);
 	// PTHREAD_STACK_MIN on x86 might be lower than the current platform...
-	if(p>=0xc000 && p<PTHREAD_STACK_MIN && !(p&4095))
+	if(p>=0xc000 && p<(size_t)PTHREAD_STACK_MIN && !(p&4095))
 		p = PTHREAD_STACK_MIN;
 	return pthread_attr_setstacksize(get_attr(attr), p);
 }
@@ -859,11 +875,31 @@ EXPORT int my32_pthread_attr_setaffinity_np(x64emu_t* emu, void* attr, uint32_t 
 }
 #endif
 
+EXPORT int my32_pthread_kill(x64emu_t* emu, void* thread, int sig)
+{
+	sig = signal_from_x64(sig);
+	// should ESCHR result be filtered, as this is expected to be the 2.34 behaviour?
+	(void)emu;
+	// check for old "is everything ok?"
+	if(thread==NULL && sig==0)
+		return pthread_kill(pthread_self(), 0);
+	#ifdef BAD_PKILL
+	if(sig==0 && thread!=(void*)pthread_self())
+		return get_thread(thread)?0:ESRCH;
+	#endif
+	return pthread_kill((pthread_t)thread, sig);
+}
+
 EXPORT int my32_pthread_kill_old(x64emu_t* emu, void* thread, int sig)
 {
+	sig = signal_from_x64(sig);
     // check for old "is everything ok?"
     if((thread==NULL) && (sig==0))
         return real_phtread_kill_old(pthread_self(), 0);
+	#ifdef BAD_PKILL
+	if(sig==0 && thread!=(void*)pthread_self())
+		return get_thread(thread)?0:ESRCH;
+	#endif
     return real_phtread_kill_old((pthread_t)thread, sig);
 }
 
@@ -884,7 +920,7 @@ pthread_mutex_t* createNewMutex()
 	return ret;
 }
 // init = 0: just get the mutex
-// init = 1: get the mutex and init it with optione attr (attr will disallow native mutex)
+// init = 1: get the mutex and init it with optional attr (attr will disallow native mutex)
 pthread_mutex_t* getAlignedMutex(pthread_mutex_t* m)
 {
 	fake_phtread_mutex_t* fake = (fake_phtread_mutex_t*)m;
@@ -915,7 +951,7 @@ pthread_mutex_t* getAlignedMutex(pthread_mutex_t* m)
 	pthread_mutexattr_settype(&attr, fake->i386__kind);
 	pthread_mutex_init(from_ptrv(fake->real_mutex), &attr);
 	pthread_mutexattr_destroy(&attr);
-	fake->__kind==KIND_SIGN;
+	fake->__kind = KIND_SIGN;
 	printf_log(LOG_DEBUG, " (fb: m=%p) ", from_ptrv(fake->real_mutex));
 	return from_ptrv(fake->real_mutex);
 }
@@ -1003,6 +1039,11 @@ EXPORT int my32_pthread_mutex_unlock(pthread_mutex_t *m)
 }
 EXPORT int my32___pthread_mutex_unlock(pthread_mutex_t *m) __attribute__((alias("my32_pthread_mutex_unlock")));
 
+EXPORT int my32_pthread_yield(x64emu_t* emu)
+{
+	return real_pthread_yield();
+}
+
 static int done = 0;
 void init_pthread_helper_32()
 {
@@ -1024,6 +1065,10 @@ void init_pthread_helper_32()
 		printf_log(LOG_INFO, "Warning, older than 2.34 pthread_kill not found, using current one\n");
 		real_phtread_kill_old = (iFLi_t)pthread_kill;
 	}
+	// pthread_yield (or sched_yield if not found)
+	real_pthread_yield = (iFv_t)dlsym(NULL, "pthread_yield");
+	if(!real_pthread_yield)
+		real_pthread_yield = sched_yield;
 
 	mapcond = kh_init(mapcond);
 }

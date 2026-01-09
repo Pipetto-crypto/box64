@@ -49,7 +49,7 @@ void EmitSignal(x64emu_t* emu, int sig, void* addr, int code)
         elfheader_t* elf = FindElfAddress(my_context, R_RIP);
         if (elf)
             elfname = ElfName(elf);
-        printf_log(LOG_NONE, "Emit Signal %d at IP=%p(%s / %s) / addr=%p, code=0x%x\n", sig, (void*)R_RIP, x64name ? x64name : "???", elfname ? elfname : "?", addr, code);
+        printf_log(LOG_NONE, "%04d|Emit Signal %d at IP=%p(%s / %s) / addr=%p, code=0x%x\n", GetTID(), sig, (void*)R_RIP, x64name ? x64name : "???", elfname ? elfname : "?", addr, code);
         if(sig==5)
             printf_log(LOG_INFO, "\t Opcode (%02X %02X %02X %02X) %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
                 Peek(emu, -4), Peek(emu, -3), Peek(emu, -2), Peek(emu, -1),
@@ -226,7 +226,7 @@ void EmitWineInt(x64emu_t* emu, int num, void* addr)
         ResetFlags(emu);
         sigcontext->uc_mcontext.gregs[X64_EFL] = emu->eflags.x64;
         // get segments
-        sigcontext->uc_mcontext.gregs[X64_CSGSFS] = ((uint64_t)(R_CS)) | (((uint64_t)(R_GS))<<16) | (((uint64_t)(R_FS))<<32);
+        sigcontext->uc_mcontext.gregs[X64_CSGSFS] = ((uint64_t)(R_CS)) | (((uint64_t)(R_GS))<<16) | (((uint64_t)(R_FS))<<32) | (((uint64_t)(R_SS))<<48);
         if(R_CS==0x23) {
             // trucate regs to 32bits, just in case
             #define GO(R)   sigcontext->uc_mcontext.gregs[X64_R##R]&=0xFFFFFFFF
@@ -290,6 +290,7 @@ void EmitWineInt(x64emu_t* emu, int num, void* addr)
         R_CS = sigcontext->uc_mcontext.gregs[X64_CSGSFS]&0xffff;
         R_GS = (sigcontext->uc_mcontext.gregs[X64_CSGSFS]>>16)&0xffff;
         R_FS = (sigcontext->uc_mcontext.gregs[X64_CSGSFS]>>32)&0xffff;
+        R_SS = (sigcontext->uc_mcontext.gregs[X64_CSGSFS]>>48)&0xffff;
         // fpu
         fpu_xrstor_mask(emu, xstate, 0, 0b111);
     }

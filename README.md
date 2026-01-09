@@ -4,7 +4,7 @@
 
 [Website](https://box86.org/) | [Changelog](https://github.com/ptitSeb/box64/blob/main/docs/CHANGELOG.md) | [中文](https://github.com/ptitSeb/box64/blob/main/README_CN.md) | [Українська](https://github.com/ptitSeb/box64/blob/main/README_UK.md) | [Report an Error](https://github.com/ptitSeb/box64/issues/new)
 
-![Build Status](https://app.travis-ci.com/ptitSeb/box64.svg?branch=main) ![Stars](https://img.shields.io/github/stars/ptitSeb/box64) ![Forks](https://img.shields.io/github/forks/ptitSeb/box64) ![Contributors](https://img.shields.io/github/contributors/ptitSeb/box64) ![Pull Requests](https://img.shields.io/github/issues-pr/ptitSeb/box64) ![Issues](https://img.shields.io/github/issues/ptitSeb/box64)
+![Build Status](https://github.com/ptitSeb/box64/actions/workflows/release.yml/badge.svg) ![Stars](https://img.shields.io/github/stars/ptitSeb/box64) ![Forks](https://img.shields.io/github/forks/ptitSeb/box64) ![Contributors](https://img.shields.io/github/contributors/ptitSeb/box64) ![Pull Requests](https://img.shields.io/github/issues-pr/ptitSeb/box64) ![Issues](https://img.shields.io/github/issues/ptitSeb/box64)
 
 ---
 
@@ -83,9 +83,9 @@ For more information, check [Usage Documentation](docs/USAGE.md).
 
 Box64 wraps GTK libraries, supporting both gtk2 and gtk3.
 
-### Linux Steam
+### Steam
 
-Linux Steam requires Box86 or Box32 due to its 32-bit client app, but uses 64-bit local server binaries. Systems with less than 6GB RAM may need a swap file for optimal performance.
+See [Steam Documentation](docs/STEAM.md).
 
 ### Wine
 

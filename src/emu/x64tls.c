@@ -94,8 +94,6 @@ uint32_t my_set_thread_area_32(x64emu_t* emu, thread_area_32_t* td)
         emu->seggdt[idx].is32bits = 1;
     }
 
-    ResetSegmentsCache(emu);
-
     return 0;
 }
 
@@ -123,13 +121,14 @@ uint32_t my_modify_ldt(x64emu_t* emu, int op, thread_area_t* td, int size)
     }
 
     if(box64_is32bits) {
-        emu->segs_serial[_GS] = 0;
         emu->segldt[idx].base = td->base_addr;
         emu->segldt[idx].limit = td->limit;
         emu->segldt[idx].present = 1;
+        if((emu->segs[_FS]>>3)==idx)
+            emu->segs_offs[_FS] =emu->segldt[idx].base;
+        if((emu->segs[_GS]>>3)==idx)
+            emu->segs_offs[_GS] =emu->segldt[idx].base;
     }
-
-    ResetSegmentsCache(emu);
 
     return 0;
 }
@@ -166,15 +165,21 @@ int my_arch_prctl(x64emu_t *emu, int code, void* addr)
     errno = 0;
     switch(code) {
         case ARCH_GET_GS:
-            *(void**)addr = GetSegmentBase(emu, emu->segs[_GS]);
+            *(uintptr_t*)addr = GetSegmentBaseEmu(emu, _GS);
             return 0;
         case ARCH_GET_FS:
-            *(void**)addr = GetSegmentBase(emu, emu->segs[_FS]);
+            *(uintptr_t*)addr = GetSegmentBaseEmu(emu, _FS);
             return 0;
         case ARCH_SET_FS:
         case ARCH_SET_GS:
             seg=(code==ARCH_SET_FS)?_FS:_GS;
             int idx = -1;
+            if(emu->segs[_CS]!=0x23) {
+                // 64bits version, simply using FSGSBASE....
+                emu->segs[seg] = 0;
+                emu->segs_offs[seg] = (uintptr_t)addr;
+                return 0;
+            }
             // search if it's a TLS base
             if(GetSeg43Base(emu)==addr)
                 idx = 0x43>>3;
@@ -197,7 +202,6 @@ int my_arch_prctl(x64emu_t *emu, int code, void* addr)
                 errno = EINVAL;
                 return -1;
             }
-            emu->segs_serial[seg] = 0;
             my_context->seggdt[idx].base = (uintptr_t)addr;
             my_context->seggdt[idx].limit = 0;
             my_context->seggdt[idx].present = 1;
@@ -206,7 +210,7 @@ int my_arch_prctl(x64emu_t *emu, int code, void* addr)
                 emu->seggdt[idx].limit = 0;
                 emu->seggdt[idx].present = 1;
             }
-            ResetSegmentsCache(emu);
+            emu->segs_offs[seg] = (uintptr_t)addr;
             return 0;
         case ARCH_GET_XCOMP_SUPP:
         case ARCH_GET_XCOMP_PERM:
@@ -342,13 +346,22 @@ static void* resizeTLSData(box64context_t *context, void* oldptr)
             }
             // adjust DTS
             if(oldata->n_elfs!=context->elfsize) {
-                uintptr_t dtp = (uintptr_t)ptr+POS_TLS;
-                for (int i=oldata->n_elfs; i<context->elfsize; ++i) {
-                    // set pointer
-                    dtp = (uintptr_t)ptr + GetTLSBase(context->elfs[i]);
-                    *(uint64_t*)((uintptr_t)ptr+POS_TLS+i*16) = dtp;
-                    *(uint64_t*)((uintptr_t)ptr+POS_TLS+i*16+8) = i; // index
-                }
+                #ifdef BOX32
+                if(box64_is32bits)
+                    for (int i=oldata->n_elfs; i<context->elfsize; ++i) {
+                        // set pointer
+                        ptr_t dtp = to_ptrv(ptr + GetTLSBase(context->elfs[i]));
+                        memcpy((void*)((uintptr_t)ptr+POS_TLS_32+i*8), &dtp, 4);
+                        memcpy((void*)((uintptr_t)ptr+POS_TLS_32+i*8+4), &i, 4); // index
+                    }
+                else
+                #endif
+                    for (int i=oldata->n_elfs; i<context->elfsize; ++i) {
+                        // set pointer
+                        uintptr_t dtp = (uintptr_t)ptr + GetTLSBase(context->elfs[i]);
+                        *(uint64_t*)((uintptr_t)ptr+POS_TLS+i*16) = dtp;
+                        *(uint64_t*)((uintptr_t)ptr+POS_TLS+i*16+8) = i; // index
+                    }
                 oldata->n_elfs = context->elfsize;
             }
             mutex_unlock(&context->mutex_tls);
@@ -356,9 +369,10 @@ static void* resizeTLSData(box64context_t *context, void* oldptr)
         }
 }
 
-tlsdatasize_t* getTLSData(x64emu_t* emu)
+void refreshTLSData(x64emu_t* emu)
 {
     tlsdatasize_t* ptr = NULL;
+    uintptr_t old_offs = (uintptr_t)(emu->tlsdata?emu->tlsdata->data:NULL);
     if(!ptr)
         if ((ptr = emu->tlsdata) == NULL) {
             ptr = (tlsdatasize_t*)fillTLSData(emu->context);
@@ -366,5 +380,21 @@ tlsdatasize_t* getTLSData(x64emu_t* emu)
     if(ptr->tlssize != emu->context->tlssize)
         ptr = (tlsdatasize_t*)resizeTLSData(emu->context, ptr);
     emu->tlsdata = ptr;
-    return ptr;
+    if(emu->test.emu) emu->test.emu->tlsdata = ptr;
+    uintptr_t new_offs = (uintptr_t)(emu->tlsdata?emu->tlsdata->data:NULL);
+    // update if needed
+    if(old_offs && (old_offs!=new_offs)) {
+        for(int i=0; i<6; ++i)
+            if(emu->segs_offs[i]==old_offs)
+                emu->segs_offs[i] = new_offs;
+    } else if(!old_offs && new_offs) {
+        if(box64_is32bits) {
+            if(emu->segs[_GS]==0x33) {
+                emu->segs_offs[_GS] = new_offs;
+            }
+        } else {
+            emu->segs_offs[_FS] = new_offs;
+            emu->segs[_FS] = 0;
+        }
+    }
 }

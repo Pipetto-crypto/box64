@@ -40,6 +40,7 @@ typedef void (*vFppp_t)(void*, void*, void*);
 typedef void (*vFpi_t)(void*, int);
 typedef int (*iFppip_t)(void*, void*, int, void*);
 typedef int (*iFli_t)(long unsigned int, int);
+typedef struct emuthread_s emuthread_t;
 
 static vFppp_t real_pthread_cleanup_push_defer = NULL;
 static vFpi_t real_pthread_cleanup_pop_restore = NULL;
@@ -131,6 +132,49 @@ void my_longjmp(x64emu_t* emu, /*struct __jmp_buf_tag __env[1]*/void *p, int32_t
 void my32_longjmp(x64emu_t* emu, /*struct __jmp_buf_tag __env[1]*/void *p, int32_t __val);
 #endif
 
+#ifdef BAD_PKILL
+// tracking of threads that are alive
+KHASH_MAP_INIT_INT64(threads, emuthread_t*)
+static pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+static kh_threads_t* threads_alive = NULL;
+
+void add_thread(void* t, emuthread_t* et)
+{
+	pthread_mutex_lock(&threads_mutex);
+	if(!threads_alive)
+		threads_alive = kh_init(threads);
+	khint_t k;
+	int ret;
+	k = kh_put(threads, threads_alive, (uintptr_t)t, &ret);
+	kh_value(threads_alive, k) = et;
+	pthread_mutex_unlock(&threads_mutex);
+}
+void del_thread(void* t)
+{
+	pthread_mutex_lock(&threads_mutex);
+	if(threads_alive) {
+		khint_t k;
+		k = kh_get(threads, threads_alive, (uintptr_t)t);
+		if(k!=kh_end(threads_alive))
+			kh_del(threads, threads_alive, k);
+	}
+	pthread_mutex_unlock(&threads_mutex);
+}
+emuthread_t* get_thread(void* t)
+{
+	emuthread_t* ret = NULL;
+	pthread_mutex_lock(&threads_mutex);
+	if(threads_alive) {
+		khint_t k;
+		k = kh_get(threads, threads_alive, (uintptr_t)t);
+		if(k!=kh_end(threads_alive))
+			ret = kh_value(threads_alive, k);
+	}
+	pthread_mutex_unlock(&threads_mutex);
+	return ret;
+}
+#endif
+
 static pthread_key_t thread_key;
 
 void emuthread_destroy(void* p)
@@ -143,6 +187,9 @@ void emuthread_destroy(void* p)
 		to_hash_d(et->self);
 	#endif
 	FreeX64Emu(&et->emu);
+	#ifdef BAD_PKILL
+	del_thread((void*)et->self);
+	#endif
 	box_free(et);
 }
 
@@ -198,6 +245,11 @@ void thread_set_emu(x64emu_t* emu)
 		et->hself = to_hash(et->self);
 	}
 	#endif
+	#ifdef BAD_PKILL
+	if(!et->self)
+		et->self = (uintptr_t)pthread_self();
+	add_thread((void*)et->self, et);
+	#endif
 	pthread_setspecific(thread_key, et);
 }
 
@@ -216,7 +268,7 @@ x64emu_t* thread_get_emu()
 			setProtection_stack((uintptr_t)stack, stacksize, PROT_READ|PROT_WRITE);
 		x64emu_t *emu = NewX64Emu(my_context, my_context->exit_bridge, (uintptr_t)stack, stacksize, 1);
 		SetupX64Emu(emu, NULL);
-		getTLSData(emu);
+		refreshTLSData(emu);
 		thread_set_emu(emu);
 		return emu;
 	}
@@ -230,6 +282,11 @@ emuthread_t* thread_get_et()
 
 void thread_set_et(emuthread_t* et)
 {
+	#ifdef BAD_PKILL
+	if(et && !et->self)
+		et->self = (uintptr_t)pthread_self();
+	add_thread((void*)(et?et->self:pthread_self()), et);
+	#endif
 	pthread_setspecific(thread_key, et);
 }
 
@@ -250,8 +307,12 @@ static void* pthread_routine(void* p)
 	et->emu->type = EMUTYPE_MAIN;
 	// setup callstack and run...
 	x64emu_t* emu = et->emu;
-	getTLSData(emu);
-	ResetSegmentsCache(emu);
+	#ifdef BAD_PKILL
+	if(!et->self)
+		et->self = (uintptr_t)pthread_self();
+	add_thread((void*)et->self, et);
+	#endif
+	refreshTLSData(emu);
 	Push64(emu, 0);	// PUSH 0 (backtrace marker: return address is 0)
 	Push64(emu, 0);	// PUSH BP
 	R_RBP = R_RSP;	// MOV BP, SP
@@ -536,9 +597,9 @@ EXPORT int my_pthread_create(x64emu_t *emu, void* t, void* attr, void* start_rou
 		stacksize = attr_stacksize;
 		own = 0;
 	} else {
-        stack = InternalMmap(NULL, stacksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
-        if(stack!=MAP_FAILED)
-	        setProtection_stack((uintptr_t)stack, stacksize, PROT_READ|PROT_WRITE);
+		stack = InternalMmap(NULL, stacksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
+		if(stack!=MAP_FAILED)
+			setProtection_stack((uintptr_t)stack, stacksize, PROT_READ|PROT_WRITE);
 		own = 1;
 	}
 
@@ -553,6 +614,14 @@ EXPORT int my_pthread_create(x64emu_t *emu, void* t, void* attr, void* start_rou
 	if(BOX64ENV(dynarec)) {
 		// pre-creation of the JIT code for the entry point of the thread
 		DBGetBlock(emu, (uintptr_t)start_routine, 1, 0);	// function wrapping are 64bits only on box64
+	}
+	if(BOX64ENV(nodynarec_delay)) {
+		static int num_threads = 0;
+		++num_threads;
+		if(num_threads==2 && BOX64ENV(nodynarec_start)) {
+			BOX64ENV(nodynarec_start) = 0;
+			BOX64ENV(nodynarec_end) = 0;
+		}
 	}
 	#endif
 	// create thread
@@ -697,28 +766,36 @@ static void* findkey_dtorFct(void* fct)
 // custom implementation of pthread_once...
 int EXPORT my_pthread_once(x64emu_t* emu, int* once, void* cb)
 {
-	if(*once)	// quick test first
+	if(*once==1)	// quick test first
 		return 0;
-	// slow test now
-	#ifdef DYNAREC
-	int old = native_lock_xchg_d(once, 1);
-	#else
-	int old = *once;	// outside of the mutex in case once is badly formed
-	mutex_lock(&my_context->mutex_lock);
-	old = *once;
-	*once = 1;
-	mutex_unlock(&my_context->mutex_lock);
-	#endif
-	if(old)
-		return 0;
-    // make some room and align R_RSP before doing the call (maybe it would be simpler to just use Callback functions)
-    Push64(emu, R_RBP); // push rbp
-    R_RBP = R_RSP;      // mov rbp, rsp
-    R_RSP -= 0x200;
-    R_RSP &= ~63LL;
-	DynaCall(emu, (uintptr_t)cb);  // using DynaCall, speedup wine 7.21 initialisation
-	R_RSP = R_RBP;          // mov rsp, rbp
-	R_RBP = Pop64(emu);     // pop rbp
+	if(__sync_bool_compare_and_swap(once, 0, 2)) {
+		// can run the function
+		// make some room and align R_RSP before doing the call (maybe it would be simpler to just use Callback functions)
+		Push64(emu, R_RBP); // push rbp
+		R_RBP = R_RSP;      // mov rbp, rsp
+		R_RSP &= ~63LL;
+
+		DynaCall(emu, (uintptr_t)cb);  // using DynaCall, speedup wine 7.21 initialisation
+
+		R_RSP = R_RBP;          // mov rsp, rbp
+		R_RBP = Pop64(emu);     // pop rbp
+		*once = 1;
+		__sync_synchronize();
+	} else {
+		// nope, functionis running, wait until it's done
+		// this is a workaround for an issue in some EA Launcher programs,
+		// were some sort of deadlock happens on a pthread_once for wine's register_builtins
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+		uint64_t t = ts.tv_sec*1000000000LL + ts.tv_nsec;
+		while(*once!=1) {
+			sched_yield();
+			clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+			if((ts.tv_sec*1000000000LL + ts.tv_nsec)-t>10*1000000LL)	// if wait last for more than 10ms, force as completed
+				*once = 1;
+			__sync_synchronize();
+		}
+	}
 	return 0;
 }
 EXPORT int my___pthread_once(x64emu_t* emu, void* once, void* cb) __attribute__((alias("my_pthread_once")));
@@ -853,6 +930,10 @@ EXPORT int my_pthread_kill(x64emu_t* emu, void* thread, int sig)
 	// check for old "is everything ok?"
 	if(thread==NULL && sig==0)
 		return pthread_kill(pthread_self(), 0);
+	#ifdef BAD_PKILL
+	if(sig==0 && thread!=(void*)pthread_self())
+		return get_thread(thread)?0:ESRCH;
+	#endif
 	return pthread_kill((pthread_t)thread, sig);
 }
 
@@ -862,6 +943,10 @@ EXPORT int my_pthread_kill_old(x64emu_t* emu, void* thread, int sig)
     // check for old "is everything ok?"
     if((thread==NULL) && (sig==0))
         return real_phtread_kill_old(pthread_self(), 0);
+	#ifdef BAD_PKILL
+	if(sig==0 && thread!=(void*)pthread_self())
+		return get_thread(thread)?0:ESRCH;
+	#endif
     return real_phtread_kill_old((pthread_t)thread, sig);
 }
 
@@ -1279,5 +1364,18 @@ int checkUnlockMutex(void* m)
 	if(ret==0) {
 		return 1;
 	}
+	return 0;
+}
+
+int checkNolockMutex(void* m)
+{
+	pthread_mutex_t* mutex = (pthread_mutex_t*)m;
+	int ret = pthread_mutex_trylock(mutex);
+	if(ret==0) {
+		pthread_mutex_unlock(mutex);
+		return 0;
+	}
+	if(ret == EDEADLK)
+		return 1;
 	return 0;
 }

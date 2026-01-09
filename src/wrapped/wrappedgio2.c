@@ -87,6 +87,34 @@ static void* findGDestroyNotifyFct(void* fct)
     return NULL;
 }
 
+// GTaskThreadFunc
+#define GO(A)                                                                                               \
+    static uintptr_t my_GTaskThreadFunc_fct_##A = 0;                                                        \
+    static void my_GTaskThreadFunc_##A(void* task, void* source_object, void* task_data, void* cancellable) \
+    {                                                                                                       \
+        RunFunctionFmt(my_GTaskThreadFunc_fct_##A, "pppp", task, source_object, task_data, cancellable);    \
+    }
+SUPER()
+#undef GO
+static void* findGTaskThreadFuncFct(void* fct)
+{
+    if (!fct) return fct;
+    if (GetNativeFnc((uintptr_t)fct)) return GetNativeFnc((uintptr_t)fct);
+#define GO(A) \
+    if (my_GTaskThreadFunc_fct_##A == (uintptr_t)fct) return my_GTaskThreadFunc_##A;
+    SUPER()
+#undef GO
+#define GO(A)                                        \
+    if (my_GTaskThreadFunc_fct_##A == 0) {           \
+        my_GTaskThreadFunc_fct_##A = (uintptr_t)fct; \
+        return my_GTaskThreadFunc_##A;               \
+    }
+    SUPER()
+#undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for gio2 GTaskThreadFunc callback\n");
+    return NULL;
+}
+
 // GDBusProxyTypeFunc
 #define GO(A)   \
 static uintptr_t my_GDBusProxyTypeFunc_fct_##A = 0;                                                           \
@@ -381,6 +409,21 @@ EXPORT void my_g_task_return_pointer(x64emu_t* emu, void* task, void* result, vo
     my->g_task_return_pointer(task, result, findGDestroyNotifyFct(destroy));
 }
 
+EXPORT void my_g_task_set_task_data(x64emu_t* emu, void* task, void* data, void* destroy)
+{
+    my->g_task_set_task_data(task, data, findGDestroyNotifyFct(destroy));
+}
+
+EXPORT void my_g_task_run_in_thread(x64emu_t* emu, void* task, void* func)
+{
+    my->g_task_run_in_thread(task, findGTaskThreadFuncFct(func));
+}
+
+EXPORT void my_g_task_run_in_thread_sync(x64emu_t* emu, void* task, void* func)
+{
+    my->g_task_run_in_thread_sync(task, findGTaskThreadFuncFct(func));
+}
+
 EXPORT void my_g_dbus_proxy_new(x64emu_t* emu, void* connection, uint32_t flags, void* info, void* name, void* path, void* interface, void* cancellable, void* cb, void* data)
 {
     my->g_dbus_proxy_new(connection, flags, info, name, path, interface, cancellable, findGAsyncReadyCallbackFct(cb), data);
@@ -639,9 +682,8 @@ EXPORT void my_g_dbus_method_invocation_return_error(x64emu_t* emu, void* invoca
     my->g_dbus_method_invocation_return_error(invocation, domain, code, fmt, VARARGS);
 }
 
-#define PRE_INIT    \
-    if(BOX64ENV(nogtk)) \
-        return -1;
+#define PRE_INIT \
+    if (BOX64ENV(nogtk)) return -2;
 
 #define CUSTOM_INIT \
     SetGApplicationID(my->g_application_get_type());    \

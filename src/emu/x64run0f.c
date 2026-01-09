@@ -194,7 +194,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         case 0x09:                      /* WBINVD */
             // this is a privilege opcode...
             #ifndef TEST_INTERPRETER
-            EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0);
+            EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0);
             #endif
             break;
 
@@ -317,8 +317,13 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         case 0x22:                      /* MOV cxR, REG */
         case 0x23:                      /* MOV drX, REG */
             // this is a privilege opcode...
+            nextop = F8;
             #ifndef TEST_INTERPRETER
-            EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0);
+            tmp8u = (rex.r*8)+(nextop>>3&7);
+            if((((opcode==20) || (opcode==22)) && ((tmp8u==1) || (tmp8u==5) || (tmp8u==6) || (tmp8u==7) || (tmp8u>8))) || (((opcode==0x21) || (opcode==0x23)) && rex.r)) {
+                EmitSignal(emu, X64_SIGILL, (void*)R_RIP, 0);
+            } else
+                EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0);
             #endif
             break;
 
@@ -1173,7 +1178,8 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                 emu->segs[_FS] = Pop32(emu);
             else
                 emu->segs[_FS] = Pop64(emu);
-            emu->segs_serial[_FS] = 0;
+            if(emu->segs[_FS])
+                GetSegmentBaseEmu(emu, _FS);  // refresh segs_offs
             break;
         case 0xA2:                      /* CPUID */
             tmp32u = R_EAX;
@@ -1251,7 +1257,8 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                 emu->segs[_GS] = Pop32(emu);
             else
                 emu->segs[_GS] = Pop64(emu);
-            emu->segs_serial[_FS] = 0;
+            if(emu->segs[_GS])
+                GetSegmentBaseEmu(emu, _GS);  // refresh segs_offs
             break;
 
         case 0xAB:                      /* BTS Ed,Gd */
@@ -1290,12 +1297,6 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                 }
                 if(MODREG)
                     ED->dword[1] = 0;
-            }
-            if (BOX64ENV(dynarec_test)) {
-                CLEAR_FLAG(F_OF);
-                CLEAR_FLAG(F_SF);
-                CLEAR_FLAG(F_AF);
-                CLEAR_FLAG(F_PF);
             }
             break;
         case 0xAC:                      /* SHRD Ed,Gd,Ib */
@@ -1372,10 +1373,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     break;
                 case 7:                 /* CLFLUSH Ed */
                     _GETED(0);
-                    #if defined(DYNAREC) && !defined(TEST_INTERPRETER)
-                    if(BOX64ENV(dynarec))
-                        cleanDBFromAddressRange((uintptr_t)ED, 8, 0);
-                    #endif
+                    __sync_synchronize();
                     break;
                 default:
                     return 0;
@@ -1458,12 +1456,6 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     CLEAR_FLAG(F_CF);
                 if(MODREG)
                     ED->dword[1] = 0;
-            }
-            if (BOX64ENV(dynarec_test)) {
-                CLEAR_FLAG(F_OF);
-                CLEAR_FLAG(F_SF);
-                CLEAR_FLAG(F_AF);
-                CLEAR_FLAG(F_PF);
             }
             break;
 
@@ -1610,7 +1602,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     ED->dword[1] = 0;
             }
             break;
-        case 0xBC:                      /* BSF Ed,Gd */
+        case 0xBC:                      /* BSF Gd,Ed */
             RESET_FLAGS(emu);
             nextop = F8;
             GETED(0);
@@ -1621,21 +1613,19 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                 if(tmp64u) {
                     CLEAR_FLAG(F_ZF);
                     while(!(tmp64u&(1LL<<tmp8u))) ++tmp8u;
+                    GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
                 }
-                if(tmp64u || !MODREG)
-                    GD->q[0] = tmp8u;
             } else {
                 tmp32u = ED->dword[0];
                 if(tmp32u) {
                     CLEAR_FLAG(F_ZF);
                     while(!(tmp32u&(1<<tmp8u))) ++tmp8u;
+                    GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
                 }
-                if(tmp32u || !MODREG)
-                    GD->q[0] = tmp8u;
             }
             if(!BOX64ENV(cputype)) {
                 CONDITIONAL_SET_FLAG(PARITY(tmp8u), F_PF);
@@ -1645,7 +1635,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                 CLEAR_FLAG(F_OF);
             }
             break;
-        case 0xBD:                      /* BSR Ed,Gd */
+        case 0xBD:                      /* BSR Gd,Ed */
             RESET_FLAGS(emu);
             nextop = F8;
             GETED(0);
@@ -1657,11 +1647,10 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     CLEAR_FLAG(F_ZF);
                     tmp8u = 63;
                     while(!(tmp64u&(1LL<<tmp8u))) --tmp8u;
+                    GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
                 }
-                if(tmp64u || !MODREG)
-                    GD->q[0] = tmp8u;
             } else {
                 tmp32u = ED->dword[0];
                 if(tmp32u) {
@@ -1671,8 +1660,6 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     GD->q[0] = tmp8u;
                 } else {
                     SET_FLAG(F_ZF);
-                    if(!MODREG)
-                        GD->q[0] = tmp8u;
                 }
             }
             if(!BOX64ENV(cputype)) {
@@ -1794,10 +1781,16 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
         case 0xC7:
             CHECK_FLAGS(emu);
             nextop = F8;
+            if(MODREG) {
+                return 0;   // register mode is Undefined Instruction
+            }
             GETE8xw(0);
             switch((nextop>>3)&7) {
-                case 1:     /* CMPXCHG8B Eq */
+                case 1:     /* CMPXCHG8B Eq / CMPXCHG16B Eq */
                     if(rex.w) {
+                        if(((uintptr_t)ED)&0xf) {
+                            EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // GPF
+                        }
                         tmp64u = ED->q[0];
                         tmp64u2= ED->q[1];
                         if(R_RAX == tmp64u && R_RDX == tmp64u2) {
@@ -1836,7 +1829,7 @@ uintptr_t Run0F(x64emu_t *emu, rex_t rex, uintptr_t addr, int *step)
                     else {
                         ED->dword[0] = get_random32();
                         if(MODREG)
-                            ED->dword[1] = 1;
+                            ED->dword[1] = 0;
                     }
                     break;
                 case 7:     /* RDPID Ed */

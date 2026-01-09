@@ -216,6 +216,7 @@
 #() iEEv -> iEEv
 #() iFEv -> iFEv
 #() iEEi -> iEEi
+#() iFEi -> iFEi
 #() iEEL -> iEEL
 #() iEEp -> iEEp
 #() iFEp -> iFEp
@@ -445,6 +446,7 @@
 #() uFpbppuiiiiiiiiipp_ -> uFpB
 #() vFbppuuuuup_bppuuuuup_ -> vFBB
 #() iEiBLLLLLLLLLLLLLLLLLL_ -> iEiB
+#() iEiBUUUULLLLLLLLLLLLLL_ -> iEiB
 #() vFbppuiiiiiiiiipp_bppuiiiiiiiiipp_ -> vFBB
 #() uFbppuiiiiiiiiipp_bppuiiiiiiiiipp_ -> uFBB
 #() vEEip -> vEEip
@@ -533,8 +535,8 @@
 #() vFXpl -> vFXpl
 #() vFXpL -> vFXpL
 #() vFXpp -> vFXpp
-#() iEEip -> iEEip
 #() iFEip -> iFEip
+#() iEEip -> iEEip
 #() iEEup -> iEEup
 #() iFEup -> iFEup
 #() iEEpi -> iEEpi
@@ -579,6 +581,7 @@
 #() iEipL -> iEipL
 #() iEipp -> iEipp
 #() iFipp -> iFipp
+#() iEipO -> iEipO
 #() iFuip -> iFuip
 #() iEuui -> iEuui
 #() iEuuu -> iEuuu
@@ -713,6 +716,7 @@
 #() pFEiV -> pFEiV
 #() pEEpi -> pEEpi
 #() pFEpi -> pFEpi
+#() pFEpu -> pFEpu
 #() pEEpp -> pEEpp
 #() pFEpp -> pFEpp
 #() pFEpV -> pFEpV
@@ -790,6 +794,7 @@
 #() iFbp_Wp -> iFBWp
 #() iFbp_up -> iFBup
 #() iEBp_LL -> iEBLL
+#() iFBp_LL -> iFBLL
 #() iFbp_pi -> iFBpi
 #() iFbL_pi -> iFBpi
 #() iFbp_pI -> iFBpI
@@ -883,6 +888,7 @@
 #() vEEppp -> vEEppp
 #() vFEppp -> vFEppp
 #() vFEXLp -> vFEXLp
+#() vFEXpi -> vFEXpi
 #() vFcccc -> vFcccc
 #() vFwwww -> vFwwww
 #() vFiiii -> vFiiii
@@ -985,6 +991,7 @@
 #() cFpiii -> cFpiii
 #() iEEiip -> iEEiip
 #() iEEiiN -> iEEiiN
+#() iEEiLp -> iEEiLp
 #() iEEipp -> iEEipp
 #() iFEipp -> iFEipp
 #() iEEipV -> iEEipV
@@ -1127,6 +1134,7 @@
 #() uFpppd -> uFpppd
 #() uFpppp -> uFpppp
 #() lEEipi -> lEEipi
+#() lEEipL -> lEEipL
 #() lEEppL -> lEEppL
 #() lEiipL -> lEiipL
 #() lEipLi -> lEipLi
@@ -1138,6 +1146,7 @@
 #() LFEpLp -> LFEpLp
 #() LFEXii -> LFEXii
 #() LEpLLS -> LEpLLS
+#() LEppLL -> LEppLL
 #() LEppLp -> LEppLp
 #() LEppLa -> LEppLa
 #() LFXCii -> LFXCii
@@ -1146,6 +1155,7 @@
 #() pFEupi -> pFEupi
 #() pFEupp -> pFEupp
 #() pEEpii -> pEEpii
+#() pEEpip -> pEEpip
 #() pFEpip -> pFEpip
 #() pFEpui -> pFEpui
 #() pEEppi -> pEEppi
@@ -1405,6 +1415,7 @@
 #() iEEipii -> iEEipii
 #() iEEipuu -> iEEipuu
 #() iEEipup -> iEEipup
+#() iEEippi -> iEEippi
 #() iEEippL -> iEEippL
 #() iEEuupi -> iEEuupi
 #() iFEpiup -> iFEpiup
@@ -1449,6 +1460,7 @@
 #() iFuiuup -> iFuiuup
 #() iFuupid -> iFuupid
 #() iFpiiuu -> iFpiiuu
+#() iFpiipp -> iFpiipp
 #() iFpippL -> iFpippL
 #() iFpippp -> iFpippp
 #() iFpCCCC -> iFpCCCC
@@ -1520,10 +1532,10 @@
 #() pFpippi -> pFpippi
 #() pFpippp -> pFpippp
 #() pFpuiii -> pFpuiii
-#() pFpuuip -> pFpuuip
 #() pFpuuuu -> pFpuuuu
 #() pFpuppp -> pFpuppp
 #() pFpdddd -> pFpdddd
+#() pFpLLip -> pFpLLip
 #() pFppipi -> pFppipi
 #() pFppuup -> pFppuup
 #() pFppupp -> pFppupp
@@ -1740,7 +1752,6 @@
 #() iFXpLiWL -> iFXpLiWL
 #() iFXpLLiL -> iFXpLLiL
 #() iFXppppi -> iFXppppi
-#() iFXppppp -> iFXppppp
 #() uFEpippi -> uFEpippi
 #() uFupuufp -> uFupuufp
 #() uFpppppp -> uFpppppp
@@ -1981,6 +1992,7 @@
 #() uFulpppppp -> uFulpppppp
 #() LFEXLppuuu -> LFEXLppuuu
 #() LFXLpuuLLu -> LFXLpuuLLu
+#() pFEppipipp -> pFEppipipp
 #() pFEXpLLppp -> pFEXpLLppp
 #() iFXLLiippBL_ -> iFXLLiippB
 #() iFXLpppbL_pp -> iFXLpppBpp
@@ -2079,7 +2091,6 @@
 #() iFXLLpiiuuii -> iFXLLpiiuuii
 #() pFEpiiiiuuuu -> pFEpiiiiuuuu
 #() pFEpnCuuuCup -> pFEpnCuuuCup
-#() pFpppppppppp -> pFpppppppppp
 #() pFXpuiipuuii -> pFXpuiipuuii
 #() iFppLpLLpLpbL_ -> iFppLpLLpLpB
 #() iFXiiLiiibiip_ip -> iFXiiLiiiBip
@@ -2121,6 +2132,7 @@
 #() iFXLpppppppppp -> iFXLpppppppppp
 #() pFEXLiiuuLipii -> pFEXLiiuuLipii
 #() iFXiLbL_bL_ppppbip_pp -> iFXiLBBppppBpp
+#() iFXiLlliLBL_pBL_BL_bp_ -> iFXiLlliLBpBBB
 #() vFXiLLrLiiwwwwwwwwL_Liiiipi -> vFXiLLBLiiiipi
 #() vFuiiiiiiiiiuup -> vFuiiiiiiiiiuup
 #() vFuuuuuuuuuuuuu -> vFuuuuuuuuuuuuu
@@ -2229,6 +2241,8 @@ wrappedfontconfig:
   - FcFontSetAdd
 - uFpu:
   - FcFreeTypeCharIndex
+- pFpu:
+  - FcConfigGetFonts
 - pFpp:
 - pFpV:
   - FcObjectSetBuild
@@ -2239,6 +2253,8 @@ wrappedfontconfig:
   - FcPatternAdd
 - pFppibp_p:
   - FcFontSort
+- pFppipipp:
+  - FcFontSetSort
 wrappedfreetype:
 - vFp:
   - FT_Done_Glyph
@@ -2301,6 +2317,7 @@ wrappedfreetype:
 - iFpup:
   - FT_Get_Var_Blend_Coordinates
   - FT_Set_Var_Blend_Coordinates
+  - FT_Set_Var_Design_Coordinates
 - iFpll:
   - FT_Outline_EmboldenXY
 - iFpLi:
@@ -2447,14 +2464,14 @@ wrappedlibc:
   - _obstack_newchunk
 - vEpu:
 - vEpp:
-- iFip:
-  - __fstat64_time64
 - iEip:
   - __futimens64
   - fstatvfs
   - fstatvfs64
   - futimens
   - futimes
+- iFip:
+  - __fstat64_time64
 - iEup:
   - getrlimit
   - setrlimit
@@ -2464,12 +2481,12 @@ wrappedlibc:
 - iEpp:
   - __gettimeofday64
   - __lstat64_time64
+  - __nanosleep64
   - __stat64_time64
   - alphasort64
   - statvfs
   - statvfs64
   - utimes
-- iFpp:
 - iEpV:
   - execl
   - execlp
@@ -2498,6 +2515,8 @@ wrappedlibc:
   - localtime_r
 - SEpp:
 - iErLL_BLL_:
+- iEiBUUUULLLLLLLLLLLLLL_:
+  - __getrusage64
 - vEipp:
   - vsyslog
 - vEipV:
@@ -2511,6 +2530,7 @@ wrappedlibc:
   - __fcntl_time64
 - iEiLp:
   - __ioctl_time64
+  - ioctl
 - iEipp:
 - iEipV:
 - iEpii:
@@ -2537,10 +2557,13 @@ wrappedlibc:
   - sendmsg
   - writev
 - lEipL:
+  - write
 - lEppL:
 - pEipi:
   - shmat
 - pEpii:
+- pEpip:
+  - fts_open
 - pEpII:
 - pFpui:
   - gethostbyaddr
@@ -2576,6 +2599,8 @@ wrappedlibc:
   - __xmknod
 - iEippi:
   - __fstatat64_time64
+  - fstatat
+  - fstatat64
   - utimensat
 - iEippL:
   - readlinkat
@@ -2593,6 +2618,10 @@ wrappedlibc:
 - iESipV:
 - uEippu:
   - regerror
+- IEpBp_ia:
+  - __isoc23_strtoll_l
+- UEpBp_ia:
+  - __isoc23_strtoull_l
 - LEpBp_ii:
 - iEiiipu:
   - __setsockopt64
@@ -2612,6 +2641,9 @@ wrappedlibc:
 - iEuppLp:
   - getgrgid_r
   - getpwuid_r
+- iEpiipi:
+  - res_query
+  - res_search
 - iEpiipV:
 - iEpiLpp:
 - iEpipOi:
@@ -2762,6 +2794,63 @@ wrappedlibglx:
   - glXChooseFBConfig
 - pFXppi:
   - glXCreateContext
+wrappedlibglxnvidia:
+- iFi:
+  - glXSwapIntervalMESA
+- pFp:
+  - glGetVkProcAddrNV
+  - glXGetProcAddress
+  - glXGetProcAddressARB
+- vFip:
+  - glVDPAUMapSurfacesNV
+  - glVDPAUUnmapSurfacesNV
+- vFpp:
+  - glDebugMessageCallback
+  - glDebugMessageCallbackAMD
+  - glDebugMessageCallbackARB
+  - glDebugMessageCallbackKHR
+- iFpp:
+  - eglDebugMessageControlKHR
+- pFXp:
+  - glXGetFBConfigFromVisualSGIX
+  - glXGetVisualFromFBConfig
+  - glXGetVisualFromFBConfigSGIX
+- vFipp:
+  - glProgramCallbackMESA
+- vFppp:
+  - eglSetBlobCacheFuncsANDROID
+- vFXpi:
+  - glXSwapIntervalEXT
+- uFuip:
+  - glCreateShaderProgramv
+- pFXip:
+  - glXChooseVisual
+  - glXGetFBConfigs
+- vFuipu:
+  - glTransformFeedbackVaryings
+  - glTransformFeedbackVaryingsEXT
+- vFuipp:
+  - glCompileShaderIncludeARB
+  - glGetUniformIndices
+  - glShaderSource
+  - glShaderSourceARB
+- pFXipp:
+  - glXChooseFBConfig
+  - glXChooseFBConfigSGIX
+- pFXppi:
+  - glXCreateContext
+- vFuippp:
+  - glBindVertexBuffers
+- vFupupi:
+  - glMultiDrawElements
+  - glMultiDrawElementsEXT
+- vFuuippp:
+  - glBindBuffersRange
+  - glVertexArrayVertexBuffers
+- vFupupip:
+  - glMultiDrawElementsBaseVertex
+- vFppupui:
+  - glMultiModeDrawElementsIBM
 wrappedlibm:
 - UEs:
   - cacosf
@@ -2843,6 +2932,8 @@ wrappedlibpthread:
   - __pthread_register_cancel
   - __pthread_unregister_cancel
   - __pthread_unwind_next
+- iEv:
+  - pthread_yield
 - iEp:
   - __pthread_mutex_destroy
   - __pthread_mutex_lock
@@ -2910,6 +3001,7 @@ wrappedlibpthread:
   - pthread_rwlock_init
   - sem_getvalue
 - iEhi:
+  - pthread_kill
   - pthread_kill@GLIBC_2.0
 - iEhp:
   - pthread_getattr_np
@@ -2981,6 +3073,8 @@ wrappedlibx11:
   - XRefreshKeyboardMapping
   - XScreenNumberOfScreen
   - _XInitImageFuncPtrs
+- iEp:
+  - XkbRefreshKeyboardMapping
 - iFX:
   - XCloseDisplay
   - XGrabServer
@@ -3014,6 +3108,7 @@ wrappedlibx11:
   - XVaCreateNestedList
 - pFpV:
   - XCreateIC
+  - XGetICValues
   - XGetIMValues
   - XSetICValues
   - XSetIMValues
@@ -3066,8 +3161,6 @@ wrappedlibx11:
   - XkbGetMap
 - vFXLpL:
   - XSetWMSizeHints
-- iFpppp:
-  - XPeekIfEvent
 - iFXLip:
   - XCheckTypedWindowEvent
 - iFXLlp:
@@ -3088,6 +3181,7 @@ wrappedlibx11:
 - iFXppp:
   - XCheckIfEvent
   - XIfEvent
+  - XPeekIfEvent
 - LFXLpi:
   - XCreateColormap
 - pFXCip:
@@ -3132,6 +3226,7 @@ wrappedlibx11:
 - iFXppppp:
   - XRegisterIMInstantiateCallback
   - XUnregisterIMInstantiateCallback
+  - XkbQueryExtension
 - vFXLpiipi:
   - XmbDrawText
   - Xutf8DrawText
@@ -3287,6 +3382,8 @@ wrappedlibxrandr:
   - XRRGetProviderResources
   - XRRGetScreenResources
   - XRRGetScreenResourcesCurrent
+- iFXLp:
+  - XRRGetCrtcTransform
 - iFXpp:
   - XRRQueryExtension
 - pFXLL:

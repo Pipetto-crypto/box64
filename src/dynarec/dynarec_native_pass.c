@@ -44,15 +44,23 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
     int rep = 0;    // 0 none, 1=F2 prefix, 2=F3 prefix
     int need_epilog = 1;
     // Clean up (because there are multiple passes)
+    #ifdef ARM64
+    dyn->f = status_unk;
+    #else
     dyn->f.pending = 0;
     dyn->f.dfnone = 0;
+    #endif
     dyn->forward = 0;
     dyn->forward_to = 0;
     dyn->forward_size = 0;
     dyn->forward_ninst = 0;
     dyn->ymm_zero = 0;
+    int dynarec_dirty = BOX64ENV(dynarec_dirty);
     #if STEP == 0
     memset(&dyn->insts[ninst], 0, sizeof(instruction_native_t));
+    #ifdef ARM64
+    dyn->have_purge = BOX64ENV(dynarec_purge);
+    #endif
     #endif
     fpu_reset(dyn);
     ARCH_INIT();
@@ -88,14 +96,27 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         if(!ninst && dyn->need_x87check) {
             NATIVE_RESTORE_X87PC();
         }
-        fpu_propagate_stack(dyn, ninst);
         ip = addr;
+        #ifdef ARM64
+        if(!ninst) {
+            if(dyn->have_purge)
+                doEnterBlock(dyn, 0, x1, x2, x3);
+            if(dyn->insts[0].preload_xmmymm)
+                doPreload(dyn, 0);
+            ENDPREFIX;
+        }
+        #endif
+        fpu_propagate_stack(dyn, ninst);
         if (reset_n!=-1) {
             dyn->last_ip = 0;
             if(reset_n==-2) {
                 MESSAGE(LOG_DEBUG, "Reset Caches to zero\n");
+                #ifdef ARM64
+                dyn->f = status_unk;
+                #else
                 dyn->f.dfnone = 0;
                 dyn->f.pending = 0;
+                #endif
                 fpu_reset(dyn);
                 ARCH_RESET();
             } else {
@@ -107,8 +128,12 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
                 }
                 if(dyn->insts[ninst].x64.barrier&BARRIER_FLAGS) {
                     MESSAGE(LOG_DEBUG, "Apply Barrier Flags\n");
+                    #ifdef ARM64
+                    dyn->f = status_unk;
+                    #else
                     dyn->f.dfnone = 0;
                     dyn->f.pending = 0;
+                    #endif
                 }
             }
             reset_n = -1;
@@ -167,32 +192,47 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         }
         #endif
 
-        rep = 0;
-        rex.is32bits = is32bits;
         uint8_t pk = PK(0);
-        while((pk==0xF2) || (pk==0xF3) || (pk==0x3E) || (pk==0x26)
-            || (is32bits && ((pk==0x2E) || (pk==0x36)))
-        ) {
-            switch(pk) {
-                case 0xF2: rep = 1; break;
-                case 0xF3: rep = 2; break;
-                case 0x2E:
-                case 0x36:
-                case 0x3E:
-                case 0x26: /* ignored */ break;
+        
+        rex.rex = 0;
+        rex.seg = 0;
+        rex.offset = 0;
+        rex.is32bits = is32bits;
+        rex.is66 = 0;
+        rex.is67 = 0;
+        rex.isf0 = 0;
+        rex.rep = 0;
+        while((pk==0xF2) || (pk==0xF3) || (pk==0xf0)
+            || (pk==0x3E) || (pk==0x26) || (pk==0x2e) || (pk==0x36) 
+            || (pk==0x64) || (pk==0x65) || (pk==0x66) || (pk==0x67)
+            || (!is32bits && (pk>=0x40 && pk<=0x4f))) {
+            switch (pk) {
+                case 0xF0: rex.isf0 = 1; rex.rex = 0; break;
+                case 0xF2: rex.rep = 1; rex.rex = 0; break;
+                case 0xF3: rex.rep = 2; rex.rex = 0; break;
+                case 0x26: /* ES: */
+                case 0x2E: /* CS: */
+                case 0x36: /* SS; */
+                case 0x3E: /* DS; */ 
+                           rex.seg =   0; rex.rex = 0; break;
+                case 0x64: rex.seg = _FS; rex.rex = 0; break;
+                case 0x65: rex.seg = _GS; rex.rex = 0; break;
+                case 0x66: rex.is66 = 1; rex.rex = 0; break;
+                case 0x67: rex.is67 = 1; rex.rex = 0; break;
+                case 0x40 ... 0x4F: rex.rex = pk; break;
             }
             ++addr;
             pk = PK(0);
         }
-        rex.rex = 0;
-        if(!rex.is32bits)
-            while(pk>=0x40 && pk<=0x4f) {
-                rex.rex = pk;
-                ++addr;
-                pk = PK(0);
-            }
-
-        addr = dynarec64_00(dyn, addr, ip, ninst, rex, rep, &ok, &need_epilog);
+        if(rex.isf0) {
+            if(rex.is66 && !rex.w)
+                addr = dynarec64_66F0(dyn, addr, ip, ninst, rex, &ok, &need_epilog);
+            else
+                addr = dynarec64_F0(dyn, addr, ip, ninst, rex, &ok, &need_epilog);
+        } else if(rex.is66)
+            addr = dynarec64_66(dyn, addr, ip, ninst, rex, &ok, &need_epilog);
+        else
+            addr = dynarec64_00(dyn, addr, ip, ninst, rex, &ok, &need_epilog);
         if(dyn->abort)
             return ip;
         INST_EPILOG;
@@ -200,6 +240,11 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         #if STEP > 1
         if (is_opcode_volatile || dyn->insts[ninst].lock)
             DMB_ISH();
+        #endif
+        #ifdef ARM64
+        if(dyn->insts[ninst].x64.has_next && dyn->insts[ninst+1].preload_xmmymm) {
+            doPreload(dyn, ninst+1);
+        }
         #endif
 
         fpu_reset_scratch(dyn);
@@ -213,12 +258,16 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
                 else { tmp1=x1; tmp2=x2; tmp3=x3; }
                 fpu_purgecache(dyn, ninst, 0, tmp1, tmp2, tmp3);
                 #else
-                fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
+                fpu_purgecache(dyn, ninst, 0, x1, x2, x3, 0);
                 #endif
             }
             if(dyn->insts[next].x64.barrier&BARRIER_FLAGS) {
+                #ifdef ARM64
+                dyn->f = status_unk;
+                #else
                 dyn->f.pending = 0;
                 dyn->f.dfnone = 0;
+                #endif
                 dyn->last_ip = 0;
             }
         }
@@ -226,14 +275,25 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         #ifndef PROT_READ
         #define PROT_READ 1
         #endif
+        #if STEP == 0
+        if(dynarec_dirty && ok && is_addr_autosmc(ip)) {
+            // this is the last opcode, because it will write in current block if not stopped
+            ok = 0;
+            need_epilog = 1;
+        }
+        #endif
         #if STEP != 0
         if(!ok && !need_epilog && (addr < (dyn->start+dyn->isize))) {
             ok = 1;
             // we use the 1st predecessor here
             if((ninst+1)<dyn->size && !dyn->insts[ninst+1].x64.alive) {
                 // reset fpu value...
+                #ifdef ARM64
+                dyn->f = status_unk;
+                #else
                 dyn->f.dfnone = 0;
                 dyn->f.pending = 0;
+                #endif
                 fpu_reset(dyn);
                 while((ninst+1)<dyn->size && !dyn->insts[ninst+1].x64.alive) {
                     // may need to skip opcodes to advance
@@ -259,7 +319,7 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         }
         #else
         // check if block need to be stopped, because it's a 00 00 opcode (unreadeable is already checked earlier)
-        if((ok>0) && !dyn->forward && (!(getProtection(addr)&PROT_READ) || !(*(uint32_t*)addr))) {
+        if((ok>0) && !dyn->forward && (!(getProtection(addr+3)&PROT_READ) || !(*(uint32_t*)addr))) {
             if (dyn->need_dump) dynarec_log(LOG_NONE, "Stopping block at %p reason: %s\n", (void*)addr, "Next opcode is 00 00 00 00");
             ok = 0;
             need_epilog = 1;
@@ -294,8 +354,7 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
             if(*(uint32_t*)addr!=0) {   // check if need to continue (but is next 4 bytes are 0, stop)
                 uintptr_t next = get_closest_next(dyn, addr);
                 if(next && (
-                    (((next-addr)<15) && is_nops(dyn, addr, next-addr))
-                    /*||(((next-addr)<30) && is_instructions(dyn, addr, next-addr))*/ ))
+                    (((next-addr)<15) && is_nops(dyn, addr, next-addr))))
                 {
                     ok = 1;
                     if(dyn->insts[ninst].x64.has_callret && !dyn->insts[ninst].x64.has_next) {
@@ -383,14 +442,22 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
             #endif
             ++ninst;
             NOTEST(x3);
+            #if defined (RV64) || defined(LA64)
             fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
+            #else
+            fpu_purgecache(dyn, ninst, 0, x1, x2, x3, 0);
+            #endif
             jump_to_next(dyn, addr, 0, ninst, rex.is32bits);
             ok=0; need_epilog=0;
         }
     }
     if(need_epilog) {
         NOTEST(x3);
+        #if defined (RV64) || defined(LA64)
         fpu_purgecache(dyn, ninst, 0, x1, x2, x3);
+        #else
+        fpu_purgecache(dyn, ninst, 0, x1, x2, x3, 0);
+        #endif
         jump_to_epilog(dyn, ip, 0, ninst);  // no linker here, it's an unknown instruction
     }
     FINI;

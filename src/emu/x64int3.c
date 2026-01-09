@@ -67,7 +67,6 @@ x64emu_t* x64emu_fork(x64emu_t* emu, int forktype)
             waitpid(v, NULL, WEXITED);
         }
     } else if(v==0) {
-        ResetSegmentsCache(emu);
         // execute atforks child functions
         for (int i=0; i<my_context->atfork_sz; --i)
             if(my_context->atforks[i].child)
@@ -75,6 +74,22 @@ x64emu_t* x64emu_fork(x64emu_t* emu, int forktype)
     }
     R_EAX = v;
     return emu;
+}
+
+
+void print_wrapper_name(int level, x64emu_t* emu)
+{
+    onebridge_t* bridge = (onebridge_t*)(R_RIP&~(sizeof(onebridge_t)-1));
+    if (IsBridgeSignature(bridge->S, bridge->C)) {
+        const char* name = NULL;
+        if(bridge->func)
+            name = GetNativeName(bridge->name_or_func);
+        else
+            name = bridge->name_or_func;
+        printf_log(level, "calling %s\n", name?name:"????");
+    } else {
+        printf_log(level, "Could found the function name for fnc=%p\n", bridge->f);
+    }
 }
 
 static uint64_t F64(uintptr_t* addr) {
@@ -88,6 +103,14 @@ static uint8_t Peek8(uintptr_t addr, uintptr_t offset)
 }
 
 void x64Print(x64emu_t* emu, char* buff, size_t buffsz, const char* func, int tid, wrapper_t w);
+
+static void concatString(char* buff, int len, void* s, const char* trail)
+{
+    char tmp[len];
+    if(!s) snprintf(tmp, len-1, "%p%s", s, trail);
+    else snprintf(tmp, len-1, "%p\"%s\"%s", s, (char*)s, trail);
+    strncat(buff, tmp, len);
+}
 
 void x64Int3(x64emu_t* emu, uintptr_t* addr)
 {
@@ -131,10 +154,11 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 uint64_t *pu64 = NULL;
                 uint32_t *pu32 = NULL;
                 uint8_t *pu8 = NULL;
-                const char *s = bridge->name;
+                const char *s = (bridge->func)?GetNativeName(bridge->name_or_func):bridge->name_or_func;
                 if(!s)
                     s = GetNativeName((void*)a);
                 if(a==(uintptr_t)PltResolver64) {
+                    post = 100;
                     if(BOX64ENV(rolling_log)) {
                         uintptr_t addr = *((uint64_t*)(R_RSP));
                         int slot = *((uint64_t*)(R_RSP+8));
@@ -278,6 +302,12 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     tmp = (char*)(R_RDI);
                     perr = 1;
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\", %d)", tid, *(void**)(R_RSP), s, tmp?tmp:"nil", R_ESI);
+                } else if (!strcmp(s, "dbus_message_new_method_call")) {
+                    snprintf(buff, 256, "%04d|%p: Calling %s(", tid, *(void**)(R_RSP), s);
+                    concatString(buff, 256, (void*)R_RDI, ", ");
+                    concatString(buff, 256, (void*)R_RSI, ", ");
+                    concatString(buff, 256, (void*)R_RDX, ", ");
+                    concatString(buff, 256, (void*)R_RCX,")");
                 } else if (!strcmp(s, "xcb_wait_for_event") || !strcmp(s, "xcb_poll_for_queued_event") || !strcmp(s, "xcb_poll_for_event")) {
                     post = 9;
                     snprintf(buff, 256, "%04d|%p: Calling %s(%p)", tid, *(void**)(R_RSP), s, (void*)R_RDI);
@@ -387,6 +417,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                         snprintf(buff2, 64, "[type=%d]", type);
                     }
                     break;
+                    case 100: 
+                        snprintf(buff2, 64, "[function: %p]", (void*)R_RIP);
+                        break;
                 }
                 if(perr==1 && (S_EAX)<0)
                     snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));

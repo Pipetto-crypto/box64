@@ -21,6 +21,7 @@
 #include <poll.h>
 #include <sys/epoll.h>
 #include <ftw.h>
+#include <fts.h>
 #include <sys/syscall.h>
 #include <sys/utsname.h>
 #include <sys/mman.h>
@@ -70,6 +71,7 @@
 #include "box32.h"
 #include "converter32.h"
 #include "cleanup.h"
+#include "box32_inputevent.h"
 
 // need to undef all read / read64 stuffs!
 #undef pread
@@ -342,11 +344,14 @@ static void* findftw64Fct(void* fct)
 // nftw
 #define GO(A)   \
 static uintptr_t my32_nftw_fct_##A = 0;                                                     \
-static int my32_nftw_##A(void* fpath, void* sb, int flag, void* ftwbuff)                    \
+static int my32_nftw_##A(void* fpath, void* sb, int flag, struct FTW* ftwbuff)              \
 {                                                                                           \
-    struct i386_stat i386st;                                                                \
+    static struct i386_stat i386st;                                                         \
+    static struct FTW ftw;                                                                  \
     FillStatFromStat64(3, sb, &i386st);                                                     \
-    return (int)RunFunctionFmt(my32_nftw_fct_##A, "ppip", fpath, &i386st, flag, ftwbuff);   \
+    ftw.base = ftwbuff->base;                                                               \
+    ftw.level = ftwbuff->level;                                                             \
+    return (int)RunFunctionFmt(my32_nftw_fct_##A, "ppip", fpath, &i386st, flag, &ftw);      \
 }
 SUPER()
 #undef GO
@@ -542,8 +547,8 @@ static void* findon_exitFct(void* fct)
 EXPORT int my32_statvfs64(x64emu_t* emu, void* f, void* r)
 {
     struct statvfs s = {0};
-    int ret = statvfs(f, &s);
-    if(r>=0)
+    int ret = statvfs(f, r?&s:NULL);
+    if(r)
         UnalignStatVFS64_32(&s, r);
     return ret;
 }
@@ -551,8 +556,8 @@ EXPORT int my32_statvfs64(x64emu_t* emu, void* f, void* r)
 EXPORT int my32_statvfs(x64emu_t* emu, void* f, void* r)
 {
     struct statvfs s = {0};
-    int ret = statvfs(f, &s);
-    if(r>=0)
+    int ret = statvfs(f, r?&s:NULL);
+    if(r)
         UnalignStatVFS_32(&s, r);
     return ret;
 }
@@ -560,8 +565,8 @@ EXPORT int my32_statvfs(x64emu_t* emu, void* f, void* r)
 EXPORT int my32_fstatvfs64(x64emu_t* emu, int fd, void* r)
 {
     struct statvfs s = {0};
-    int ret = fstatvfs(fd, &s);
-    if(r>=0)
+    int ret = fstatvfs(fd, r?&s:NULL);
+    if(r)
         UnalignStatVFS64_32(&s, r);
     return ret;
 }
@@ -569,9 +574,54 @@ EXPORT int my32_fstatvfs64(x64emu_t* emu, int fd, void* r)
 EXPORT int my32_fstatvfs(x64emu_t* emu, int fd, void* r)
 {
     struct statvfs s = {0};
-    int ret = fstatvfs(fd, &s);
-    if(r>=0)
+    int ret = fstatvfs(fd, r?&s:NULL);
+    if(r)
         UnalignStatVFS_32(&s, r);
+    return ret;
+}
+
+EXPORT int my32_fstatat(x64emu_t* emu, int fd, void* name, void* buff, int flags)
+{
+    struct stat64 s = {0};
+    int ret = fstatat64(fd, name, buff?&s:NULL, flags);
+    if(buff)
+        FillStatFromStat64(3, &s, buff);
+    return ret;
+}
+
+EXPORT int my32_fstatat64(x64emu_t* emu, int fd, void* name, void* buff, int flags)
+{
+    struct stat64 s = {0};
+    int ret = fstatat64(fd, name, buff?&s:NULL, flags);
+    if(buff)
+        UnalignStat64_32(&s, buff);
+    return ret;
+}
+
+EXPORT int my32___stat64_time64(x64emu_t* emu, void* f, void* r)
+{
+    struct stat64 s = {0};
+    int ret = stat64(f, r?&s:NULL);
+    if(r)
+        UnalignStat64_32_t64(&s, r);
+    return ret;
+}
+
+EXPORT int my32___lstat64_time64(x64emu_t* emu, void* f, void* r)
+{
+    struct stat64 s = {0};
+    int ret = lstat64(f, r?&s:NULL);
+    if(r)
+        UnalignStat64_32_t64(&s, r);
+    return ret;
+}
+
+EXPORT int my32___fstat64_time64(x64emu_t* emu, int fd, void* r)
+{
+    struct stat64 s = {0};
+    int ret = fstat64(fd, r?&s:NULL);
+    if(r)
+        UnalignStat64_32_t64(&s, r);
     return ret;
 }
 
@@ -1243,17 +1293,24 @@ EXPORT int my32_statx(x64emu_t* emu, int dirfd, void* path, int flags, uint32_t 
     return ret;
 }
 
-EXPORT int my32_stat64(x64emu_t* emu, void* path, void* buf)
+EXPORT int my32_stat64(void* path, void* buf)
 {
     struct stat64 st;
     int r = stat64(path, &st);
     UnalignStat64_32(&st, buf);
     return r;
 }
-EXPORT int my32_lstat64(x64emu_t* emu, void* path, void* buf)
+EXPORT int my32_lstat64(void* path, void* buf)
 {
     struct stat64 st;
     int r = lstat64(path, &st);
+    UnalignStat64_32(&st, buf);
+    return r;
+}
+EXPORT int my32_fstat64(int fd, void* buf)
+{
+    struct stat64 st;
+    int r = fstat64(fd, &st);
     UnalignStat64_32(&st, buf);
     return r;
 }
@@ -1435,6 +1492,11 @@ EXPORT void* my32_lfind(x64emu_t* emu, void* key, void* base, size_t* nmemb, siz
     return lfind(key, base, nmemb, size, findcompareFct(fnc));
 }
 
+EXPORT void* my32_fts_open(x64emu_t* emu, void* path, int options, void* c)
+{
+    return fts_open(path, options, findcompareFct(c));
+}
+
 EXPORT void* my32_readdir(x64emu_t* emu, void* dirp)
 {
     struct dirent64 *dp64 = readdir64((DIR *)dirp);
@@ -1544,9 +1606,60 @@ static int hasDBFromAddress(uintptr_t addr)
 }
 #endif
 
+#ifndef input_event_sec
+#define input_event_sec time.tv_sec
+#endif
+#ifndef input_event_usec
+#define input_event_usec time.tv_usec
+#endif
+
+EXPORT ssize_t my32_write(x64emu_t* emu, int fd, void* buf, size_t count)
+{
+    ssize_t ret;
+    if(isFDInputEvent(fd) && !(count%sizeof(my_input_event_32_t))) {
+        int n = count/sizeof(my_input_event_32_t);
+        struct input_event events[n];
+        my_input_event_32_t* s = buf;
+        for(int i=0; i<n; ++i) {
+            events[i].input_event_sec = from_ulong(s[i].sec);
+            events[i].input_event_usec = from_ulong(s[i].usec);
+            events[i].type = s[i].type;
+            events[i].code = s[i].code;
+            events[i].value = s[i].value;
+        }
+        ret = write(fd, events, sizeof(events));
+        if(ret>0) {
+            n = ret/sizeof(struct input_event);
+            ret = n*sizeof(my_input_event_32_t);
+        }
+        return ret;
+    }
+    return write(fd, buf, count);
+}
+
 EXPORT ssize_t my32_read(int fd, void* buf, size_t count)
 {
-    int ret = read(fd, buf, count);
+    ssize_t ret;
+    if(isFDInputEvent(fd) && !(count%sizeof(my_input_event_32_t))) {
+        int n = count/sizeof(my_input_event_32_t);
+        struct input_event events[n];
+        ret = read(fd, events, sizeof(events));
+        if(ret>0) {
+            n = ret/sizeof(struct input_event);
+            my_input_event_32_t* d = buf;
+            for(int i=0; i<n; ++i) {
+                d[i].sec = to_ulong(events[i].input_event_sec);
+                d[i].usec = to_ulong(events[i].input_event_usec);
+                d[i].type = events[i].type;
+                d[i].code = events[i].code;
+                d[i].value = events[i].value;
+            }
+            ret = n*sizeof(my_input_event_32_t);
+            // there might be missing bytes if it was interupted...
+        }
+        return ret;
+    }
+    ret = read(fd, buf, count);
 #ifdef DYNAREC
     if(ret!=count && ret>0 && BOX64ENV(dynarec)) {
         // continue reading...
@@ -1567,14 +1680,16 @@ EXPORT ssize_t my32_read(int fd, void* buf, size_t count)
     return ret;
 }
 
-#if 0
 EXPORT int my32_mkstemps64(x64emu_t* emu, char* template, int suffixlen)
 {
-    library_t* lib = my_lib;
+#if 0
+	// No iFpi_t. Redundant until further notice.
+	library_t* lib = my_lib;
     if(!lib) return 0;
     void* f = dlsym(lib->priv.w.lib, "mkstemps64");
     if(f)
         return ((iFpi_t)f)(template, suffixlen);
+#endif
     // implement own version...
     // TODO: check size of template, and if really XXXXXX is there
     char* fname = strdup(template);
@@ -1588,7 +1703,6 @@ EXPORT int my32_mkstemps64(x64emu_t* emu, char* template, int suffixlen)
     free(fname);
     return ret;
 }
-#endif
 
 EXPORT int32_t my32_ftw(x64emu_t* emu, void* pathname, void* B, int32_t nopenfd)
 {
@@ -1648,7 +1762,7 @@ static void convert_glob_to_32(void* d, void* s, int is64)
     if(!d || !s) return;
     glob_t* src = s;
     my_glob_32_t* dst = d;
-    for(int i=0; i<src->gl_pathc; ++i)
+    for(ulong_t i=0; i<src->gl_pathc; ++i)
         ((ptr_t*)src->gl_pathv)[i] = to_ptrv(src->gl_pathv[i]);
     dst->gl_pathc = to_ulong(src->gl_pathc);
     dst->gl_pathv = to_ptrv(src->gl_pathv);
@@ -1665,39 +1779,35 @@ static void convert_glob_to_64(void* d, void* s, int is64)
     dst->gl_pathv = from_ptrv(src->gl_pathv);
     dst->gl_offs = from_ulong(src->gl_offs);
     dst->gl_flags = src->gl_flags;
-    for(int i=dst->gl_pathc-1; i>=0; --i)
+    for(ulong_t i=dst->gl_pathc; i--;)
         dst->gl_pathv[i] = from_ptrv(((ptr_t*)dst->gl_pathv)[i]);
     // TODO: functions pointers
 }
 
 EXPORT int32_t my32_glob(x64emu_t *emu, void* pat, int32_t flags, void* errfnc, void* pglob)
 {
-    glob_t glob_l = {0};
+    glob64_t glob_l = {0};
     if(flags & GLOB_ALTDIRFUNC) printf_log(LOG_NONE, "Error: using unsupport GLOB_ALTDIRFUNC in glob\n");
-    convert_glob_to_64(&glob_l, pglob, 0);
-    static iFpipp_t f = NULL;
-    if(!f) {
-        library_t* lib = my_lib;
-        if(!lib) return 0;
-        f = (iFpipp_t)dlsym(NULL, "glob");
-    }
-    int ret = f(pat, flags, findgloberrFct(errfnc), pglob);
+    if(flags&(1<<5))    // GLOB_APPEND is used, so convert also before
+        convert_glob_to_64(&glob_l, pglob, 0);
+    int ret = glob64(pat, flags, findgloberrFct(errfnc), &glob_l);
     convert_glob_to_32(pglob, &glob_l, 0);
     return ret;
 }
 EXPORT void my32_globfree(x64emu_t* emu, void* pglob)
 {
-    glob_t glob_l = {0};
+    glob64_t glob_l = {0};
     convert_glob_to_64(&glob_l, pglob, 0);
-    globfree(&glob_l);
+    globfree64(&glob_l);
 }
 #ifndef ANDROID
 EXPORT int32_t my32_glob64(x64emu_t *emu, void* pat, int32_t flags, void* errfnc, void* pglob)
 {
     glob64_t glob_l = {0};
     if(flags & GLOB_ALTDIRFUNC) printf_log(LOG_NONE, "Error: using unsupport GLOB_ALTDIRFUNC in glob64\n");
-    convert_glob_to_64(&glob_l, pglob, 1);
-    int ret = glob64(pat, flags, findgloberrFct(errfnc), pglob);
+    if(flags&(1<<5))    // GLOB_APPEND is used, so convert also before
+        convert_glob_to_64(&glob_l, pglob, 1);
+    int ret = glob64(pat, flags, findgloberrFct(errfnc), &glob_l);
     convert_glob_to_32(pglob, &glob_l, 1);
     return ret;
 }
@@ -1764,6 +1874,28 @@ EXPORT long my32_readv(x64emu_t* emu, int fd, struct i386_iovec* iov, int niov)
         vec[i].iov_base = from_ptrv(iov[i].iov_base);
         vec[i].iov_len = from_ulong(iov[i].iov_len);
     }
+
+    if(isFDInputEvent(fd) && (niov==1) && !(vec[0].iov_len%sizeof(my_input_event_32_t))) {
+        int n = vec[0].iov_len/sizeof(my_input_event_32_t);
+        struct input_event events[n];
+        vec[0].iov_len = n*sizeof(struct input_event);
+        vec[0].iov_base = events;
+        ssize_t ret = readv(fd, vec, 1);
+        if(ret>0) {
+            n = ret/sizeof(struct input_event);
+            my_input_event_32_t* d = from_ptrv(iov[0].iov_base);
+            for(int i=0; i<n; ++i) {
+                d[i].sec = to_ulong(events[i].input_event_sec);
+                d[i].usec = to_ulong(events[i].input_event_usec);
+                d[i].type = events[i].type;
+                d[i].code = events[i].code;
+                d[i].value = events[i].value;
+            }
+            ret = n*sizeof(my_input_event_32_t);
+        }
+        return ret;
+    }
+
     return readv(fd, vec, niov);
 }
 
@@ -1783,6 +1915,7 @@ EXPORT ptr_t my32___environ = 0;  //char**
 
 EXPORT int32_t my32_execv(x64emu_t* emu, const char* path, ptr_t argv[])
 {
+    int ret;
     int self = isProcSelf(path, "exe");
     int x86 = FileIsX86ELF(path);
     int x64 = FileIsX64ELF(path);
@@ -1810,7 +1943,7 @@ EXPORT int32_t my32_execv(x64emu_t* emu, const char* path, ptr_t argv[])
             newargv[toadd] = skip_first?from_ptrv(argv[skip_first]):path;
         }
         printf_log(LOG_DEBUG, " => execv(\"%s\", %p [\"%s\", \"%s\", \"%s\"...:%d])\n", emu->context->box64path, newargv, newargv[0], n?newargv[1]:"", (n>1)?newargv[2]:"",n);
-        int ret = execv(newargv[0], (char* const*)newargv);
+        ret = execv(newargv[0], (char* const*)newargv);
         box_free(newargv);
         return ret;
     }
@@ -1820,7 +1953,42 @@ EXPORT int32_t my32_execv(x64emu_t* emu, const char* path, ptr_t argv[])
     char** newargv = (char**)box_calloc(n+1, sizeof(char*));
     for(int i=0; i<=n; ++i)
         newargv[i] = from_ptrv(argv[i]);
-    int ret = execv(path, (void*)newargv);
+    if (BOX64ENV(steam_vulkan) && n == 3 && !strcmp(newargv[0], "sh") && !strcmp(newargv[1], "-c") && strstr(newargv[2], "steamwebhelper.sh")) {
+        // For some reason, Steam UI on RISC-V/LoongArch does not have hardware accel.
+        // To workaround this, we insert `--enable-features=Vulkan` to the exec of steamwebhelper to force Vulkan.
+        // For cases where there is an existing `--enable-features=` string:
+        static const char* vulkanstr1 = "Vulkan,";
+        static const char* searchstr1 = "--enable-features=";
+        // For cases where there is no existing `--enable-features=` string:
+        static const char* vulkanstr2 = "--enable-features=Vulkan ";
+        static const char* searchstr2 = "--disable-features=";
+
+        size_t bufsize = strlen(newargv[2]) + strlen(vulkanstr1);
+        char* pos = strstr(newargv[2], searchstr1);
+        if (!pos) {
+            size_t bufsize = strlen(newargv[2]) + strlen(vulkanstr2);
+            pos = strstr(newargv[2], searchstr2);
+            if (!pos) goto do_exec;
+
+            char* newstr = (char*)box_calloc(bufsize + 1, 1);
+            size_t insertat = pos - newargv[2];
+            strncpy(newstr, newargv[2], insertat);
+            newstr[insertat] = '\0';
+            strcat(newstr, vulkanstr2);
+            strcat(newstr, newargv[2] + insertat);
+            newargv[2] = newstr;
+            goto do_exec;
+        }
+        char* newstr = (char*)box_calloc(bufsize + 1, 1);
+        size_t insertat = pos - newargv[2] + strlen(searchstr1);
+        strncpy(newstr, newargv[2], insertat);
+        newstr[insertat] = '\0';
+        strcat(newstr, vulkanstr1);
+        strcat(newstr, newargv[2] + insertat);
+        newargv[2] = newstr;
+    }
+do_exec:
+    ret = execv(path, (void*)newargv);
     box_free(newargv);
     return ret;
 }
@@ -2828,7 +2996,7 @@ void EXPORT my32_longjmp(x64emu_t* emu, /*struct __jmp_buf_tag __env[1]*/void *p
     R_EBP = jpbuff->save_ebp;
     R_ESP = jpbuff->save_esp;
     // jmp to saved location, plus restore val to eax
-    R_EAX = __val;
+    R_EAX = __val?__val:1;
     R_EIP = jpbuff->save_eip;
     if(((__jmp_buf_tag_t*)p)->__mask_was_saved) {
         sigprocmask(SIG_SETMASK, &((__jmp_buf_tag_t*)p)->__saved_mask, NULL);
@@ -2959,7 +3127,7 @@ int my_mprotect(x64emu_t* emu, void *addr, size_t len, int prot);
 EXPORT void* my32_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int flags, int fd, int64_t offset)
 {
     void* ret = my_mmap64(emu, addr, length, prot, flags|MAP_32BIT, fd, offset);
-    if((ret!=MAP_FAILED && ((uintptr_t)ret>0xffffffff) || ((uintptr_t)ret+length>0xffffffff))) {
+    if((ret!=MAP_FAILED) && (((uintptr_t)ret>0xffffffff) || ((uintptr_t)ret+length>0xffffffff))) {
         my_munmap(emu, ret, length);
         errno = EEXIST;
         return MAP_FAILED;
@@ -3236,9 +3404,9 @@ EXPORT ssize_t my32_process_vm_readv(x64emu_t* emu, int pid, struct i386_iovec* 
 {
     struct iovec local_iovec_l[liovect];
     struct iovec remove_iovec_l[riovect];
-    for (int i=0; i<liovect; ++i)
+    for (size_t i=0; i<liovect; ++i)
         AlignIOV_32(local_iovec_l+i, local_iovec+i);
-    for (int i=0; i<riovect; ++i)
+    for (size_t i=0; i<riovect; ++i)
         AlignIOV_32(remove_iovec_l+i, remote_iovec+i);
     return process_vm_readv(pid, local_iovec_l, liovect, remove_iovec_l, riovect, flags);
 }
@@ -3246,9 +3414,9 @@ EXPORT ssize_t my32_process_vm_writev(x64emu_t* emu, int pid, struct i386_iovec*
 {
     struct iovec local_iovec_l[liovect];
     struct iovec remove_iovec_l[riovect];
-    for (int i=0; i<liovect; ++i)
+    for (size_t i=0; i<liovect; ++i)
         AlignIOV_32(local_iovec_l+i, local_iovec+i);
-    for (int i=0; i<riovect; ++i)
+    for (size_t i=0; i<riovect; ++i)
         AlignIOV_32(remove_iovec_l+i, remote_iovec+i);
     return process_vm_writev(pid, local_iovec_l, liovect, remove_iovec_l, riovect, flags);
 }
@@ -3464,6 +3632,39 @@ EXPORT int my32_prctl(x64emu_t* emu, int option, unsigned long arg2, unsigned lo
         return 0;
     }
     return prctl(option, arg2, arg3, arg4, arg5);
+}
+
+int32_t my_open(x64emu_t* emu, void* pathname, int32_t flags, uint32_t mode);
+EXPORT int my32_open(x64emu_t* emu, void* pathname, int32_t flags, uint32_t mode)
+{
+    int ret = my_open(emu, pathname, flags, mode);
+    addInputEventFD(ret);
+    return ret;
+}
+EXPORT int32_t my_open64(x64emu_t* emu, void* pathname, int32_t flags, uint32_t mode);
+EXPORT int my32_open64(x64emu_t* emu, void* pathname, int32_t flags, uint32_t mode)
+{
+    int ret = my_open64(emu, pathname, flags, mode);
+    addInputEventFD(ret);
+    return ret;
+}
+
+EXPORT int my32_close(x64emu_t* emu, int fd)
+{
+    removeInputEventFD(fd);
+    return close(fd);
+}
+
+extern int ioctl_cgifconf(x64emu_t* emu, int fd, void* arg);
+EXPORT int my32_ioctl(x64emu_t* emu, int fd, unsigned long op, void* arg)
+{
+    switch(op)
+    {
+    case SIOCGIFCONF:
+        return ioctl_cgifconf(emu, fd, arg);
+    default:
+        return ioctl(fd, op, arg);
+    }
 }
 
 #undef HAS_MY

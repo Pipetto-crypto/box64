@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stddef.h>
 #include <dlfcn.h>
 
 #include "debug.h"
@@ -31,15 +32,16 @@ typedef struct register_events_s {
 
 static register_events_t* register_events_head = NULL;
 
+extern int my32_xinput_opcode;
+
 void convertXEvent(my_XEvent_32_t* dst, my_XEvent_t* src)
 {
     if(!src->type) {
         // This is an XErrorEvent, and it's different!
         dst->xerror.type = src->xerror.type;
-        // use the silent version here because sometimes src->xerror points to some garbage (we don't know why!)
-        dst->xerror.display = to_ptrv_silent(FindDisplay(src->xerror.display));
-        dst->xerror.resourceid = to_ulong_silent(src->xerror.resourceid);
-        dst->xerror.serial = to_ulong_silent(src->xerror.serial);
+        dst->xerror.display = to_ptrv(FindDisplay(src->xerror.display));
+        dst->xerror.resourceid = to_ulong(src->xerror.resourceid);
+        dst->xerror.serial = to_ulong(src->xerror.serial);
         dst->xerror.error_code = src->xerror.error_code;
         dst->xerror.request_code = src->xerror.request_code;
         dst->xerror.minor_code = src->xerror.minor_code;
@@ -260,9 +262,9 @@ void convertXEvent(my_XEvent_32_t* dst, my_XEvent_t* src)
         default: {
             register_events_t* head = register_events_head;
             while(head) {
-                if(type>=head->start_event && type<=head->end_event) {
-                    for(int i=0; i<head->n; ++i)
-                        if(type==head->events[i].event) {
+                if((uint32_t)type>=head->start_event && (uint32_t)type<=head->end_event) {
+                    for(size_t i=0; i<head->n; ++i)
+                        if((uint32_t)type==head->events[i].event) {
                             head->events[i].to32(dst, src);
                             return;
                         }
@@ -497,9 +499,9 @@ void unconvertXEvent(my_XEvent_t* dst, my_XEvent_32_t* src)
         default: {
             register_events_t* head = register_events_head;
             while(head) {
-                if(type>=head->start_event && type<=head->end_event) {
-                    for(int i=0; i<head->n; ++i)
-                        if(type==head->events[i].event) {
+                if((uint32_t)type>=head->start_event && (uint32_t)type<=head->end_event) {
+                    for(size_t i=0; i<head->n; ++i)
+                        if((uint32_t)type==head->events[i].event) {
                             head->events[i].to64(dst, src);
                             return;
                         }
@@ -508,6 +510,415 @@ void unconvertXEvent(my_XEvent_t* dst, my_XEvent_32_t* src)
             }
             printf_log(LOG_INFO, "Warning, unsupported 32bits (un)XEvent type=%d\n", type);
         }
+    }
+}
+
+void inplace_XEventData_shring(my_XEvent_t* evt)
+{
+    if(!evt || evt->type!=XEVT_GenericEvent)
+        return;
+    if(my32_xinput_opcode && evt->xcookie.extension==my32_xinput_opcode) {
+        //XInput2 event
+        // convert Generic event 1st, as it's common
+        my_XIEvent_t *s = evt->xcookie.data;
+        my_XIEvent_32_t* d = evt->xcookie.data;
+        d->type = s->type;
+        d->serial = to_ulong(s->serial);
+        d->send_event = s->send_event;
+        d->display = to_ptrv(FindDisplay(s->display));
+        d->extension = s->extension;
+        d->evtype = s->evtype;
+        d->time = to_ulong(s->time);
+        switch(evt->xcookie.evtype) {
+            case XI_DeviceChanged: {
+                my_XIDeviceChangedEvent_t* s = evt->xcookie.data;
+                my_XIDeviceChangedEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->reason = s->reason;
+                for(int j=0; j<s->num_classes; ++j)
+                    ((ptr_t*)s->classes)[j] = to_ptrv(s->classes[j]);
+                d->num_classes = s->num_classes;
+                d->classes = to_ptrv(s->classes);
+            }
+            break;
+            case XI_KeyPress:
+            case XI_KeyRelease:
+            case XI_ButtonPress:
+            case XI_ButtonRelease:
+            case XI_Motion:
+            case XI_TouchBegin:
+            case XI_TouchUpdate:
+            case XI_TouchEnd:
+            {
+                my_XIDeviceEvent_t* s = evt->xcookie.data;
+                my_XIDeviceEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->detail = s->detail;
+                d->root = to_ulong(s->root);
+                d->event = to_ulong(s->event);
+                d->child = to_ulong(s->child);
+                d->root_x = s->root_x;
+                d->root_y = s->root_y;
+                d->event_x = s->event_x;
+                d->event_y = s->event_y;
+                d->flags = s->flags;
+                d->buttons.mask_len = s->buttons.mask_len;
+                d->buttons.mask = to_ptrv(s->buttons.mask);
+                d->valuators.mask_len = s->valuators.mask_len;
+                d->valuators.mask = to_ptrv(s->valuators.mask);
+                d->valuators.values = to_ptrv(s->valuators.values);
+                d->mods = s->mods;
+                d->group = s->group;
+            }
+            break;
+            case XI_Enter:
+            case XI_Leave:
+            case XI_FocusIn:
+            case XI_FocusOut:
+            {
+                my_XIEnterEvent_t* s = evt->xcookie.data;
+                my_XIEnterEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->detail = s->detail;
+                d->root = to_ulong(s->root);
+                d->event = to_ulong(s->event);
+                d->child = to_ulong(s->child);
+                d->root_x = s->root_x;
+                d->root_y = s->root_y;
+                d->event_x = s->event_x;
+                d->event_y = s->event_y;
+                d->mode = s->mode;
+                d->focus = s->focus;
+                d->same_screen = s->same_screen;
+                d->buttons.mask_len = s->buttons.mask_len;
+                d->buttons.mask = to_ptrv(s->buttons.mask);
+                d->mods = s->mods;
+                d->group = s->group;
+            }
+            break;
+            case XI_HierarchyChanged: {
+                my_XIHierarchyEvent_t* s = evt->xcookie.data;
+                my_XIHierarchyEvent_32_t* d = evt->xcookie.data;
+                d->flags = s->flags;
+                d->num_info = s->num_info;
+                d->info = to_ptrv(s->info);
+            }
+            break;
+            case XI_RawKeyPress:
+            case XI_RawKeyRelease:
+            case XI_RawButtonPress:
+            case XI_RawButtonRelease:
+            case XI_RawMotion:
+            case XI_RawTouchBegin:
+            case XI_RawTouchUpdate:
+            case XI_RawTouchEnd:
+            {
+                my_XIRawEvent_t* s = evt->xcookie.data;
+                my_XIRawEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->detail = s->detail;
+                d->flags = s->flags;
+                d->valuators.mask_len = s->valuators.mask_len;
+                d->valuators.mask = to_ptrv(s->valuators.mask);
+                d->valuators.values = to_ptrv(s->valuators.values);
+                d->raw_values = to_ptrv(s->raw_values);
+            }
+            break;
+            case XI_TouchOwnership: {
+                my_XITouchOwnershipEvent_t* s = evt->xcookie.data;
+                my_XITouchOwnershipEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->touchid = s->touchid;
+                d->root = to_ulong(s->root);
+                d->event = to_ulong(s->event);
+                d->child = to_ulong(s->child);
+                d->flags = s->flags;
+            }
+            break;
+            case XI_BarrierHit:
+            case XI_BarrierLeave:
+            {
+                my_XIBarrierEvent_t* s = evt->xcookie.data;
+                my_XIBarrierEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->event = to_ulong(s->event);
+                d->root = to_ulong(s->root);
+                d->root_x = s->root_x;
+                d->root_y = s->root_y;
+                d->dx = s->dx;
+                d->dy = s->dy;
+                d->dtime = s->dtime;
+                d->flags = s->flags;
+                d->barrier = to_ulong(s->barrier);
+                d->eventid = s->eventid;
+            }
+            break;
+            case XI_GesturePinchBegin:
+            case XI_GesturePinchUpdate:
+            case XI_GesturePinchEnd:
+            {
+                my_XIGesturePinchEvent_t* s = evt->xcookie.data;
+                my_XIGesturePinchEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->detail = s->detail;
+                d->root = to_ulong(s->root);
+                d->event = to_ulong(s->event);
+                d->child = to_ulong(s->child);
+                d->root_x = s->root_x;
+                d->root_y = s->root_y;
+                d->event_x = s->event_x;
+                d->event_y = s->event_y;
+                d->delta_x = s->delta_x;
+                d->delta_y = s->delta_y;
+                d->delta_unaccel_x = s->delta_unaccel_x;
+                d->delta_unaccel_y = s->delta_unaccel_y;
+                d->scale = s->scale;
+                d->delta_angle = s->delta_angle;
+                d->flags = s->flags;
+                d->mods = s->mods;
+                d->group = s->group;
+            }
+            break;
+            case XI_GestureSwipeBegin:
+            case XI_GestureSwipeUpdate:
+            case XI_GestureSwipeEnd:
+            {
+                my_XIGestureSwipeEvent_t* s = evt->xcookie.data;
+                my_XIGestureSwipeEvent_32_t* d = evt->xcookie.data;
+                d->deviceid = s->deviceid;
+                d->sourceid = s->sourceid;
+                d->detail = s->detail;
+                d->root = to_ulong(s->root);
+                d->event = to_ulong(s->event);
+                d->child = to_ulong(s->child);
+                d->root_x = s->root_x;
+                d->root_y = s->root_y;
+                d->event_x = s->event_x;
+                d->event_y = s->event_y;
+                d->delta_x = s->delta_x;
+                d->delta_y = s->delta_y;
+                d->delta_unaccel_x = s->delta_unaccel_x;
+                d->delta_unaccel_y = s->delta_unaccel_y;
+                d->flags = s->flags;
+                d->mods = s->mods;
+                d->group = s->group;
+            }
+            break;
+            default:
+                printf_log(LOG_INFO, "Warning, unsupported 32bits XIEvent type=%d\n", evt->xcookie.evtype);
+                break;
+        }
+    }
+}
+void inplace_XEventData_enlarge(my_XEvent_t* evt)
+{
+    if(!evt || evt->type!=XEVT_GenericEvent)
+        return;
+    if(my32_xinput_opcode && evt->xcookie.extension==my32_xinput_opcode) {
+        switch(evt->xcookie.evtype) {
+            case XI_DeviceChanged: {
+                my_XIDeviceChangedEvent_32_t* s = evt->xcookie.data;
+                my_XIDeviceChangedEvent_t* d = evt->xcookie.data;
+                d->classes = from_ptrv(s->classes);
+                d->num_classes = s->num_classes;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+                d->reason = s->reason;
+                for(int j=d->num_classes-1; j>=0; --j)
+                    d->classes[j] = from_ptrv(((ptr_t*)d->classes)[j]);
+            }
+            break;
+            case XI_KeyPress:
+            case XI_KeyRelease:
+            case XI_ButtonPress:
+            case XI_ButtonRelease:
+            case XI_Motion:
+            case XI_TouchBegin:
+            case XI_TouchUpdate:
+            case XI_TouchEnd:
+            {
+                my_XIDeviceEvent_32_t* s = evt->xcookie.data;
+                my_XIDeviceEvent_t* d = evt->xcookie.data;
+                d->group = s->group;
+                d->mods = s->mods;
+                d->valuators.values = from_ptrv(s->valuators.values);
+                d->valuators.mask = from_ptrv(s->valuators.mask);
+                d->valuators.mask_len = s->valuators.mask_len;
+                d->buttons.mask = from_ptrv(s->buttons.mask);
+                d->buttons.mask_len = s->buttons.mask_len;
+                d->flags = s->flags;
+                d->event_y = s->event_y;
+                d->event_x = s->event_x;
+                d->root_y = s->root_y;
+                d->root_x = s->root_x;
+                d->child = from_ulong(s->child);
+                d->event = from_ulong(s->event);
+                d->root = from_ulong(s->root);
+                d->detail = s->detail;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            case XI_Enter:
+            case XI_Leave:
+            case XI_FocusIn:
+            case XI_FocusOut:
+            {
+                my_XIEnterEvent_32_t* s = evt->xcookie.data;
+                my_XIEnterEvent_t* d = evt->xcookie.data;
+                d->group = s->group;
+                d->mods = s->mods;
+                d->buttons.mask = from_ptrv(s->buttons.mask);
+                d->buttons.mask_len = s->buttons.mask_len;
+                d->same_screen = s->same_screen;
+                d->focus = s->focus;
+                d->mode = s->mode;
+                d->event_y = s->event_y;
+                d->event_x = s->event_x;
+                d->root_y = s->root_y;
+                d->root_x = s->root_x;
+                d->child = from_ulong(s->child);
+                d->event = from_ulong(s->event);
+                d->root = from_ulong(s->root);
+                d->detail = s->detail;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            case XI_HierarchyChanged: {
+                my_XIHierarchyEvent_32_t* s = evt->xcookie.data;
+                my_XIHierarchyEvent_t* d = evt->xcookie.data;
+                d->info = from_ptrv(s->info);
+                d->num_info = s->num_info;
+                d->flags = s->flags;
+            }
+            break;
+            case XI_RawKeyPress:
+            case XI_RawKeyRelease:
+            case XI_RawButtonPress:
+            case XI_RawButtonRelease:
+            case XI_RawMotion:
+            case XI_RawTouchBegin:
+            case XI_RawTouchUpdate:
+            case XI_RawTouchEnd:
+            {
+                my_XIRawEvent_32_t* s = evt->xcookie.data;
+                my_XIRawEvent_t* d = evt->xcookie.data;
+                d->raw_values = from_ptrv(s->raw_values);
+                d->valuators.values = from_ptrv(s->valuators.values);
+                d->valuators.mask = from_ptrv(s->valuators.mask);
+                d->valuators.mask_len = s->valuators.mask_len;
+                d->flags = s->flags;
+                d->detail = s->detail;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            case XI_TouchOwnership: {
+                my_XITouchOwnershipEvent_32_t* s = evt->xcookie.data;
+                my_XITouchOwnershipEvent_t* d = evt->xcookie.data;
+                d->flags = s->flags;
+                d->child = from_ulong(s->child);
+                d->event = from_ulong(s->event);
+                d->root = from_ulong(s->root);
+                d->touchid = s->touchid;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            case XI_BarrierHit:
+            case XI_BarrierLeave:
+            {
+                my_XIBarrierEvent_32_t* s = evt->xcookie.data;
+                my_XIBarrierEvent_t* d = evt->xcookie.data;
+                d->eventid = s->eventid;
+                d->barrier = from_ulong(s->barrier);
+                d->flags = s->flags;
+                d->dtime = s->dtime;
+                d->dy = s->dy;
+                d->dx = s->dx;
+                d->root_y = s->root_y;
+                d->root_x = s->root_x;
+                d->root = from_ulong(s->root);
+                d->event = from_ulong(s->event);
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            case XI_GesturePinchBegin:
+            case XI_GesturePinchUpdate:
+            case XI_GesturePinchEnd:
+            {
+                my_XIGesturePinchEvent_32_t* s = evt->xcookie.data;
+                my_XIGesturePinchEvent_t* d = evt->xcookie.data;
+                d->group = s->group;
+                d->mods = s->mods;
+                d->flags = s->flags;
+                d->delta_angle = s->delta_angle;
+                d->scale = s->scale;
+                d->delta_unaccel_y = s->delta_unaccel_y;
+                d->delta_unaccel_x = s->delta_unaccel_x;
+                d->delta_y = s->delta_y;
+                d->delta_x = s->delta_x;
+                d->event_y = s->event_y;
+                d->event_x = s->event_x;
+                d->root_y = s->root_y;
+                d->root_x = s->root_x;
+                d->child = from_ulong(s->child);
+                d->event = from_ulong(s->event);
+                d->root = from_ulong(s->root);
+                d->detail = s->detail;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            case XI_GestureSwipeBegin:
+            case XI_GestureSwipeUpdate:
+            case XI_GestureSwipeEnd:
+            {
+                my_XIGestureSwipeEvent_32_t* s = evt->xcookie.data;
+                my_XIGestureSwipeEvent_t* d = evt->xcookie.data;
+                d->group = s->group;
+                d->mods = s->mods;
+                d->flags = s->flags;
+                d->delta_unaccel_y = s->delta_unaccel_y;
+                d->delta_unaccel_x = s->delta_unaccel_x;
+                d->delta_y = s->delta_y;
+                d->delta_x = s->delta_x;
+                d->event_y = s->event_y;
+                d->event_x = s->event_x;
+                d->root_y = s->root_y;
+                d->root_x = s->root_x;
+                d->child = from_ulong(s->child);
+                d->event = from_ulong(s->event);
+                d->root = from_ulong(s->root);
+                d->detail = s->detail;
+                d->sourceid = s->sourceid;
+                d->deviceid = s->deviceid;
+            }
+            break;
+            default:
+                printf_log(LOG_INFO, "Warning, unsupported 32bits (un)XIEvent type=%d\n", evt->xcookie.evtype);
+                break;
+        }
+        //XInput2 event
+        // convert Generic event last, as it's common and on top of the structure
+        my_XIEvent_32_t* s = evt->xcookie.data;
+        my_XIEvent_t *d = evt->xcookie.data;
+        d->time = from_ulong(s->time);
+        d->evtype = s->evtype;
+        d->extension = s->extension;
+        d->display = getDisplay(from_ptrv(s->display));
+        d->send_event = s->send_event;
+        d->serial = from_ulong(s->serial);
+        d->type = s->type;
     }
 }
 
@@ -1088,20 +1499,21 @@ void convert_XFixesCursorNotifyEvent_to_64(my_XEvent_t* d, my_XEvent_32_t* s)
     //dst->type = src->type;
 }
 
+#define XFIXES (void*)1LL
+
 void register_XFixes_events(int event_base)
 {
-    void* a = (void*)1LL;
     // search if device is already in list
     register_events_t* head = register_events_head;
     while(head) {
-        if(head->id == a)
+        if(head->id == XFIXES)
             return; // found, nothing to do....
         head = head->next;
     }
     int n = 2;  // 2 events to register!
     // create a new event list
     register_events_t* events = box_malloc(sizeof(register_events_t)+n*sizeof(reg_event_t));
-    events->id = a;
+    events->id = XFIXES;
     events->n = n;
     events->events = (reg_event_t*)(events+1);
 
@@ -1112,17 +1524,17 @@ void register_XFixes_events(int event_base)
     events->events[1].to32 = convert_XFixesCursorNotifyEvent_to_32;
     events->events[1].to64 = convert_XFixesCursorNotifyEvent_to_64;
 
-    events->start_event = events->end_event = events->events[0].event;
+    events->start_event = events->events[0].event;
+    events->end_event = events->events[1].event;
     events->next = register_events_head;
     register_events_head = events;
 }
 void unregister_XFixes_events()
 {
-    void* a = (void*)1LL;
     register_events_t* prev = NULL;
     register_events_t* head = register_events_head;
     while(head) {
-        if(head->id == a) {
+        if(head->id == XFIXES) {
             if(!prev)
                 register_events_head = head->next;
             else
@@ -1334,6 +1746,7 @@ void register_XRandR_events(int event_base)
     events->next = register_events_head;
     register_events_head = events;
 }
+
 void unregister_XRandR_events()
 {
     void* a = (void*)2LL;
@@ -1341,6 +1754,114 @@ void unregister_XRandR_events()
     register_events_t* head = register_events_head;
     while(head) {
         if(head->id == a) {
+            if(!prev)
+                register_events_head = head->next;
+            else
+                prev->next = head->next;
+            box_free(head);
+            return;
+        }
+        prev = head;
+        head = head->next;
+    }
+}
+
+void convert_XkbEvent_to_32(my_XEvent_32_t* d, my_XEvent_t* s)
+{
+    my_XkbEvent_t* src = (my_XkbEvent_t*)s;
+    my_XkbEvent_32_t* dst = (my_XkbEvent_32_t*)d;
+    // convert XkbAnyEvent first, as it's the common part
+    int subtype = src->any.xkb_type;
+    //dst->any.type = src->any.type;
+    //dst->any.serial = src->any.serial;
+    //dst->any.send_event = src->any.send_event;
+    //dst->any.display = src->any.display;
+    dst->any.time = to_ulong(src->any.time);
+    dst->any.xkb_type = src->any.xkb_type;
+    dst->any.device = src->any.device;
+    // only XkbBellNotifyEvent need special conversion
+    switch(subtype) {
+        case 8:
+            dst->bell.percent = src->bell.percent;
+            dst->bell.pitch = src->bell.pitch;
+            dst->bell.duration = src->bell.duration;
+            dst->bell.bell_class = src->bell.bell_class;
+            dst->bell.bell_id = src->bell.bell_id;
+            dst->bell.name = to_ulong(src->bell.name);
+            dst->bell.window = to_ulong(src->bell.window);
+            dst->bell.event_only = src->bell.event_only;
+            break;
+        default:
+            memcpy(&dst->any.device, &src->any.device, sizeof(my_XkbEvent_32_t)-offsetof(my_XkbEvent_32_t, any.device));
+            break;
+    }
+}
+
+void convert_XkbEvent_to_64(my_XEvent_t* d, my_XEvent_32_t* s)
+{
+    my_XkbEvent_32_t* src = (my_XkbEvent_32_t*)s;
+    my_XkbEvent_t* dst = (my_XkbEvent_t*)d;
+    // convert XkbAnyEvent first, as it's the common part
+    int subtype = src->any.xkb_type;
+    //dst->any.type = src->any.type;
+    //dst->any.serial = src->any.serial;
+    //dst->any.send_event = src->any.send_event;
+    //dst->any.display = src->any.display;
+    dst->any.time = from_ulong(src->any.time);
+    dst->any.xkb_type = src->any.xkb_type;
+    dst->any.device = src->any.device;
+    // only XkbBellNotifyEvent need special conversion
+    switch(subtype) {
+        case 8:
+            dst->bell.percent = src->bell.percent;
+            dst->bell.pitch = src->bell.pitch;
+            dst->bell.duration = src->bell.duration;
+            dst->bell.bell_class = src->bell.bell_class;
+            dst->bell.bell_id = src->bell.bell_id;
+            dst->bell.name = from_ulong(src->bell.name);
+            dst->bell.window = from_ulong(src->bell.window);
+            dst->bell.event_only = src->bell.event_only;
+            break;
+        default:
+            memcpy(&dst->any.device, &src->any.device, sizeof(my_XkbEvent_t)-offsetof(my_XkbEvent_t, any.device));
+            break;
+    }
+}
+
+#define XKB     (void*)3LL
+
+void register_Xkb_events(int event_base)
+{
+    // search if device is already in list
+    register_events_t* head = register_events_head;
+    while(head) {
+        if(head->id == XKB)
+            return; // found, nothing to do....
+        head = head->next;
+    }
+    int n = 1;  // 1 event to register!, but there are 12 subevent actualy
+    // create a new event list
+    register_events_t* events = box_malloc(sizeof(register_events_t)+n*sizeof(reg_event_t));
+    events->id = XKB;
+    events->n = n;
+    events->events = (reg_event_t*)(events+1);
+
+    events->events[0].event = event_base+0;
+    events->events[0].to32 = convert_XkbEvent_to_32;
+    events->events[0].to64 = convert_XkbEvent_to_64;
+
+    events->start_event = events->events[0].event;
+    events->end_event = events->events[0].event;
+    events->next = register_events_head;
+    register_events_head = events;
+}
+
+void unregister_Xkb_events()
+{
+    register_events_t* prev = NULL;
+    register_events_t* head = register_events_head;
+    while(head) {
+        if(head->id == XKB) {
             if(!prev)
                 register_events_head = head->next;
             else

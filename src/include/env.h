@@ -7,11 +7,17 @@
 #define BOX64ENV(name)            (box64env.name)
 #define BOX64DRENV(name)          ((dyn->env && dyn->env->is_##name##_overridden)?dyn->env->name:box64env.name)
 #define SET_BOX64ENV(name, value)            \
-    {                                        \
+    do {                                     \
         box64env.name = (value);             \
         box64env.is_any_overridden = 1;      \
         box64env.is_##name##_overridden = 1; \
-    }
+    } while (0)
+#define SET_BOX64ENV_IF_EMPTY(name, value)      \
+    do {                                        \
+        if (!box64env.is_##name##_overridden) { \
+            SET_BOX64ENV(name, value);          \
+        }                                       \
+    } while (0)
 
 /*
     INTEGER(NAME, name, default, min, max, wine)
@@ -32,12 +38,12 @@ extern char* ftrace_name;
 
 #define ENVSUPER1()                                                           \
     STRING(BOX64_ADDLIBS, addlibs, 0)                                         \
+    BOOLEAN(BOX64_AES, aes, 1, 1)                                             \
     BOOLEAN(BOX64_ALLOWMISSINGLIBS, allow_missing_libs, 0, 0)                 \
     STRING(BOX64_ARCH, arch, 0)                                               \
     STRING(BOX64_ARGS, args, 0)                                               \
     STRING(BOX64_BASH, bash, 0)                                               \
-    BOOLEAN(BOX64_CEFDISABLEGPU, cefdisablegpu, 0, 0)                         \
-    BOOLEAN(BOX64_CEFDISABLEGPUCOMPOSITOR, cefdisablegpucompositor, 0, 0)     \
+    STRING(BOX64_PYTHON3, python3, 0)                                         \
     INTEGER(BOX64_CPUTYPE, cputype, 0, 0, 1, 1)                               \
     BOOLEAN(BOX64_CRASHHANDLER, dummy_crashhandler, 1, 0)                     \
     BOOLEAN(BOX64_DLSYM_ERROR, dlsym_error, 0, 0)                             \
@@ -48,6 +54,7 @@ extern char* ftrace_name;
     INTEGER(BOX64_DYNAREC_CALLRET, dynarec_callret, 0, 0, 2, 1)               \
     BOOLEAN(BOX64_DYNAREC_DF, dynarec_df, 1, 1)                               \
     INTEGER(BOX64_DYNAREC_DIRTY, dynarec_dirty, 0, 0, 2, 0)                   \
+    BOOLEAN(BOX64_DYNAREC_HOTPAGE_ALT, dynarec_hotpage_alt, 1, 0)             \
     BOOLEAN(BOX64_DYNAREC_NOHOTPAGE, dynarec_nohotpage, 0, 0)                 \
     BOOLEAN(BOX64_DYNAREC_DIV0, dynarec_div0, 0, 1)                           \
     INTEGER(BOX64_DYNAREC_DUMP, dynarec_dump, 0, 0, 2, 1)                     \
@@ -65,12 +72,18 @@ extern char* ftrace_name;
     INTEGER(BOX64_DYNAREC_STRONGMEM, dynarec_strongmem, 0, 0, 3, 1)           \
     BOOLEAN(BOX64_DYNAREC_TBB, dynarec_tbb, 1, 0)                             \
     STRING(BOX64_DYNAREC_TEST, dynarec_test_str, 1)                           \
+    BOOLEAN(BOX64_DYNAREC_TEST_NODUP, dynarec_test_nodup, 0, 1)               \
     BOOLEAN(BOX64_DYNAREC_TRACE, dynarec_trace, 0, 0)                         \
     BOOLEAN(BOX64_DYNAREC_VOLATILE_METADATA, dynarec_volatile_metadata, 1, 0) \
     BOOLEAN(BOX64_DYNAREC_WAIT, dynarec_wait, 1, 1)                           \
     INTEGER(BOX64_DYNAREC_WEAKBARRIER, dynarec_weakbarrier, 1, 0, 2, 1)       \
     INTEGER(BOX64_DYNAREC_X87DOUBLE, dynarec_x87double, 0, 0, 2, 1)           \
+    BOOLEAN(BOX64_DYNAREC_INTERP_SIGNAL, dynarec_interp_signal, 0, 0)         \
+    BOOLEAN(BOX64_DYNAREC_PURGE, dynarec_purge, 0, 0)                         \
+    INTEGER(BOX64_DYNAREC_PURGE_AGE, dynarec_purge_age, 4096, 10, 65536, 0)   \
+    BOOLEAN(BOX64_NODYNAREC_DELAY, nodynarec_delay, 0, 1)                     \
     STRING(BOX64_EMULATED_LIBS, emulated_libs, 0)                             \
+    INTEGER(BOX64_DYNAREC_NOARCH, dynarec_noarch, 0, 0, 2, 1)                 \
     STRING(BOX64_ENV, env, 0)                                                 \
     STRING(BOX64_ENV1, env1, 0)                                               \
     STRING(BOX64_ENV2, env2, 0)                                               \
@@ -85,7 +98,7 @@ extern char* ftrace_name;
     INTEGER(BOX64_JITGDB, jitgdb, 0, 0, 3, 0)                                 \
     BOOLEAN(BOX64_JVM, jvm, 1, 0)                                             \
     STRING(BOX64_LD_LIBRARY_PATH, ld_library_path, 0)                         \
-    BOOLEAN(BOX64_LIBCEF, libcef, 1, 0)                                       \
+    BOOLEAN(BOX64_LIBCEF, libcef, 0, 0)                                       \
     STRING(BOX64_LIBGL, libgl, 0)                                             \
     ADDRESS(BOX64_LOAD_ADDR, load_addr, 0)                                    \
     INTEGER(BOX64_LOG, log, DEFAULT_LOG_LEVEL, 0, 3, 1)                       \
@@ -102,18 +115,21 @@ extern char* ftrace_name;
     BOOLEAN(BOX64_NOSIGILL, nosigill, 0, 0)                                   \
     BOOLEAN(BOX64_NOVULKAN, novulkan, 0, 0)                                   \
     STRING(BOX64_PATH, path, 0)                                               \
+    BOOLEAN(BOX64_PCLMULQDQ, pclmulqdq, 1, 1)                                 \
     BOOLEAN(BOX64_PREFER_EMULATED, prefer_emulated, 0, 0)                     \
     BOOLEAN(BOX64_PREFER_WRAPPED, prefer_wrapped, 0, 0)                       \
+    STRING(BOX64_PROFILE, profile, 1)                                         \
     STRING(BOX64_RCFILE, envfile, 0)                                          \
     BOOLEAN(BOX64_RDTSC_1GHZ, rdtsc_1ghz, 0, 0)                               \
     BOOLEAN(BOX64_RESERVE_HIGH, reserve_high, 0, 0)                           \
     INTEGER(BOX64_ROLLING_LOG, cycle_log, 0, 0, 2048, 0)                      \
     BOOLEAN(BOX64_SDL2_JGUID, sdl2_jguid, 0, 0)                               \
-    BOOLEAN(BOX64_SHAEXT, shaext, 1, 0)                                       \
+    BOOLEAN(BOX64_SHAEXT, shaext, 1, 1)                                       \
     BOOLEAN(BOX64_SHOWBT, showbt, 0, 0)                                       \
     BOOLEAN(BOX64_SHOWSEGV, showsegv, 0, 0)                                   \
     BOOLEAN(BOX64_SSE_FLUSHTO0, sse_flushto0, 0, 1)                           \
     BOOLEAN(BOX64_SSE42, sse42, 1, 1)                                         \
+    BOOLEAN(BOX64_STEAM_VULKAN, steam_vulkan, 0, 0)                           \
     BOOLEAN(BOX64_SYNC_ROUNDING, sync_rounding, 0, 0)                         \
     BOOLEAN(BOX64_TRACE_COLOR, trace_regsdiff, 0, 0)                          \
     BOOLEAN(BOX64_TRACE_EMM, trace_emm, 0, 0)                                 \
@@ -122,12 +138,14 @@ extern char* ftrace_name;
     INTEGER64(BOX64_TRACE_START, start_cnt, 0, 0)                             \
     BOOLEAN(BOX64_TRACE_XMM, trace_xmm, 0, 0)                                 \
     STRING(BOX64_TRACE, trace, 0)                                             \
+    BOOLEAN(BOX64_UNITY, unity, 0, 0)                                         \
     BOOLEAN(BOX64_UNITYPLAYER, unityplayer, 1, 0)                             \
     BOOLEAN(BOX64_WRAP_EGL, wrap_egl, 0, 0)                                   \
     BOOLEAN(BOX64_X11GLX, x11glx, 1, 0)                                       \
     BOOLEAN(BOX64_X11SYNC, x11sync, 0, 0)                                     \
     BOOLEAN(BOX64_X11THREADS, x11threads, 0, 0)                               \
     BOOLEAN(BOX64_X87_NO80BITS, x87_no80bits, 0, 1)                           \
+    BOOLEAN(BOX64_NOPERSONA32BITS, nopersona32bits, 0, 0)                     \
     INTEGER(BOX64_DYNACACHE, dynacache, 2, 0, 2, 0)                           \
     STRING(BOX64_DYNACACHE_FOLDER, dynacache_folder, 0)                       \
     INTEGER(BOX64_DYNACACHE_MIN, dynacache_min, 350, 0, 10240, 0)

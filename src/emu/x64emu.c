@@ -77,8 +77,8 @@ static void internalX64Setup(x64emu_t* emu, box64context_t *context, uintptr_t s
     } else {
         emu->segs[_CS] = 0x33;
         emu->segs[_DS] = emu->segs[_ES] = emu->segs[_SS] = 0x2b;
-        emu->segs[_FS] = 0x43;
-        emu->segs[_GS] = default_gs;
+        emu->segs[_FS] = 0;
+        emu->segs[_GS] = 0;
     }
     // init segments
     for(int i=0; i<16; i++) {
@@ -168,6 +168,7 @@ void FreeX64Emu(x64emu_t **emu)
     printf_log(LOG_DEBUG, "%04d|Free a X86_64 Emu (%p)\n", GetTID(), *emu);
 
     if((*emu)->test.emu) {
+        (*emu)->test.emu->tlsdata = NULL; // unlink the tlsdata first
         internalFreeX64((*emu)->test.emu);
         actual_free((*emu)->test.emu);
         (*emu)->test.emu = NULL;
@@ -194,7 +195,7 @@ void CloneEmu(x64emu_t *newemu, const x64emu_t* emu)
     memcpy(&newemu->eflags, &emu->eflags, sizeof(emu->eflags));
     newemu->old_ip = emu->old_ip;
     memcpy(newemu->segs, emu->segs, sizeof(emu->segs));
-    memset(newemu->segs_serial, 0, sizeof(newemu->segs_serial));
+    memcpy(newemu->segs_offs, emu->segs_offs, sizeof(emu->segs_offs));
     memcpy(newemu->seggdt, emu->seggdt, sizeof(newemu->seggdt));
     memcpy(newemu->segldt, emu->segldt, sizeof(newemu->segldt));
     memcpy(newemu->x87, emu->x87, sizeof(emu->x87));
@@ -225,7 +226,6 @@ void CopyEmu(x64emu_t *newemu, const x64emu_t* emu)
     memcpy(&newemu->eflags, &emu->eflags, sizeof(emu->eflags));
     newemu->old_ip = emu->old_ip;
     memcpy(newemu->segs, emu->segs, sizeof(emu->segs));
-    memcpy(newemu->segs_serial, emu->segs_serial, sizeof(emu->segs_serial));
     memcpy(newemu->segs_offs, emu->segs_offs, sizeof(emu->segs_offs));
     memcpy(newemu->x87, emu->x87, sizeof(emu->x87));
     memcpy(newemu->mmx, emu->mmx, sizeof(emu->mmx));
@@ -343,7 +343,6 @@ uint64_t GetRBP(x64emu_t *emu)
 void SetFS(x64emu_t *emu, uint16_t v)
 {
     emu->segs[_FS] = v;
-    emu->segs_serial[_FS] = 0;
 }
 uint16_t GetFS(x64emu_t *emu)
 {
@@ -358,7 +357,11 @@ void ResetFlags(x64emu_t *emu)
 
 const char* DumpCPURegs(x64emu_t* emu, uintptr_t ip, int is32bits)
 {
+    #ifdef WIN32
     static char buff[4096];
+    #else
+    static __thread char buff[4096];
+    #endif
     static const char* regname[] = {"RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI",
                                     " R8", " R9", "R10", "R11", "R12", "R13", "R14", "R15"};
     static const char* regname32[]={"EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"};
@@ -424,6 +427,10 @@ const char* DumpCPURegs(x64emu_t* emu, uintptr_t ip, int is32bits)
             if(i!=_GS)
                 strcat(buff, " ");
     }
+    sprintf(tmp, " FSBASE=%p", (void*)emu->segs_offs[_FS]);
+    strcat(buff, tmp);
+    sprintf(tmp, " GSBASE=%p", (void*)emu->segs_offs[_GS]);
+    strcat(buff, tmp);
     strcat(buff, "\n");
     if(is32bits)
         for (int i=_AX; i<=_RDI; ++i) {
@@ -442,12 +449,12 @@ const char* DumpCPURegs(x64emu_t* emu, uintptr_t ip, int is32bits)
             if(i==_RBX) {
                 if(emu->df) {
 #define FLAG_CHAR(f) (ACCESS_FLAG(F_##f##F)) ? #f : "?"
-                    sprintf(tmp, "flags=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
+                    sprintf(tmp, " flags=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
                     strcat(buff, tmp);
 #undef FLAG_CHAR
                 } else {
 #define FLAG_CHAR(f) (ACCESS_FLAG(F_##f##F)) ? #f : "-"
-                    sprintf(tmp, "FLAGS=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
+                    sprintf(tmp, " FLAGS=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
                     strcat(buff, tmp);
 #undef FLAG_CHAR
                 }
@@ -473,12 +480,12 @@ const char* DumpCPURegs(x64emu_t* emu, uintptr_t ip, int is32bits)
                 if(i==4) {
                     if(emu->df) {
 #define FLAG_CHAR(f) (ACCESS_FLAG(F_##f##F)) ? #f : "?"
-                        sprintf(tmp, "flags=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
+                        sprintf(tmp, " flags=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
                         strcat(buff, tmp);
 #undef FLAG_CHAR
                     } else {
 #define FLAG_CHAR(f) (ACCESS_FLAG(F_##f##F)) ? #f : "-"
-                        sprintf(tmp, "FLAGS=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
+                        sprintf(tmp, " FLAGS=%s%s%s%s%s%s%s\n", FLAG_CHAR(O), FLAG_CHAR(D), FLAG_CHAR(S), FLAG_CHAR(Z), FLAG_CHAR(A), FLAG_CHAR(P), FLAG_CHAR(C));
                         strcat(buff, tmp);
 #undef FLAG_CHAR
                     }
@@ -571,7 +578,8 @@ void EmuCall(x64emu_t* emu, uintptr_t addr)
         PushExit(emu);
     R_RIP = addr;
     emu->df = d_none;
-    Run(emu, 0);
+    emu->flags.need_jmpbuf = 1;
+    EmuRun(emu, 0);
     emu->quit = 0;  // reset Quit flags...
     emu->df = d_none;
     if(emu->flags.quitonlongjmp && emu->flags.longjmp) {
@@ -592,13 +600,6 @@ void EmuCall(x64emu_t* emu, uintptr_t addr)
         R_RSP = old_rsp;
         R_RIP = old_rip;  // and set back instruction pointer
     }
-}
-
-void ResetSegmentsCache(x64emu_t *emu)
-{
-    if(!emu)
-        return;
-    memset(emu->segs_serial, 0, sizeof(emu->segs_serial));
 }
 
 void applyFlushTo0(x64emu_t* emu)
@@ -1448,8 +1449,36 @@ void UpdateFlags(x64emu_t* emu)
             CONDITIONAL_SET_FLAG(XOR2(cc >> 6), F_OF);
             CONDITIONAL_SET_FLAG(cc & 0x8, F_AF);
             break;
+        case d_adc8b:
+            if (emu->res.u8 == (emu->op1.u8 + emu->op2.u8)) {
+                lo = (uint32_t)(emu->op1.u8) + (emu->op2.u8);
+            } else {
+                lo = 1 + (uint32_t)(emu->op1.u8) + (emu->op2.u8);
+            }
+            CONDITIONAL_SET_FLAG(lo & 0x100, F_CF);
+            CONDITIONAL_SET_FLAG(!emu->res.u8, F_ZF);
+            CONDITIONAL_SET_FLAG(emu->res.u8 & 0x80, F_SF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);
+            cc = (emu->op1.u8 & emu->op2.u8) | ((~emu->res.u8) & (emu->op1.u8 | emu->op2.u8));
+            CONDITIONAL_SET_FLAG(XOR2(cc >> 6), F_OF);
+            CONDITIONAL_SET_FLAG(cc & 0x8, F_AF);
+            break;
         case d_adc16:
             CONDITIONAL_SET_FLAG(emu->res.u32 & 0x10000, F_CF);
+            CONDITIONAL_SET_FLAG((emu->res.u16 & 0xffff) == 0, F_ZF);
+            CONDITIONAL_SET_FLAG(emu->res.u16 & 0x8000, F_SF);
+            CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);
+            cc = (emu->op1.u16 & emu->op2.u16) | ((~emu->res.u16) & (emu->op1.u16 | emu->op2.u16));
+            CONDITIONAL_SET_FLAG(XOR2(cc >> 14), F_OF);
+            CONDITIONAL_SET_FLAG(cc & 0x8, F_AF);
+            break;
+        case d_adc16b:
+            if (emu->res.u16 == (emu->op1.u16 + emu->op2.u16)) {
+                lo = (uint32_t)(emu->op1.u16) + (emu->op2.u16);
+            } else {
+                lo = 1 + (uint32_t)(emu->op1.u16) + (emu->op2.u16);
+            }
+            CONDITIONAL_SET_FLAG(lo & 0x10000, F_CF);
             CONDITIONAL_SET_FLAG((emu->res.u16 & 0xffff) == 0, F_ZF);
             CONDITIONAL_SET_FLAG(emu->res.u16 & 0x8000, F_SF);
             CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);
@@ -1607,9 +1636,10 @@ void free_tlsdatasize(void* p)
 
 uintptr_t GetSegmentBaseEmu(x64emu_t* emu, int seg)
 {
-    if (emu->segs_serial[seg] != emu->context->sel_serial) {
+    if(emu->segs[seg]) {
         emu->segs_offs[seg] = (uintptr_t)GetSegmentBase(emu, emu->segs[seg]);
-        emu->segs_serial[seg] = emu->context->sel_serial;
+        //printf_log(LOG_DEBUG, "%04d|GetSegmentBaseEmu seg=%d(%x), offs=%p\n", GetTID(), seg, emu->segs[seg], (void*)emu->segs_offs[seg]);
     }
+
     return emu->segs_offs[seg];
 }

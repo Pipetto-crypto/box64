@@ -153,9 +153,11 @@ EXPORT void* my32_XRRQueryOutputProperty(x64emu_t* emu, void* dpy, XID output, X
 
 EXPORT int my32_XRRQueryExtension(x64emu_t* emu, void* dpy, int* event_base, int* error_base)
 {
-    int ret = my->XRRQueryExtension(dpy, event_base, error_base);
+    int fallabck;
+    int *event = event_base?event_base:&fallabck;
+    int ret = my->XRRQueryExtension(dpy, event, error_base);
     if(!ret) return ret;
-    register_XRandR_events(*event_base);
+    register_XRandR_events(*event);
     return ret;
 }
 
@@ -178,6 +180,15 @@ EXPORT void my32_XRRFreeMonitors(x64emu_t* emu, void* monitors)
     int n = 0;
     while(((my_XRRMonitorInfo_32_t*)monitors)[n].name) ++n;
     my->XRRFreeMonitors(inplace_XRRMonitorInfo_enlarge(monitors, n));
+}
+
+EXPORT int my32_XRRGetCrtcTransform(x64emu_t* emu, void* dpy, XID crtc, ptr_t* attributes)
+{
+    void* attributes_l = NULL;
+    int ret = my->XRRGetCrtcTransform(dpy, crtc, &attributes_l);
+    inplace_XRRCrtcTransformAttributes_shrink(attributes_l);
+    *attributes = to_ptrv(attributes_l);
+    return ret;
 }
 
 #ifdef ANDROID

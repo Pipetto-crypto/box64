@@ -18,6 +18,24 @@
     ]
   },
   {
+    "name": "BOX64_AES",
+    "description": "Expose AES capabilities.",
+    "category": "Compatibility",
+    "wine": true,
+    "options": [
+      {
+        "key": "0",
+        "description": "Do not expose AES capabilities.",
+        "default": false
+      },
+      {
+        "key": "1",
+        "description": "Expose AES capabilities.",
+        "default": true
+      }
+    ]
+  },
+  {
     "name": "BOX64_ALLOWMISSINGLIBS",
     "description": "Allow missing libraries to be ignored.",
     "category": "Libraries",
@@ -118,42 +136,6 @@
     ]
   },
   {
-    "name": "BOX64_CEFDISABLEGPU",
-    "description": "Add -cef-disable-gpu argument to the guest program.",
-    "category": "Arguments",
-    "wine": false,
-    "options": [
-      {
-        "key": "0",
-        "description": "Does nothing.",
-        "default": true
-      },
-      {
-        "key": "1",
-        "description": "Add -cef-disable-gpu argument to the guest program.",
-        "default": false
-      }
-    ]
-  },
-  {
-    "name": "BOX64_CEFDISABLEGPUCOMPOSITOR",
-    "description": "Add -cef-disable-gpu-compositor argument to the guest program.",
-    "category": "Arguments",
-    "wine": false,
-    "options": [
-      {
-        "key": "0",
-        "description": "Does nothing.",
-        "default": true
-      },
-      {
-        "key": "1",
-        "description": "Add -cef-disable-gpu-compositor argument to the guest program.",
-        "default": false
-      }
-    ]
-  },
-  {
     "name": "BOX64_CPUTYPE",
     "description": "Specify the CPU type to emulate.",
     "category": "Compatibility",
@@ -179,7 +161,7 @@
     "options": [
       {
         "key": "0",
-        "description": "Use emulated crashhandler.so library if nedded.",
+        "description": "Use emulated crashhandler.so library if needed.",
         "default": false
       },
       {
@@ -291,7 +273,7 @@
   },
   {
     "name": "BOX64_DYNAREC_BLEEDING_EDGE",
-    "description": "Detect MonoBleedingEdge and apply conservative settings.",
+    "description": "Detect MonoBleedingEdge and apply conservative settings (Linux only).",
     "category": "Compatibility",
     "wine": false,
     "options": [
@@ -385,6 +367,24 @@
       {
         "key": "1",
         "description": "Do not detect hot page",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_DYNAREC_HOTPAGE_ALT",
+    "description": "Use alternative way to detect HotPages (legacy way).",
+    "category": "Performance",
+    "wine": false,
+    "options": [
+      {
+        "key": "0",
+        "description": "Detect hot page, using new method from v0.3.9+",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Use alternate method to detect HotPage (from v0.3.8 and earlier)",
         "default": false
       }
     ]
@@ -656,6 +656,42 @@
     ]
   },
   {
+    "name": "BOX64_DYNAREC_PURGE",
+    "description": "Purge dynablocks that haven't been executed recently, based on tick age threshold (BOX64_DYNAREC_PURGE_AGE).",
+    "category": "Performance",
+    "wine": false,
+    "options": [
+      {
+        "key": "0",
+        "description": "Dynarec will not purge old unused dynablocks.",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Dynarec will purge old unused dynablocks based on tick age.",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_DYNAREC_PURGE_AGE",
+    "description": "Tick age threshold for dynablock purging (requires BOX64_DYNAREC_PURGE=1).",
+    "category": "Performance",
+    "wine": false,
+    "options": [
+      {
+        "key": "4096",
+        "description": "Default age threshold.",
+        "default": true
+      },
+      {
+        "key": "XXXX",
+        "description": "Custom age threshold (range: 10-65536).",
+        "default": false
+      }
+    ]
+  },
+  {
     "name": "BOX64_DYNAREC_SAFEFLAGS",
     "description": "Behaviour of flags emulation on CALL/RET opcodes and other edge cases.",
     "category": "Performance",
@@ -743,6 +779,24 @@
       {
         "key": "0xXXXXXXXX-0xYYYYYYYY",
         "description": "Define the range where dynarec is tested (inclusive-exclusive).",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_DYNAREC_TEST_NODUP",
+    "description": "Enable deduplication of IP address where COSIM find a difference",
+    "category": "Debugging",
+    "wine": true,
+    "options": [
+      {
+        "key": "0",
+        "description": "Show all addresses in error",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Show address in error only 1 time, even if dump might differs",
         "default": false
       }
     ]
@@ -843,6 +897,24 @@
       {
         "key": "2",
         "description": "Check Precision Control low precision on x87 emulation.",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_DYNAREC_INTERP_SIGNAL",
+    "description": "Allow the use of Dynarec in Signal Handlers.",
+    "category": "Compatibility",
+    "wine": false,
+    "options": [
+      {
+        "key": "0",
+        "description": "Allow the use of Dynarec in signal handlers.",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Only use the Interpreter for signal handlers (as it was in v0.3.8 and earlier).",
         "default": false
       }
     ]
@@ -1121,12 +1193,12 @@
       {
         "key": "0",
         "description": "Does nothing.",
-        "default": false
+        "default": true
       },
       {
         "key": "1",
         "description": "Detect libcef, and apply BOX64_MALLOC_HACK=2 if detected.",
-        "default": true
+        "default": false
       }
     ]
   },
@@ -1280,6 +1352,47 @@
     ]
   },
   {
+    "name": "BOX64_NODYNAREC_DELAY",
+    "description": "Remove NoDynarec range after a delay.",
+    "category": "Debugging",
+    "wine": true,
+    "options": [
+      {
+        "key": "0",
+        "description": "Do not remove NoDynarec range.",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Remove the NoDynarec range once 2 threads have been created.",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_DYNAREC_NOARCH",
+    "description": "Remove Architecture metatdata from Dynarec blocks (used on signal).",
+    "category": "Performance",
+    "wine": true,
+    "options": [
+      {
+        "key": "0",
+        "description": "Generate all architecture metadata for each blocks, including x87/mmx/SSE/AVX regs tracking. Wil use some more memory.",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Generate only essential metadata for each blocks (flags, alignments), saving some memory, but some encrypted software might fails.",
+        "default": false
+      },
+      {
+        "key": "2",
+        "description": "Do not generate metadata for blocks. Saving a bit more memory but might fails on signal handling.",
+        "default": false
+      }
+    ]
+  },
+  {
     "name": "BOX64_NOGTK",
     "description": "Do not load wrapped GTK libraries.",
     "category": "Libraries",
@@ -1419,6 +1532,24 @@
     ]
   },
   {
+    "name": "BOX64_PCLMULQDQ",
+    "description": "Expose PCLMULQDQ capabilities.",
+    "category": "Compatibility",
+    "wine": true,
+    "options": [
+      {
+        "key": "0",
+        "description": "Do not expose PCLMULQDQ capabilities.",
+        "default": false
+      },
+      {
+        "key": "1",
+        "description": "Expose PCLMULQDQ capabilities.",
+        "default": true
+      }
+    ]
+  },
+  {
     "name": "BOX64_PREFER_EMULATED",
     "description": "Prefer emulated libraries over native ones.",
     "category": "Libraries",
@@ -1450,6 +1581,52 @@
       {
         "key": "1",
         "description": "Prefer wrapped libs first even if the lib is specified with absolute path.",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_PROFILE",
+    "description": "Predefined sets of environment variables with compatibility or performance in mind.",
+    "category": "Compatibility",
+    "wine": true,
+    "options": [
+      {
+        "key": "safest",
+        "description": "Profile with all the unsafe DynaRec optimizations disabled.",
+        "default": false
+      },
+      {
+        "key": "safe",
+        "description": "Well, less safer than safest.",
+        "default": false
+      },
+      {
+        "key": "default",
+        "description": "The default settings that most programs runs fine with a handy performance.",
+        "default": true
+      },
+      {
+        "key": "fast",
+        "description": "Enable many unsafe optimizations, but also enable strongmem emulation.",
+        "default": false
+      },
+      {
+        "key": "fastest",
+        "description": "Enable many unsafe optimizations to have a better performance.",
+        "default": false
+      }
+    ]
+  },
+  {
+    "name": "BOX64_PYTHON3",
+    "description": "Path to a python3 executable.",
+    "category": "Compatibility",
+    "wine": false,
+    "options": [
+      {
+        "key": "XXXX",
+        "description": "Use python3 executable at path XXXX.",
         "default": false
       }
     ]
@@ -1548,7 +1725,7 @@
     "name": "BOX64_SHAEXT",
     "description": "Expose SHAEXT (a.k.a. SHA_NI) capabilities.",
     "category": "Compatibility",
-    "wine": false,
+    "wine": true,
     "options": [
       {
         "key": "0",
@@ -1635,6 +1812,24 @@
     ]
   },
   {
+    "name": "BOX64_STEAM_VULKAN",
+    "description": "Force Vulkan for Linux Steam UI.",
+    "category": "Compatibility",
+    "wine": false,
+    "options": [
+      {
+        "key": "0",
+        "description": "Do nothing.",
+        "default": true
+      },
+      {
+        "key": "1",
+        "description": "Force Vulkan for Linux Steam UI.",
+        "default": false
+      }
+    ]
+  },
+  {
     "name": "BOX64_SYNC_ROUNDING",
     "description": "Synchronize rounding mode between x86 and native.",
     "category": "Compatibility",
@@ -1707,6 +1902,11 @@
       {
         "key": "stderr",
         "description": "Send all log and trace to `stderr`.",
+        "default": true
+      },
+      {
+        "key": "stdout",
+        "description": "Send all log and trace to `stdout`.",
         "default": false
       }
     ]
@@ -1821,7 +2021,25 @@
       },
       {
         "key": "1",
-        "description": "Detect UnityPlayer, and apply BOX64_DYNAREC_STRONGMEM=1 when detected.",
+        "description": "Detect UnityPlayer (Windows or Linux), and apply BOX64_UNITY=1 when detected.",
+        "default": true
+      }
+    ]
+  },
+  {
+    "name": "BOX64_UNITY",
+    "description": "Games is a Unity one.",
+    "category": "Compatibility",
+    "wine": false,
+    "options": [
+      {
+        "key": "0",
+        "description": "Does nothing.",
+        "default": false
+      },
+      {
+        "key": "1",
+        "description": "Unity Game, use special detecting code for Windows, apply BOX64_DYNAREC_STRONGMEM=1 for Linux",
         "default": true
       }
     ]

@@ -19,6 +19,8 @@
 #include "box64context.h"
 #include "my_cpuid.h"
 #include "bridge.h"
+#include "x64_signals.h"
+#include "emit_signals.h"
 #ifdef DYNAREC
 #include "../dynarec/native_lock.h"
 #endif
@@ -48,16 +50,6 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
     #endif
 
     opcode = F8;
-    while((opcode==0x36) || (opcode==0x2E) || (opcode==0x3E) || (opcode==0x26))
-        opcode = F8;
-
-    // REX prefix before the F0 are ignored
-    rex.rex = 0;
-    if(!rex.is32bits)
-        while(opcode>=0x40 && opcode<=0x4f) {
-            rex.rex = opcode;
-            opcode = F8;
-        }
 
     switch(opcode) {
 #if defined(DYNAREC) && !defined(TEST_INTERPRETER)
@@ -331,10 +323,10 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                                     tmp32s = native_lock_write_d(ED, GD->dword[0]);
                                 } else {
                                     R_EAX = tmp32u;
+                                    emu->regs[_AX].dword[1] = 0;
                                     tmp32s = 0;
                                 }
-                            } while(tmp32s);
-                        emu->regs[_AX].dword[1] = 0;
+                            } while (tmp32s);
                     }
 #else
                     pthread_mutex_lock(&my_context->mutex_lock);
@@ -351,8 +343,8 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                             ED->dword[0] = GD->dword[0];
                         } else {
                             R_EAX = ED->dword[0];
+                            emu->regs[_AX].dword[1] = 0;
                         }
-                        emu->regs[_AX].dword[1] = 0;
                     }
                     pthread_mutex_unlock(&my_context->mutex_lock);
 #endif
@@ -790,6 +782,9 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                     GETE8xw(0);
                     switch((nextop>>3)&7) {
                         case 1:
+                            if(rex.w && ((uintptr_t)ED)&0xf) {
+                                EmitSignal(emu, X64_SIGSEGV, (void*)R_RIP, 0xbad0); // GPF
+                            }
                             CHECK_FLAGS(emu);
                             GETGD;
 #if defined(DYNAREC) && !defined(TEST_INTERPRETER)
@@ -861,8 +856,28 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                                     }
                                 } while(tmp32s);
 #endif
-                            } else
+                            } else {
                                 if(((uintptr_t)ED)&0x7) {
+                                    #ifdef __loongarch64
+                                    tmp64u = R_EAX | (((uint64_t)R_EDX)<<32);
+                                    tmp64u2 = R_EBX | (((uint64_t)R_ECX)<<32);
+                                    do {
+                                        uint64_t tmp64u3 = native_lock_read_dd((void*)(((uintptr_t)ED)&~7LL));
+                                        uint64_t tmp64u4 = ED->q[0];
+                                        if(tmp64u4==tmp64u) {
+                                            tmp32s = native_lock_write_dd((void*)(((uintptr_t)ED)&~7LL), tmp64u2);
+                                            if(!tmp32s) {
+                                                native_lock_store_dd(ED, tmp64u2);
+                                                SET_FLAG(F_ZF);
+                                            }
+                                        } else {
+                                            tmp32s = 0;
+                                            CLEAR_FLAG(F_ZF);
+                                            R_RAX = tmp64u4&0xffffffff;
+                                            R_RDX = (tmp64u4>>32)&0xffffffff;
+                                        }
+                                    } while(tmp32s);
+                                    #else
                                     tmp64u = R_EAX | (((uint64_t)R_EDX)<<32);
                                     do {
                                         native_lock_get_b(ED);
@@ -879,6 +894,7 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                                             tmp32s = 0;
                                         }
                                     } while(tmp32s);
+                                    #endif
                                 } else {
                                     tmp64u = R_EAX | (((uint64_t)R_EDX)<<32);
                                     tmp64u2 = R_EBX | (((uint64_t)R_ECX)<<32);
@@ -891,6 +907,7 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                                         R_RDX = (tmp64u2>>32)&0xffffffff;
                                     }
                                 }
+                            }
 #else
                             pthread_mutex_lock(&my_context->mutex_lock);
                             if(rex.w) {
@@ -936,13 +953,6 @@ uintptr_t RunF0(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 return 0;
             }
             break;
-
-        case 0x66:
-            #ifdef TEST_INTERPRETER
-            return Test66F0(test, rex, addr);
-            #else
-            return Run66F0(emu, rex, addr);   // more opcode F0 66 and 66 F0 is the same
-            #endif
 
         case 0x80:                      /* GRP Eb,Ib */
             nextop = F8;
