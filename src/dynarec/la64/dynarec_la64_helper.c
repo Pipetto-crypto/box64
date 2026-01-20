@@ -75,11 +75,11 @@ uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, 
                     }
                 } else {
                     if (rex.seg && !(tmp && ((tmp < -2048) || (tmp > maxval) || !i12))) {
-                        grab_segdata(dyn, addr, ninst, ret, rex.seg, 0);
+                        grab_segdata(dyn, addr, ninst, ret, rex.seg);
                         seg_done = 1;
                         *fixaddress = tmp;
                     } else if (rex.seg && tmp >= -2048 && tmp < 2048) {
-                        grab_segdata(dyn, addr, ninst, ret, rex.seg, 0);
+                        grab_segdata(dyn, addr, ninst, ret, rex.seg);
                         if (tmp) ADDI_D(ret, ret, tmp);
                         seg_done = 1;
                     } else
@@ -105,7 +105,7 @@ uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, 
             if (rex.is32bits) {
                 int tmp = F32S;
                 if (rex.seg && tmp >= -2048 && tmp < 2048) {
-                    grab_segdata(dyn, addr, ninst, ret, rex.seg, 0);
+                    grab_segdata(dyn, addr, ninst, ret, rex.seg);
                     if (tmp) ADDI_D(ret, ret, tmp);
                     seg_done = 1;
                 } else
@@ -230,7 +230,7 @@ uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, 
         if (scratch == ret)
             scratch = ret + 1;
         SCRATCH_USAGE(1);
-        grab_segdata(dyn, addr, ninst, scratch, rex.seg, 0);
+        grab_segdata(dyn, addr, ninst, scratch, rex.seg);
         // seg offset is 64bits, so no truncation here
         ADDxREGy(hint, scratch, ret, hint);
         ret = hint;
@@ -260,61 +260,56 @@ uintptr_t geted16(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop
             case 1: offset = F8S; break;
             case 2: offset = F16S; break;
         }
-        if (offset && offset >= -2048 && offset <= 2047) {
+        if (i12 && offset && offset >= -2048 && offset <= 2047) {
             *fixaddress = offset;
             offset = 0;
         }
+        int reg;
         switch (m & 7) {
             case 0: // R_BX + R_SI
-                BSTRPICK_D(ret, xRBX, 15, 0);
-                BSTRPICK_D(scratch, xRSI, 15, 0);
-                ADD_D(ret, ret, scratch);
-                SCRATCH_USAGE(1);
+                ADD_D(ret, xRBX, xRSI);
+                reg = ret;
+                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
                 break;
             case 1: // R_BX + R_DI
-                BSTRPICK_D(ret, xRBX, 15, 0);
-                BSTRPICK_D(scratch, xRDI, 15, 0);
-                ADD_D(ret, ret, scratch);
-                SCRATCH_USAGE(1);
+                ADD_D(ret, xRBX, xRDI);
+                reg = ret;
+                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
                 break;
             case 2: // R_BP + R_SI
-                BSTRPICK_D(ret, xRBP, 15, 0);
-                BSTRPICK_D(scratch, xRSI, 15, 0);
-                ADD_D(ret, ret, scratch);
-                SCRATCH_USAGE(1);
+                ADD_D(ret, xRBP, xRSI);
+                reg = ret;
+                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
                 break;
             case 3: // R_BP + R_DI
-                BSTRPICK_D(ret, xRBP, 15, 0);
-                BSTRPICK_D(scratch, xRDI, 15, 0);
-                ADD_D(ret, ret, scratch);
-                SCRATCH_USAGE(1);
+                ADD_D(ret, xRBP, xRDI);
+                reg = ret;
+                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
                 break;
             case 4: // R_SI
-                BSTRPICK_D(ret, xRSI, 15, 0);
-                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
+                reg = xRSI;
                 break;
             case 5: // R_DI
-                BSTRPICK_D(ret, xRDI, 15, 0);
-                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
+                reg = xRDI;
                 break;
             case 6: // R_BP
-                BSTRPICK_D(ret, xRBP, 15, 0);
-                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
+                reg = xRBP;
                 break;
             case 7: // R_BX
-                BSTRPICK_D(ret, xRBX, 15, 0);
-                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
+                reg = xRBX;
                 break;
         }
+        BSTRPICK_D(ret, reg, 15, 0);
+        if (!IS_GPR(ret)) SCRATCH_USAGE(1);
         if (offset) {
             if (offset >= -2048 && offset < 2048) {
                 ADDI_D(ret, ret, offset);
-                if (!IS_GPR(ret)) SCRATCH_USAGE(1);
             } else {
                 MOV64x(scratch, offset);
                 ADD_D(ret, ret, scratch);
                 SCRATCH_USAGE(1);
             }
+            BSTRPICK_D(ret, ret, 15, 0);
         }
     }
 
@@ -322,7 +317,7 @@ uintptr_t geted16(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop
         if (scratch == ret)
             scratch = ret + 1;
         SCRATCH_USAGE(1);
-        grab_segdata(dyn, addr, ninst, scratch, rex.seg, 0);
+        grab_segdata(dyn, addr, ninst, scratch, rex.seg);
         // seg offset is 64bits, so no truncation here
         if (IS_GPR(ret)) {
             ADD_D(hint, ret, scratch);
@@ -437,12 +432,11 @@ void jump_to_next(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
 #endif
 }
 
-void ret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
+void ret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
 {
     MAYUSE(dyn);
     MAYUSE(ninst);
-    MESSAGE(LOG_DUMP, "Ret to epilog\n");
-    POP1z(xRIP);
+    MESSAGE(LOG_DUMP, "Ret to next\n");
     MVz(x1, xRIP);
     SMEND();
     if (BOX64DRENV(dynarec_callret)) {
@@ -461,43 +455,10 @@ void ret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
     CLEARIP();
 }
 
-void retn_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n)
+void iret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is32bits, int is64bits)
 {
-    MAYUSE(dyn);
     MAYUSE(ninst);
-    MESSAGE(LOG_DUMP, "Retn to epilog\n");
-    POP1z(xRIP);
-    if (n > 0x7ff) {
-        MOV64x(x1, n);
-        ADDz(xRSP, xRSP, x1);
-    } else {
-        ADDIz(xRSP, xRSP, n);
-    }
-    MVz(x1, xRIP);
-    SMEND();
-    if (BOX64DRENV(dynarec_callret)) {
-        // pop the actual return address from LA64 stack
-        LD_D(xRA, xSP, 0);    // native addr
-        LD_D(x6, xSP, 8);     // x86 addr
-        ADDI_D(xSP, xSP, 16); // pop
-        BNE(x6, xRIP, 2 * 4); // is it the right address?
-        BR(xRA);
-        // not the correct return address, regular jump, but purge the stack first, it's unsync now...
-        ADDI_D(xSP, xSavedSP, -16);
-    }
-
-    NOTEST(x2);
-    int dest = indirect_lookup(dyn, ninst, rex.is32bits, x2, x3);
-    BR(dest);
-    CLEARIP();
-}
-
-void iret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is64bits)
-{
-    // #warning TODO: is64bits
-    MAYUSE(ninst);
-    MESSAGE(LOG_DUMP, "IRet to epilog\n");
-    NOTEST(x2);
+    MESSAGE(LOG_DUMP, "IRet to next\n");
     if (is64bits) {
         POP1(xRIP);
         POP1(x2);
@@ -510,6 +471,7 @@ void iret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is64bits)
 
     ST_H(x2, xEmu, offsetof(x64emu_t, segs[_CS]));
     // clean EFLAGS
+    RESTORE_EFLAGS(x1);
     MOV32w(x1, 0x3E7FD7);   // also mask RF
     AND(xFlags, xFlags, x1);
     ORI(xFlags, xFlags, 0x2);
@@ -528,13 +490,10 @@ void iret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is64bits)
     // set new RSP
     MV(xRSP, x3);
     // Ret....
-    // epilog on purpose, CS might have changed!
-    if (dyn->need_reloc)
-        TABLE64C(x2, const_epilog);
-    else
-        MOV64x(x2, getConst(const_epilog));
-    SMEND();
-    BR(x2);
+    rex_t dummy = { 0 };
+    dummy.is32bits = is32bits;
+    dummy.w = is64bits;
+    ret_to_next(dyn, ip, ninst, dummy);
     CLEARIP();
 }
 
@@ -643,12 +602,11 @@ void call_n(dynarec_la64_t* dyn, int ninst, void* fnc, int w)
     // SET_NODF();
 }
 
-void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg)
+void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment)
 {
     (void)addr;
     int64_t j64;
     MAYUSE(j64);
-    if (modreg) return;
     MESSAGE(LOG_DUMP, "Get %s Offset\n", (segment == _FS) ? "FS" : "GS");
     LD_D(reg, xEmu, offsetof(x64emu_t, segs_offs[segment]));
     MESSAGE(LOG_DUMP, "----%s Offset\n", (segment == _FS) ? "FS" : "GS");

@@ -522,6 +522,7 @@
 #() cFpdp
 #() wFppp
 #() iFEiw
+#() iFEiu
 #() iFEip
 #() iFEWW
 #() iFEup
@@ -1458,6 +1459,7 @@
 #() pFEpiV
 #() pFEpCL
 #() pFEppi
+#() pFEppu
 #() pFEppp
 #() pFEppV
 #() pFiiii
@@ -1782,6 +1784,7 @@
 #() vFppppu
 #() vFppppL
 #() vFppppp
+#() iFEiipu
 #() iFEiipp
 #() iFEiipV
 #() iFEiipA
@@ -1966,6 +1969,7 @@
 #() iFpSuif
 #() iFSppLp
 #() IFppIII
+#() uFEiupp
 #() uFEippp
 #() uFEpipp
 #() uFEpupp
@@ -2378,6 +2382,7 @@
 #() iFEpuipp
 #() iFEpuppp
 #() iFEpUppp
+#() iFEppipp
 #() iFEppupp
 #() iFEppppi
 #() iFEppppp
@@ -2942,6 +2947,7 @@
 #() iFppLpppp
 #() iFpppiiii
 #() iFpppiiup
+#() iFpppiipp
 #() iFpppippi
 #() iFpppippp
 #() iFpppuiii
@@ -2959,6 +2965,7 @@
 #() iFppppppi
 #() iFppppppu
 #() iFppppppp
+#() uFEiiuppp
 #() uFEiipppp
 #() uFEpiuppp
 #() uFEpuuppp
@@ -3163,6 +3170,7 @@
 #() iFEpuuLppp
 #() iFEpUUuppp
 #() iFEppipppp
+#() iFEpppiipi
 #() iFEpppLppp
 #() iFEppppipp
 #() iFEppppLpp
@@ -4432,6 +4440,8 @@ wrappedglib2:
   - g_snprintf
 - iFpLpA:
   - g_vsnprintf
+- uFiupp:
+  - g_unix_fd_add
 - uFippp:
   - g_idle_add_full
 - uFpipp:
@@ -4474,6 +4484,8 @@ wrappedglib2:
   - g_node_traverse
 - iFpupppp:
   - g_datalist_id_replace_data
+- uFiiuppp:
+  - g_unix_fd_add_full
 - uFpiuppp:
   - g_io_add_watch_full
 - pFppLipp:
@@ -5061,6 +5073,8 @@ wrappedlibc:
 - vFpA:
   - vwarn
   - vwarnx
+- iFiu:
+  - pidfd_open
 - iFip:
   - fstat
   - fstat64
@@ -5236,6 +5250,8 @@ wrappedlibc:
   - epoll_ctl
 - iFiiiN:
   - semctl
+- iFiipu:
+  - pidfd_send_signal
 - iFiipV:
   - __dprintf_chk
 - iFiipA:
@@ -5337,8 +5353,17 @@ wrappedlibcrypt:
 wrappedlibcups:
 - vFpp:
   - cupsSetPasswordCB2
+- pFppu:
+  - _cupsRasterNew
+- iFppipp:
+  - _cupsRasterInterpretPPD
 - iFuipuupp:
   - cupsEnumDests
+wrappedlibcupsimage:
+- pFppu:
+  - cupsRasterOpenIO
+- iFppipp:
+  - cupsRasterInterpretPPD
 wrappedlibdl:
 - iFp:
   - dlclose
@@ -5806,8 +5831,13 @@ wrappedlibresolv:
   - __dn_expand
   - dn_expand
 - iFppiipi:
+  - __res_nquery
   - __res_querydomain
+  - res_nquery
   - res_querydomain
+- iFpppiipi:
+  - __res_nquerydomain
+  - res_nquerydomain
 - iFipiipippi:
   - __res_mkquery
   - res_mkquery

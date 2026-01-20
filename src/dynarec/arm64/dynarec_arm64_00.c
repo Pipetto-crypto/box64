@@ -1834,7 +1834,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 u64 = F64;
             unscaled = 0; fixedaddress = 0;
             if(rex.seg && (u64<0x1000 || (int64_t)u64>-0x1000)) {
-                grab_segdata(dyn, addr, ninst, x1, rex.seg, 0);
+                grab_segdata(dyn, addr, ninst, x1, rex.seg);
                 if(u64) {
                     if(u64<0x1000)
                         fixedaddress = u64;
@@ -1846,7 +1846,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 MOV64y(x1, u64);
                 if(rex.seg) {
-                    grab_segdata(dyn, addr, ninst, x3, rex.seg, 0);
+                    grab_segdata(dyn, addr, ninst, x3, rex.seg);
                     ADDx_REGy(x1, x3, x1);
                 }
             }
@@ -1865,7 +1865,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 u64 = F64;
             unscaled = 0; fixedaddress = 0;
             if(rex.seg && (u64<0x1000 || (int64_t)u64>-0x1000 || (u64<(0x1000<<(2+rex.w)) && !(u64&(((1<<(2+rex.w))-1)))))) {
-                grab_segdata(dyn, addr, ninst, x1, rex.seg, 0);
+                grab_segdata(dyn, addr, ninst, x1, rex.seg);
                 if(u64) {
                     if(u64<0x100)
                         {fixedaddress = u64; unscaled = 1;}
@@ -1881,7 +1881,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 MOV64y(x1, u64);
                 if(rex.seg) {
-                    grab_segdata(dyn, addr, ninst, x3, rex.seg, 0);
+                    grab_segdata(dyn, addr, ninst, x3, rex.seg);
                     ADDx_REGy(x1, x3, x1);
                 }
             }
@@ -1899,7 +1899,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 u64 = F64;
             unscaled = 0; fixedaddress = 0;
             if(rex.seg && (u64<0x1000 || (int64_t)u64>-0x1000)) {
-                grab_segdata(dyn, addr, ninst, x1, rex.seg, 0);
+                grab_segdata(dyn, addr, ninst, x1, rex.seg);
                 if(u64) {
                     if(u64<0x1000)
                         fixedaddress = u64;
@@ -1911,7 +1911,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 MOV64y(x1, u64);
                 if(rex.seg) {
-                    grab_segdata(dyn, addr, ninst, x3, rex.seg, 0);
+                    grab_segdata(dyn, addr, ninst, x3, rex.seg);
                     ADDx_REGy(x1, x3, x1);
                 }
             }
@@ -1929,7 +1929,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                 u64 = F64;
             unscaled = 0; fixedaddress = 0;
             if(rex.seg && (u64<0x1000 || (int64_t)u64>-0x1000 || (u64<(0x1000<<(2+rex.w)) && !(u64&(((1<<(2+rex.w))-1)))))) {
-                grab_segdata(dyn, addr, ninst, x1, rex.seg, 0);
+                grab_segdata(dyn, addr, ninst, x1, rex.seg);
                 if(u64) {
                     if(u64<0x100)
                         {fixedaddress = u64; unscaled = 1;}
@@ -1945,7 +1945,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
             } else {
                 MOV64y(x1, u64);
                 if(rex.seg) {
-                    grab_segdata(dyn, addr, ninst, x3, rex.seg, 0);
+                    grab_segdata(dyn, addr, ninst, x3, rex.seg);
                     ADDx_REGy(x1, x3, x1);
                 }
             }
@@ -4067,7 +4067,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     MSUBw(x4, x3, ed, x2);  // x4 = x2 mod ed (i.e. x2 - x3*ed)
                     BFIx(xRAX, x3, 0, 8);
                     BFIx(xRAX, x4, 8, 8);
-                    SET_DFNONE();
+                    FORCE_DFNONE();
                     IFX(X_OF)                         {BFCw(xFlags, F_OF, 1);}
                     IFX(X_CF)                         {BFCw(xFlags, F_CF, 1);}
                     IFX2(X_AF, && !BOX64ENV(cputype)) {BFCw(xFlags, F_AF, 1);}
@@ -4102,10 +4102,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     MSUBw(x4, x3, ed, x2);  // x4 = x2 mod ed (i.e. x2 - x3*ed)
                     BFIx(xRAX, x3, 0, 8);
                     BFIx(xRAX, x4, 8, 8);
-                    if (!BOX64DRENV(dynarec_safeflags)) {
-                        SET_DFNONE();
-                        FORCE_DFNONE();
-                    }
+                    FORCE_DFNONE();
                     IFX2(X_AF, && BOX64ENV(cputype))  {ORRw_mask(xFlags, xFlags, 28, 0);}   //mask=0x10
                     IFX2(X_ZF, && BOX64ENV(cputype))  {BFCw(xFlags, F_ZF, 1);}
                     IFX2(X_SF, && BOX64ENV(cputype))  {BFCw(xFlags, F_SF, 1);}
@@ -4291,6 +4288,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                             MOVx_REG(xRAX, x2);
                         }
                     }
+                    FORCE_DFNONE();
                     IFX(X_OF)                         {BFCw(xFlags, F_OF, 1);}
                     IFX(X_CF)                         {BFCw(xFlags, F_CF, 1);}
                     IFX2(X_AF, && !BOX64ENV(cputype)) {BFCw(xFlags, F_AF, 1);}
@@ -4376,10 +4374,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                             MOVx_REG(xRAX, x2);
                         }
                     }
-                    if (!BOX64DRENV(dynarec_safeflags)) {
-                        SET_DFNONE();
-                        FORCE_DFNONE();
-                    }
+                    FORCE_DFNONE();
                     IFX2(X_AF, && BOX64ENV(cputype))  {ORRw_mask(xFlags, xFlags, 28, 0);}   //mask=0x10
                     IFX2(X_ZF, && BOX64ENV(cputype))  {BFCw(xFlags, F_ZF, 1);}
                     IFX2(X_SF, && BOX64ENV(cputype))  {BFCw(xFlags, F_SF, 1);}
@@ -4552,8 +4547,7 @@ uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                             }
                             STPx_S7_preindex(x4, xRIP, xSP, -16);
                         }
-                        PUSH1z(x5);
-                        PUSH1z(xRIP);
+                        if (rex.w) PUSH2(x5, xRIP); else PUSH2_32(x5, xRIP);
                         STH(x3, xEmu, offsetof(x64emu_t, segs[_CS]));
                         jump_to_next(dyn, 0, ed, ninst, rex.is32bits);
                         if(BOX64DRENV(dynarec_callret)>1) CALLRET_RET();

@@ -278,6 +278,12 @@ static void applyCustomRules()
         box64env.avx = 1;
         box64env.avx2 = 1;
     }
+#ifdef LA64
+    if (box64env.avx && !cpuext.lasx) {
+        box64env.avx = 0;
+        box64env.avx2 = 0;
+    }
+#endif
 
 #ifndef _WIN32
     if (box64env.exit) exit(0);
@@ -878,7 +884,7 @@ done:
 #elif defined(RV64)
 #define ARCH_VERSION SET_VERSION(0, 0, 4)
 #elif defined(LA64)
-#define ARCH_VERSION SET_VERSION(0, 0, 4)
+#define ARCH_VERSION SET_VERSION(0, 0, 5)
 #else
 #error meh!
 #endif

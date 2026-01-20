@@ -1763,7 +1763,7 @@ void CreateCPUInfoFile(int fd)
         sprintf(buff, "bogomips\t: %g\n", getBogoMips());
         P;
         sprintf(buff, "flags\t\t: fpu cx8 sep ht cmov clflush mmx sse sse2 syscall tsc lahf_lm ssse3 ht tm lm fxsr cpuid"\
-                      "%s cx16 %s movbe pni "\
+                      "%s cx16%s movbe pni "\
                       "sse4_1%s%s%s lzcnt popcnt%s%s%s%s%s%s%s%s%s\n",
                       BOX64ENV(pclmulqdq)?" pclmulqdq":"",
                       BOX64ENV(aes)?" aes":"",
@@ -3953,6 +3953,87 @@ EXPORT int my_prctl(x64emu_t* emu, int option, unsigned long arg2, unsigned long
     return prctl(option, arg2, arg3, arg4, arg5);
 }
 
+EXPORT int my_pidfd_open(x64emu_t* emu, int pid, unsigned int flags)
+{
+    (void)emu;
+#if defined(SYS_pidfd_open)
+    return syscall(SYS_pidfd_open, pid, flags);
+#elif defined(__NR_pidfd_open)
+    return syscall(__NR_pidfd_open, pid, flags);
+#else
+    (void)pid;
+    (void)flags;
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+EXPORT int my_pidfd_send_signal(x64emu_t* emu, int pidfd, int sig, siginfo_t* info, unsigned int flags)
+{
+    (void)emu;
+    int hsig = signal_from_x64(sig);
+    siginfo_t hinfo;
+    siginfo_t* hptr = NULL;
+    if(info) {
+        memcpy(&hinfo, info, sizeof(hinfo));
+        hinfo.si_signo = hsig;
+        hptr = &hinfo;
+    }
+#if defined(SYS_pidfd_send_signal)
+    return syscall(SYS_pidfd_send_signal, pidfd, hsig, hptr, flags);
+#elif defined(__NR_pidfd_send_signal)
+    return syscall(__NR_pidfd_send_signal, pidfd, hsig, hptr, flags);
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+size_t __attribute__((weak)) strlcpy(char* dest, const char* src, size_t len)
+{
+    size_t l = strlen(src);
+    if(len) {
+        strncpy(dest, src, len-1);
+        dest[len]=0;
+    }
+    return l;
+}
+size_t __attribute__((weak)) __strlcpy_chk(char* dest, const char* src, size_t len, size_t chk)
+{
+    // in case it's not defined... create a weak version with no actual chk
+    return strlcpy(dest, src, len);
+}
+
+uint32_t get_random32();
+__attribute__((weak)) uint32_t arc4random(void)
+{
+    return get_random32();
+}
+
+__attribute__((weak)) const char* strerrorname_np(int errnum)
+{
+    (void)errnum;
+    return NULL;
+}
+
+__attribute__((weak)) int open_tree(int dfd, const char* path, unsigned int flags)
+{
+#ifdef SYS_open_tree
+    return syscall(SYS_open_tree, dfd, path, flags);
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+__attribute__((weak)) int dn_skipname(const unsigned char* ptr, const unsigned char* eom)
+{
+    (void)ptr;
+    (void)eom;
+    errno = ENOSYS;
+    return -1;
+}
+
 #ifndef _SC_NPROCESSORS_ONLN
 #define _SC_NPROCESSORS_ONLN    84
 #endif
@@ -3986,11 +4067,6 @@ EXPORT char* secure_getenv(const char* name)
 }
 
 #ifdef STATICBUILD
-uint32_t get_random32();
-__attribute__((weak)) uint32_t arc4random()
-{
-    return get_random32();
-}
 #include "libtools/static_libc.h"
 #endif
 

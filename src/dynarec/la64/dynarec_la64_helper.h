@@ -1093,10 +1093,10 @@
         } else if (_delta_ip == 0) {                              \
         } else if (_delta_ip >= -2048 && _delta_ip < 2048) {      \
             ADDI_D(xRIP, xRIP, _delta_ip);                        \
-        } else if (_delta_ip < 0 && _delta_ip >= -0xffffffff) {   \
+        } else if (_delta_ip < 0 && _delta_ip >= -0xffffffffL) {   \
             MOV32w(scratch, -_delta_ip);                          \
             SUB_D(xRIP, xRIP, scratch);                           \
-        } else if (_delta_ip > 0 && _delta_ip <= 0xffffffff) {    \
+        } else if (_delta_ip > 0 && _delta_ip <= 0xffffffffL) {    \
             MOV32w(scratch, _delta_ip);                           \
             ADD_D(xRIP, xRIP, scratch);                           \
         } else {                                                  \
@@ -1171,9 +1171,8 @@
 #define jump_to_epilog      STEPNAME(jump_to_epilog)
 #define jump_to_epilog_fast STEPNAME(jump_to_epilog_fast)
 #define jump_to_next        STEPNAME(jump_to_next)
-#define ret_to_epilog       STEPNAME(ret_to_epilog)
-#define retn_to_epilog      STEPNAME(retn_to_epilog)
-#define iret_to_epilog      STEPNAME(iret_to_epilog)
+#define ret_to_next         STEPNAME(ret_to_next)
+#define iret_to_next        STEPNAME(iret_to_next)
 #define call_c              STEPNAME(call_c)
 #define call_n              STEPNAME(call_n)
 #define grab_segdata        STEPNAME(grab_segdata)
@@ -1338,12 +1337,11 @@ uintptr_t geted16(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop
 void jump_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst);
 void jump_to_epilog_fast(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst);
 void jump_to_next(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst, int is32bits);
-void ret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex);
-void retn_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n);
-void iret_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is64bits);
+void ret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex);
+void iret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is32bits, int is64bits);
 void call_c(dynarec_la64_t* dyn, int ninst, la64_consts_t fnc, int reg, int ret, int saveflags, int save_reg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6);
 void call_n(dynarec_la64_t* dyn, int ninst, void* fnc, int w);
-void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg);
+void grab_segdata(dynarec_la64_t* dyn, uintptr_t addr, int ninst, int reg, int segment);
 void emit_adc16(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);
 void emit_adc32(dynarec_la64_t* dyn, int ninst, rex_t rex, int s1, int s2, int s3, int s4, int s5, int s6);
 void emit_adc8(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int s4, int s5);

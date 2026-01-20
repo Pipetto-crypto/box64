@@ -69,13 +69,13 @@ uintptr_t geted(dynarec_arm_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, u
                     }
                 } else {
                     if(rex.seg && !(tmp && ((!((tmp>=absmin) && (tmp<=absmax) && !(tmp&mask))) || !(unscaled && (tmp>-256) && (tmp<256))))) {
-                        grab_segdata(dyn, addr, ninst, ret, rex.seg, 0);
+                        grab_segdata(dyn, addr, ninst, ret, rex.seg);
                         seg_done = 1;
                         if(unscaled && (tmp>-256) && (tmp<256))
                             *unscaled = 1;
                         *fixaddress = tmp;
                     } else if(rex.seg && tmp>-0x1000 && tmp<0x1000) {
-                        grab_segdata(dyn, addr, ninst, ret, rex.seg, 0);
+                        grab_segdata(dyn, addr, ninst, ret, rex.seg);
                         if(tmp) {
                             if(tmp>0) ADDx_U12(ret, ret, tmp);
                             else SUBx_U12(ret, ret, -tmp);
@@ -99,7 +99,7 @@ uintptr_t geted(dynarec_arm_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, u
             if(rex.is32bits) {
                 int tmp = F32S;
                 if(rex.seg && tmp>-0x1000 && tmp<0x1000) {
-                    grab_segdata(dyn, addr, ninst, ret, rex.seg, 0);
+                    grab_segdata(dyn, addr, ninst, ret, rex.seg);
                     if(tmp) {
                         if(tmp>0) ADDx_U12(ret, ret, tmp);
                         else SUBx_U12(ret, ret, -tmp);
@@ -222,7 +222,7 @@ uintptr_t geted(dynarec_arm_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, u
     if(rex.seg && !seg_done) {
         if(scratch==ret)
             scratch=ret+1;
-        grab_segdata(dyn, addr, ninst, scratch, rex.seg, 0);
+        grab_segdata(dyn, addr, ninst, scratch, rex.seg);
         //seg offset is 64bits, so no truncation here
         ADDx_REGy(hint, scratch, ret);
         ret = hint;
@@ -249,9 +249,10 @@ uintptr_t geted16(dynarec_arm_t* dyn, uintptr_t addr, int ninst, uint8_t nextop,
     int64_t offset = 0;
     int absmin = 0;
     if(s) absmin = -absmax;
+    int need_trunc = 0;
     if(!n && (m&7)==6) {
         offset = F16S;
-        MOVZw(ret, offset);
+        MOVZw(ret, offset); //that's 16bits only, not need to truncate
     } else {
         switch(n) {
             case 0: offset = 0; break;
@@ -268,54 +269,52 @@ uintptr_t geted16(dynarec_arm_t* dyn, uintptr_t addr, int ninst, uint8_t nextop,
         }
         switch(m&7) {
             case 0: //R_BX + R_SI
-                UXTHx(ret, xRBX);
-                UXTHx(scratch, xRSI);
-                ADDx_REG(ret, ret, scratch);
+                ADDw_REG(ret, xRBX, xRSI);
+                need_trunc = ret;
                 break;
             case 1: //R_BX + R_DI
-                UXTHx(ret, xRBX);
-                UXTHx(scratch, xRDI);
-                ADDx_REG(ret, ret, scratch);
+                ADDw_REG(ret, xRBX, xRDI);
+                need_trunc = ret;
                 break;
             case 2: //R_BP + R_SI
-                UXTHx(ret, xRBP);
-                UXTHx(scratch, xRSI);
-                ADDx_REG(ret, ret, scratch);
+                ADDw_REG(ret, xRBP, xRSI);
+                need_trunc = ret;
                 break;
             case 3: //R_BP + R_DI
-                UXTHx(ret, xRBP);
-                UXTHx(scratch, xRDI);
-                ADDx_REG(ret, ret, scratch);
+                ADDw_REG(ret, xRBP, xRDI);
+                need_trunc = ret;
                 break;
             case 4: //R_SI
-                UXTHx(ret, xRSI);
+                need_trunc = xRSI;
                 break;
             case 5: //R_DI
-                UXTHx(ret, xRDI);
+                need_trunc = xRDI;
                 break;
             case 6: //R_BP
-                UXTHx(ret, xRBP);
+                need_trunc = xRBP;
                 break;
             case 7: //R_BX
-                UXTHx(ret, xRBX);
+                need_trunc = xRBX;
                 break;
         }
         if(offset) {
             if(offset<0 && offset>-0x1000) {
-                SUBx_U12(ret, ret, -offset);
+                SUBw_U12(ret, need_trunc?need_trunc:ret, -offset);
             } else if(offset>0 && offset<0x1000) {
-                ADDx_U12(ret, ret, offset);
+                ADDw_U12(ret, need_trunc?need_trunc:ret, offset);
             } else {
-                MOV64x(scratch, offset);
-                ADDx_REG(ret, ret, scratch);
+                MOV32w(scratch, offset);
+                ADDw_REG(ret, need_trunc?need_trunc:ret, scratch);
             }
+            need_trunc = ret;
         }
     }
+    if(need_trunc) UXTHx(ret, need_trunc);
 
     if(rex.seg) {
         if(scratch==ret)
             scratch=ret+1;
-        grab_segdata(dyn, addr, ninst, scratch, rex.seg, 0);
+        grab_segdata(dyn, addr, ninst, scratch, rex.seg);
         //seg offset is 64bits, so no truncation here
         if(IS_GPR(ret)) {
             ADDx_REG(hint, ret, scratch);
@@ -482,8 +481,8 @@ void iret_to_next(dynarec_arm_t* dyn, uintptr_t ip, int ninst, int is32bits, int
         POP1_32(x2);
         POP1_32(x3);
     }
-    // check CS is NULL, sgfault if it is
-    CBZw_MARK3(x1);
+    // segfault if CS is NULL
+    CBZw_MARK3(x2);
     // clean EFLAGS
     MOV32w(x4, 0x3E7FD7);   // also mask RF, because it's not really handled
     ANDx_REG(x3, x3, x4);
@@ -691,12 +690,11 @@ void call_n(dynarec_arm_t* dyn, int ninst, void* fnc, int w)
     //SET_NODF();
 }
 
-void grab_segdata(dynarec_arm_t* dyn, uintptr_t addr, int ninst, int reg, int segment, int modreg)
+void grab_segdata(dynarec_arm_t* dyn, uintptr_t addr, int ninst, int reg, int segment)
 {
     (void)addr;
     int64_t j64;
     MAYUSE(j64);
-    if (modreg) return;
     MESSAGE(LOG_DUMP, "Get %s Offset\n", (segment==_FS)?"FS":"GS");
     LDRx_U12(reg, xEmu, offsetof(x64emu_t, segs_offs[segment]));
     MESSAGE(LOG_DUMP, "----%s Offset\n", (segment==_FS)?"FS":"GS");

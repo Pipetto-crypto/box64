@@ -593,12 +593,24 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     GETEM(q1, 0);
                     v0 = fpu_get_scratch(dyn);
                     v1 = fpu_get_scratch(dyn);
-                    VEXT2XV_W_H(v0, q0);
-                    VEXT2XV_W_H(v1, q1);
-                    XVMUL_W(v0, v0, v1);
-                    VSRLI_W(v0, v0, 14);
-                    VADDI_WU(v0, v0, 1);
-                    VSRLNI_H_W(q0, v0, 1);
+                    if (cpuext.lasx) {
+                        VEXT2XV_W_H(v0, q0);
+                        VEXT2XV_W_H(v1, q1);
+                        XVMUL_W(v0, v0, v1);
+                        VSRLI_W(v0, v0, 14);
+                        VADDI_WU(v0, v0, 1);
+                        VSRLNI_H_W(q0, v0, 1);
+                    } else {
+                        VMULWEV_W_H(v0, q0, q1);
+                        VMULWOD_W_H(v1, q0, q1);
+                        VSRLI_W(v0, v0, 14);
+                        VSRLI_W(v1, v1, 14);
+                        VADDI_WU(v0, v0, 1);
+                        VADDI_WU(v1, v1, 1);
+                        VSRLNI_H_W(v1, v0, 1);
+                        VSHUF4I_W(v1, v1, 0b11011000);
+                        VSHUF4I_H(q0, v1, 0b11011000);
+                    }
                     break;
                 case 0x1C:
                     INST_NAME("PABSB Gm, Em");
@@ -1450,7 +1462,7 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0xA4:
             nextop = F8;
             INST_NAME("SHLD Ed, Gd, Ib");
-            if (geted_ib(dyn, addr, ninst, nextop)) {
+            if (geted_ib(dyn, addr, ninst, nextop) & (rex.w ? 63 : 31)) {
                 SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
                 GETED(1);
                 GETGD;
@@ -1536,7 +1548,7 @@ uintptr_t dynarec64_0F(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
         case 0xAC:
             nextop = F8;
             INST_NAME("SHRD Ed, Gd, Ib");
-            if (geted_ib(dyn, addr, ninst, nextop)) {
+            if (geted_ib(dyn, addr, ninst, nextop) & (rex.w ? 63 : 31)) {
                 SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
                 GETED(1);
                 GETGD;

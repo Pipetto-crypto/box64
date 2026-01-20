@@ -670,8 +670,11 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             INST_NAME("LEA Gd, Ed");
             nextop = F8;
             GETGD;
-            if (MODREG) { // reg <= reg? that's an invalid operation
-                DEFAULT;
+            if (MODREG) {
+                INST_NAME("Invalid 8D");
+                UDF();
+                *need_epilog = 1;
+                *ok = 0;
             } else { // mem <= reg
                 rex.seg = 0;
                 addr = geted(dyn, addr, ninst, nextop, &ed, x2, x1, &fixedaddress, rex, NULL, 0, 0);
@@ -679,23 +682,30 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             }
             break;
         case 0x8E:
-            INST_NAME("MOV Seg, Ew");
             nextop = F8;
             u8 = (nextop & 0x38) >> 3;
-            if (MODREG) {
-                ed = TO_NAT((nextop & 7) + (rex.b << 3));
+            if ((u8 > 5) || (u8 == 1)) {
+                INST_NAME("Invalid MOV Seg, Ew");
+                UDF();
+                *need_epilog = 1;
+                *ok = 0;
             } else {
-                SMREAD();
-                addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, 0);
-                LD_HU(x1, wback, fixedaddress);
-                ed = x1;
-            }
-            ST_H(ed, xEmu, offsetof(x64emu_t, segs[u8]));
-            if ((u8 == _FS) || (u8 == _GS)) {
-                // refresh offset if needed
-                CBZ_NEXT(ed);
-                MOV32w(x1, u8);
-                CALL(const_getsegmentbase, -1, x1, x2);
+                INST_NAME("MOV Seg, Ew");
+                if (MODREG) {
+                    ed = TO_NAT((nextop & 7) + (rex.b << 3));
+                } else {
+                    SMREAD();
+                    addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, NULL, 1, 0);
+                    LD_HU(x1, wback, fixedaddress);
+                    ed = x1;
+                }
+                ST_H(ed, xEmu, offsetof(x64emu_t, segs[u8]));
+                if ((u8 == _FS) || (u8 == _GS)) {
+                    // refresh offset if needed
+                    CBZ_NEXT(ed);
+                    MOV32w(x1, u8);
+                    CALL(const_getsegmentbase, -1, x1, x2);
+                }
             }
             break;
         case 0x8F:
@@ -737,14 +747,12 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             break;
         case 0x98:
             INST_NAME("CBW");
-            SLLI_D(x1, xRAX, 56);
-            SRAI_D(x1, x1, 56);
+            EXT_W_B(x1, xRAX);
             BSTRINSz(xRAX, x1, 15, 0);
             break;
         case 0x99:
             INST_NAME("CWD");
-            SLLI_D(x1, xRAX, 48);
-            SRAI_D(x1, x1, 48);
+            EXT_W_H(x1, xRAX);
             SRLI_D(x1, x1, 48);
             BSTRINS_D(xRDX, x1, 15, 0);
             break;
@@ -787,7 +795,7 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 u64 = F64;
             MOV64y(x1, u64);
             if (rex.seg) {
-                grab_segdata(dyn, addr, ninst, x3, rex.seg, 0);
+                grab_segdata(dyn, addr, ninst, x3, rex.seg);
                 ADDxREGy(x1, x3, x1, x1);
             }
             lock = (rex.seg) ? 0 : isLockAddress(u64);
@@ -805,7 +813,7 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 u64 = F64;
             MOV64y(x1, u64);
             if (rex.seg) {
-                grab_segdata(dyn, addr, ninst, x3, rex.seg, 0);
+                grab_segdata(dyn, addr, ninst, x3, rex.seg);
                 ADDxREGy(x1, x3, x1, x1);
             }
             lock = (rex.seg) ? 0 : isLockAddress(u64);
@@ -1352,9 +1360,7 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                     SET_DFNONE();
                     GETEW(x1, 0);
                     BSTRPICK_D(x2, xRAX, 15, 0);
-                    SLLI_D(x7, xRDX, 48);
-                    SRLI_D(x7, x7, 32);
-                    OR(x2, x2, x7);
+                    BSTRINS_W(x2, xRDX, 31, 16);
                     if (BOX64ENV(dynarec_div0)) {
                         BNE_MARK3(ed, xZR);
                         GETIP_(ip, x6);
@@ -1365,8 +1371,8 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         jump_to_epilog(dyn, 0, xRIP, ninst);
                         MARK3;
                     }
-                    DIV_WU(x7, x2, ed);
-                    MOD_WU(x4, x2, ed);
+                    DIV_WU(x7, x2, ed); // warning: x2 and ed must be signed extended!
+                    MOD_WU(x4, x2, ed); // warning: x2 and ed must be signed extended!
                     BSTRINSz(xRAX, x7, 15, 0);
                     BSTRINSz(xRDX, x4, 15, 0);
                     SET_DFNONE();
@@ -1392,9 +1398,9 @@ uintptr_t dynarec64_66(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         MARK3;
                     }
                     BSTRPICK_D(x2, xRAX, 15, 0);
-                    BSTRINS_D(x2, xRDX, 31, 16);
-                    DIV_W(x3, x2, ed);
-                    MOD_W(x4, x2, ed);
+                    BSTRINS_W(x2, xRDX, 31, 16);
+                    DIV_W(x3, x2, ed); // warning: x2 and ed must be signed extended!
+                    MOD_W(x4, x2, ed); // warning: x2 and ed must be signed extended!
                     BSTRINSz(xRAX, x3, 15, 0);
                     BSTRINSz(xRDX, x4, 15, 0);
                     break;
