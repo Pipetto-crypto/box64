@@ -23,6 +23,7 @@ const char* crypto3Name = "libcrypto.so.3";
 #define LIBNAME crypto3
 
 typedef void*(*pFv_t)     ();
+typedef int  (*iFp_t)     (void*);
 typedef int  (*iFppA_t)   (void*, void*, va_list);
 typedef int  (*iFpip_t)   (void*, int, void*);
 typedef void*(*pFppp_t)   (void*, void*, void*);
@@ -41,6 +42,7 @@ typedef void*(*pFppp_t)   (void*, void*, void*);
     GO(POLICYINFO_it, pFv_t);               \
     GO(CRL_DIST_POINTS_it, pFv_t);          \
     GO(ISSUING_DIST_POINT_it, pFv_t);       \
+    GO(EVP_CIPHER_get_nid, iFp_t);          \
 
 #include "generated/wrappedcrypto3types.h"
 
@@ -222,6 +224,54 @@ static void* find_passphrase_Fct(void* fct)
     return NULL;
 }
 
+// BIO_meth_set_gets
+#define GO(A)   \
+static uintptr_t my3_BIO_meth_set_gets_fct_##A = 0;          \
+static int my3_BIO_meth_set_gets_##A(void* a, void* b, int c) \
+{                                                            \
+    return (int)RunFunctionFmt(my3_BIO_meth_set_gets_fct_##A, "ppi", a, b, c); \
+}
+SUPER()
+#undef GO
+static void* find_BIO_meth_set_gets_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_BIO_meth_set_gets_fct_##A == (uintptr_t)fct) return my3_BIO_meth_set_gets_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_BIO_meth_set_gets_fct_##A == 0) {my3_BIO_meth_set_gets_fct_##A = (uintptr_t)fct; return my3_BIO_meth_set_gets_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libcrypto3 BIO_meth_set_gets callback\n");
+    return NULL;
+}
+
+// callback_ctrl
+#define GO(A)   \
+static uintptr_t my3_callback_ctrl_fct_##A = 0;                             \
+static long my3_callback_ctrl_##A(void* a, int b, void* c)                  \
+{                                                                           \
+    return (long)RunFunctionFmt(my3_callback_ctrl_fct_##A, "pip", a, b, c); \
+}
+SUPER()
+#undef GO
+static void* find_callback_ctrl_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_callback_ctrl_fct_##A == (uintptr_t)fct) return my3_callback_ctrl_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_callback_ctrl_fct_##A == 0) {my3_callback_ctrl_fct_##A = (uintptr_t)fct; return my3_callback_ctrl_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libcrypto3 callback_ctrl callback\n");
+    return NULL;
+}
+
 // rsakeygen
 #define GO(A)                                              \
 static uintptr_t my3_rsakeygen_fct_##A = 0;                \
@@ -366,6 +416,92 @@ static void* find_verify_cb_Fct(void* fct)
     return NULL;
 }
 
+// err_print_errors_cb
+#define GO(A)   \
+static uintptr_t my3_err_print_errors_cb_fct_##A = 0;                                   \
+static int my3_err_print_errors_cb_##A(const char* str, size_t len, void* u)            \
+{                                                                                       \
+    return (int)RunFunctionFmt(my3_err_print_errors_cb_fct_##A, "pLp", str, len, u);    \
+}
+SUPER()
+#undef GO
+static void* find_err_print_errors_cb_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_err_print_errors_cb_fct_##A == (uintptr_t)fct) return my3_err_print_errors_cb_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_err_print_errors_cb_fct_##A == 0) {my3_err_print_errors_cb_fct_##A = (uintptr_t)fct; return my3_err_print_errors_cb_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libcrypto err_print_errors_cb callback\n");
+    return NULL;
+}
+
+// ui_opener
+#define GO(A)   \
+static uintptr_t my3_ui_opener_fct_##A = 0;                             \
+static int my3_ui_opener_##A(void *ui)                                  \
+{                                                                       \
+    return (int)RunFunctionFmt(my3_ui_opener_fct_##A, "p", ui);         \
+}
+SUPER()
+#undef GO
+static void* find_ui_opener_Fct(void *fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_ui_opener_fct_##A == (uintptr_t)fct) return my3_ui_opener_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_ui_opener_fct_##A ==0) {my3_ui_opener_fct_##A = (uintptr_t)fct; return my3_ui_opener_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libcrypto ui_opener callback\n");
+    return NULL;
+}
+
+
+// ui_writer
+#define GO(A)   \
+static uintptr_t my3_ui_writer_fct_##A = 0;                             \
+static int my3_ui_writer_##A(void *ui)                                  \
+{                                                                       \
+    return (int)RunFunctionFmt(my3_ui_writer_fct_##A, "p", ui);         \
+}
+SUPER()
+#undef GO
+static void* find_ui_writer_Fct(void *fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_ui_writer_fct_##A == (uintptr_t)fct) return my3_ui_writer_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_ui_writer_fct_##A ==0) {my3_ui_writer_fct_##A = (uintptr_t)fct; return my3_ui_writer_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libcrypto ui_writer callback\n");
+    return NULL;
+}
+
+EXPORT int my3_UI_method_set_opener(x64emu_t* emu, void* method, void* opener) {
+    return my->UI_method_set_opener(method, find_ui_opener_Fct(opener));
+}
+EXPORT int my3_UI_method_set_closer(x64emu_t* emu, void* method, void* closer) {
+    return my->UI_method_set_closer(method, find_ui_opener_Fct(closer));
+}
+EXPORT int my3_UI_method_set_reader(x64emu_t* emu, void* method, void* reader) {
+    return my->UI_method_set_reader(method, find_ui_writer_Fct(reader));
+}
+EXPORT int my3_UI_method_set_writer(x64emu_t* emu, void* method, void* writer) {
+    return my->UI_method_set_writer(method, find_ui_writer_Fct(writer));
+}
+
 // do_all_provided_cb
 #define GO(A)   \
 static uintptr_t my3_do_all_provided_cb_fct_##A = 0;            \
@@ -390,7 +526,112 @@ static void* find_do_all_provided_cb_Fct(void* fct)
     return NULL;
 }
 
-#undef SUPER
+// ex_new
+#define GO(A)   \
+static uintptr_t my3_ex_new_fct_##A = 0;                                                        \
+static void my3_ex_new_##A(void* parent, void* ptr, void* ad, int idx, long argl, void* argp)   \
+{                                                                                               \
+    RunFunctionFmt(my3_ex_new_fct_##A, "pppilp", parent, ptr, ad, idx, argl, argp);             \
+}
+SUPER()
+#undef GO
+static void* find_ex_new_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_ex_new_fct_##A == (uintptr_t)fct) return my3_ex_new_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_ex_new_fct_##A == 0) {my3_ex_new_fct_##A = (uintptr_t)fct; return my3_ex_new_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libSSL ex_new callback\n");
+    return NULL;
+}
+
+// ex_dup
+#define GO(A)   \
+static uintptr_t my3_ex_dup_fct_##A = 0;                                                            \
+static int my3_ex_dup_##A(void* to, void* from, void* from_d, int idx, long argl, void* argp)       \
+{                                                                                                   \
+    return (int) RunFunctionFmt(my3_ex_dup_fct_##A, "pppilp", to, from, from_d, idx, argl, argp);   \
+}
+SUPER()
+#undef GO
+static void* find_ex_dup_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_ex_dup_fct_##A == (uintptr_t)fct) return my3_ex_dup_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_ex_dup_fct_##A == 0) {my3_ex_dup_fct_##A = (uintptr_t)fct; return my3_ex_dup_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libSSL ex_dup callback\n");
+    return NULL;
+}
+
+// ex_free
+#define GO(A)   \
+static uintptr_t my3_ex_free_fct_##A = 0;                                                       \
+static void my3_ex_free_##A(void* parent, void* ptr, void* ad, int idx, long argl, void* argp)  \
+{                                                                                               \
+    RunFunctionFmt(my3_ex_free_fct_##A, "pppilp", parent, ptr, ad, idx, argl, argp);            \
+}
+SUPER()
+#undef GO
+static void* find_ex_free_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_ex_free_fct_##A == (uintptr_t)fct) return my3_ex_free_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_ex_free_fct_##A == 0) {my3_ex_free_fct_##A = (uintptr_t)fct; return my3_ex_free_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libSSL ex_free callback\n");
+    return NULL;
+}
+
+// ECDH_KDF
+#define GO(A)                                                                               \
+    static uintptr_t my3_ECDH_KDF_fct_##A = 0;                                              \
+    static void* my3_ECDH_KDF_##A(void* in, size_t inlen, void* out, size_t outlen)         \
+    {                                                                                       \
+        return (void*)RunFunctionFmt(my3_ECDH_KDF_fct_##A, "pLpL", in, inlen, out, outlen); \
+    }
+SUPER()
+#undef GO
+static void* find_ECDH_KDF_Fct(void* fct)
+{
+    if (!fct) return NULL;
+    void* p;
+    if ((p = GetNativeFnc((uintptr_t)fct))) return p;
+#define GO(A) \
+    if (my3_ECDH_KDF_fct_##A == (uintptr_t)fct) return my3_ECDH_KDF_##A;
+    SUPER()
+#undef GO
+#define GO(A)                                  \
+    if (my3_ECDH_KDF_fct_##A == 0) {           \
+        my3_ECDH_KDF_fct_##A = (uintptr_t)fct; \
+        return my3_ECDH_KDF_##A;               \
+    }
+    SUPER()
+#undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libSSL ECDH_KDF callback\n");
+    return NULL;
+}
+
+EXPORT int my3_CRYPTO_get_ex_new_index(x64emu_t* emu, int idx, long argl, void* argp, void* new_func, 
+    void* dup_func, void* free_func) {
+    (void)emu;
+    return my->CRYPTO_get_ex_new_index(idx, argl, argp, find_ex_new_Fct(new_func), find_ex_dup_Fct(dup_func), find_ex_free_Fct(free_func));
+}
 
 EXPORT int32_t my3_ENGINE_ctrl(x64emu_t* emu, void* e, int32_t cmd, int32_t i, void* p, void* f)
 {
@@ -524,6 +765,18 @@ EXPORT void* my3_PEM_read_bio_X509_CERT_PAIR(x64emu_t* emu, void* bp, void* x, v
     return my->PEM_read_bio_X509_CERT_PAIR(bp, x, find_pem_password_cb_Fct(cb), u);
 }
 
+EXPORT void my3_ERR_print_errors_cb(x64emu_t* emu, void* cb, void* u)
+{
+    (void)emu;
+    my->ERR_print_errors_cb(find_err_print_errors_cb_Fct(cb), u);
+}
+
+EXPORT void* my3_PEM_X509_INFO_read_bio(x64emu_t* emu, void* bp, void* sk, void* cb, void* u)
+{
+    (void)emu;
+    return my->PEM_X509_INFO_read_bio(bp, sk, find_pem_password_cb_Fct(cb), u);
+}
+
 EXPORT void my3_X509_STORE_CTX_set_verify_cb(x64emu_t* emu, void* ctx, void* cb)
 {
     (void)emu;
@@ -570,9 +823,92 @@ EXPORT int my3_BIO_printf(x64emu_t* emu, void* bio, void* fmt, uintptr_t* b)
     return my->BIO_vprintf(bio, fmt, VARARGS);
 }
 
+EXPORT int my3_BIO_meth_set_gets(x64emu_t* emu, void* biom, void* cb)
+{
+    (void)emu;
+    return my->BIO_meth_set_gets(biom, find_BIO_meth_set_gets_Fct(cb));
+}
+
+EXPORT void my3_OSSL_PARAM_construct_end(x64emu_t* emu, void* ret)
+{
+    (void)emu;
+    my->OSSL_PARAM_construct_end(ret);
+}
+
+EXPORT void my3_OSSL_PARAM_construct_int(x64emu_t* emu, void* ret, void* key, void* buf)
+{
+    (void)emu;
+    my->OSSL_PARAM_construct_int(ret, key, buf);
+}
+
+EXPORT void my3_OSSL_PARAM_construct_uint(x64emu_t* emu, void* ret, void* key, void* buf)
+{
+    (void)emu;
+    my->OSSL_PARAM_construct_uint(ret, key, buf);
+}
+
+EXPORT void my3_OSSL_PARAM_construct_octet_string(x64emu_t* emu, void* ret, void* key, void* buf, size_t bsize)
+{
+    (void)emu;
+    my->OSSL_PARAM_construct_octet_string(ret, key, buf, bsize);
+}
+
+EXPORT void my3_OSSL_PARAM_construct_utf8_string(x64emu_t* emu, void* ret, void* key, void* buf, size_t bsize)
+{
+    (void)emu;
+    my->OSSL_PARAM_construct_utf8_string(ret, key, buf, bsize);
+}
+
+#define GO(A)   \
+static uintptr_t my3_OSSL_STORE_post_process_info_fct_##A = 0;                  \
+static void* my3_OSSL_STORE_post_process_info_##A(void* info, void* data)         \
+{                                                                               \
+    return (void*)RunFunctionFmt(my3_OSSL_STORE_post_process_info_fct_##A, "pp", info, data);   \
+}
+SUPER()
+#undef GO
+static void* find_OSSL_STORE_post_process_info(void* fct)
+{
+    if (!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_OSSL_STORE_post_process_info_fct_##A == (uintptr_t)fct) return my3_OSSL_STORE_post_process_info_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_OSSL_STORE_post_process_info_fct_##A == 0) {my3_OSSL_STORE_post_process_info_fct_##A = (uintptr_t)fct; return my3_OSSL_STORE_post_process_info_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libcrypto OSSL_STORE_post_process_info callback\n");
+    return NULL;
+}
+
+EXPORT void* my3_OSSL_STORE_open(x64emu_t* emu, void* uri, void *ui_method, void *ui_data, void* post_process, void* post_process_data)
+{
+    (void)emu;
+    return my->OSSL_STORE_open(uri, ui_method, ui_data, find_OSSL_STORE_post_process_info(post_process), post_process_data);
+}
+
+EXPORT void* my3_OSSL_STORE_open_ex(x64emu_t* emu, void* uri, void* libctx, void* propq, void* ui_method, void* ui_data, void* params, void* post_process, void* post_process_data)
+{
+    (void)emu;
+    return my->OSSL_STORE_open_ex(uri, libctx, propq, ui_method, ui_data, params, find_OSSL_STORE_post_process_info(post_process), post_process_data);
+}
+
 EXPORT void* my3_PEM_read_DHparams(x64emu_t* emu, void* fp, void* x, void* cb, void* u)
 {
     return my->PEM_read_DHparams(fp, x, find_pem_password_cb_Fct(cb), u);
+}
+
+EXPORT void* my3_PEM_read_PrivateKey(x64emu_t* emu, void* fp, void* x, void* cb, void* u)
+{
+    (void)emu;
+    return my->PEM_read_PrivateKey(fp, x, find_pem_password_cb_Fct(cb), u);
+}
+
+EXPORT void* my3_PEM_read_PUBKEY(x64emu_t* emu, void* fp, void* x, void* cb, void* u)
+{
+    (void)emu;
+    return my->PEM_read_PUBKEY(fp, x, find_pem_password_cb_Fct(cb), u);
 }
 
 EXPORT void my3_EVP_MD_do_all_provided(x64emu_t* emu, void* ctx, void* cb, void* arg)
@@ -650,6 +986,33 @@ EXPORT void* my3_X509V3_EXT_get(x64emu_t* emu, void* x)
     }
     return ret;
 }
+
+EXPORT int my3_ECDH_compute_key(x64emu_t* emu, void* out, size_t outlen, void* pub_key, void* ecdh, void* kdf)
+{
+    return my->ECDH_compute_key(out, outlen, pub_key, ecdh, find_ECDH_KDF_Fct(kdf));
+}
+
+EXPORT int my3_BIO_meth_set_callback_ctrl(x64emu_t* emu, void* biom, void* cb)
+{
+    return my->BIO_meth_set_callback_ctrl(biom, find_callback_ctrl_Fct(cb));
+}
+
+EXPORT int my3_EVP_CIPHER_nid(x64emu_t* emu, void* cipher)
+{
+    if(my->EVP_CIPHER_nid)
+        return my->EVP_CIPHER_nid(cipher);
+    return my->EVP_CIPHER_get_nid(cipher);
+}
+
+EXPORT void* my3_PEM_read_X509(x64emu_t* emu, void* fp, void* x, void* cb, void* u)
+{
+    return my->PEM_read_X509(fp, x, find_pem_password_cb_Fct(cb), u);
+}
+EXPORT void* my3_PEM_read_X509_AUX(x64emu_t* emu, void* fp, void* x, void* cb, void* u)
+{
+    return my->PEM_read_X509_AUX(fp, x, find_pem_password_cb_Fct(cb), u);
+}
+
 
 #define ALTMY my3_
 

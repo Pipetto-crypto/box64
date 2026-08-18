@@ -105,7 +105,15 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
 
             case 0xE4:
                 INST_NAME("FTST");
-                DEFAULT;
+                v1 = x87_get_st(dyn, ninst, x1, x2, 0, X87_ST0);
+                v2 = fpu_get_scratch(dyn);
+                if (ST_IS_F(0)) {
+                    FMVWX(v2, xZR);
+                    FCOMS(v1, v2, x1, x2, x3, x4, x5);
+                } else {
+                    FMVDX(v2, xZR);
+                    FCOMD(v1, v2, x1, x2, x3, x4, x5);
+                }
                 break;
             case 0xE5:
                 INST_NAME("FXAM");
@@ -115,11 +123,12 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 if (i1 == -1) {
                     if (fpu_is_st_freed(dyn, ninst, 0)) {
                         MOV32w(x4, 0b100000100000000);
+                        MOV32w(x2, 0); // no sign bit: C1 = 0
                         B_MARK3_nocond;
                     } else {
                         // not in cache, so check Empty status and load it
                         i2 = -dyn->e.x87stack;
-                        LWU(x3, xEmu, offsetof(x64emu_t, fpu_stack));
+                        LW(x3, xEmu, offsetof(x64emu_t, fpu_stack));
                         if (i2) {
                             SUBI(x3, x3, i2);
                         }
@@ -152,6 +161,14 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                         }
                     }
                 } else {
+                    // check if stack is empty (freed register will not count, but might work if using tags instead)
+                    i2 = -dyn->e.x87stack;
+                    LW(x3, xEmu, offsetof(x64emu_t, fpu_stack));
+                    if (i2) {
+                        SUBI(x3, x3, i2);
+                    }
+                    MOV32w(x4, 0b100000100000000); // empty: C3,C2,C0 = 101
+                    BGE_MARK3(xZR, x3);
                     // simply move from cache reg to x2
                     v1 = dyn->e.x87reg[i1];
                     FMVXD(x2, v1);
@@ -373,6 +390,7 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             if (ST_IS_F(0)) {
                 FEQS(x2, v0, v0);
                 BNEZ_MARK(x2);
+                x87_restoreround(dyn, ninst, u8);
                 B_NEXT_nocond;
                 MARK; // v0 is not nan
                 FABSS(v1, v0);
@@ -380,6 +398,7 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 FCVTSL(v2, x3, RD_RTZ);
                 FLTS(x3, v1, v2);
                 BNEZ_MARK2(x3);
+                x87_restoreround(dyn, ninst, u8);
                 B_NEXT_nocond;
                 MARK2;
                 FCVTLS(x3, v0, RD_DYN);
@@ -388,6 +407,7 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
             } else {
                 FEQD(x2, v0, v0);
                 BNEZ_MARK(x2);
+                x87_restoreround(dyn, ninst, u8);
                 B_NEXT_nocond;
                 MARK; // v0 is not nan
                 FABSD(v1, v0);
@@ -395,6 +415,7 @@ uintptr_t dynarec64_D9(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 FCVTDL(v2, x3, RD_RTZ);
                 FLTD(x3, v1, v2);
                 BNEZ_MARK2(x3);
+                x87_restoreround(dyn, ninst, u8);
                 B_NEXT_nocond;
                 MARK2;
                 FCVTLD(x3, v0, RD_DYN);

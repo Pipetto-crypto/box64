@@ -77,10 +77,10 @@ done
 # reorganize the files
 cd "${dir_tmp}"/bundle-libs
 mkdir -p "${dir_tmp}"/bundle-libs/box64-i386-linux-gnu
-mv lib/*.so* usr/lib/*.so* usr/lib/i386-linux-gnu/*.so* usr/lib32/*.so* \
+mv lib/*.so* usr/lib/*.so* usr/lib/i386-linux-gnu/* usr/lib32/*.so* \
     "${dir_tmp}"/bundle-libs/box64-i386-linux-gnu
 mkdir -p "${dir_tmp}"/bundle-libs/box64-x86_64-linux-gnu
-mv lib64/*.so* usr/lib/x86_64-linux-gnu/*.so* usr/lib64/*.so* \
+mv lib64/*.so* usr/lib/x86_64-linux-gnu/* usr/lib64/*.so* \
     "${dir_tmp}"/bundle-libs/box64-x86_64-linux-gnu
 rm -f ./*.tar.* debian-binary files.xml metadata.xml
 rm -rf ./lib* etc run sbin usr var
@@ -95,7 +95,7 @@ set -- libc libpthread librt libGL libX11 libasound libdl libm libbsd libutil \
   libxcb-xfixes libxcb-shape libxcb-shm libxcb-randr libxcb-image \
   libxcb-keysyms libxcb-xtest libxcb-glx libxcb-dri2 libxcb-dri3 libXtst libXt \
   libXcomposite libXdamage libXmu libxkbcommon libxkbcommon-x11 \
-  libpulse-simple libpulse libvulkan ld-linux-x86-64 crashhandler \
+  libpulse-simple libpulse libvulkan ld-linux-x86-64 \
   libtcmalloc_minimal libanl ld-linux libthread_db
 for file in "$@"; do
     rm -f "${dir_tmp}"/bundle-libs/usr/lib/box64-*-linux-gnu/"${file}".so*
@@ -106,6 +106,12 @@ if find "${dir_tmp}"/bundle-libs -type l ! -exec test -e {} \; -print | grep bun
     echo "E: Broken symlinks found"
     exit 1
 fi
+
+# Manually create additional symlinks that are useful to have.
+cd "${dir_tmp}"/bundle-libs/usr/lib/box64-x86_64-linux-gnu/
+ln -s libmbedcrypto.so.7 libmbedcrypto.so.3
+ln -s libmbedtls.so.14 libmbedtls.so.12
+ln -s libmbedx509.so.1 libmbedx509.so.0
 
 # create shared libraries (.so) symlinks
 # if multiple libraries of the same name exist, it will symlink the oldest version
@@ -123,6 +129,11 @@ for dir_lib in "${dir_tmp}"/bundle-libs/usr/lib/box64-*-linux-gnu; do
         fi
     done
 done
+
+# generate a SHA256 checksum of every file and symlink in the bundle
+cd "${dir_tmp}"/bundle-libs
+find usr \( -type f -o -type l \) -exec "${sha256sum}" {} + \
+    | LC_ALL=C sort --key 2 > "${current_dir}"/box64-bundle-x86-libs.sha256
 
 # generate the bundle libraries archive
 tar -C "${dir_tmp}"/bundle-libs -czvf "${current_dir}"/box64-bundle-x86-libs.tar.gz .

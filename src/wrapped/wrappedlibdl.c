@@ -448,8 +448,26 @@ void* my_dlsym_internal(x64emu_t* emu, void *handle, void *symbol, int version, 
 void* my_dlsym(x64emu_t* emu, void *handle, void *symbol)
 {
     printf_dlsym(LOG_DEBUG, "%04d|Call to dlsym(%p, \"%s\")%s", GetTID(), handle, symbol, BOX64ENV(dlsym_error)?"":"\n");
-    return my_dlsym_internal(emu, handle, symbol, -1, NULL);
+    void* ret = my_dlsym_internal(emu, handle, symbol, -1, NULL);
+    #if 0
+    char* symb = symbol;
+    static char* previous = NULL;
+    static char previous_storage[128];
+    if(previous && ret && (!strcmp(previous, symb) || (previous[0]=='_' && !strcmp(&previous[1], symb)) || (symb[0]=='_' && !strcmp(previous, &symb[1]))))
+        previous = NULL;
+    else if(previous && ret) {
+        printf_log(LOG_INFO, "Warning, symbol %s might be missing\n", previous);
+        previous = NULL;
+    } else if(!ret) {
+        if(previous && !(!strcmp(previous, symb) || (previous[0]=='_' && !strcmp(&previous[1], symb)) || (symb[0]=='_' && !strcmp(previous, &symb[1]))))
+            printf_log(LOG_INFO, "Warning, symbol %s might be missing\n", previous);
+        previous = previous_storage;
+        strcpy(previous, symb);
+    }
+    #endif
+    return ret;
 }
+
 void* my_dlvsym(x64emu_t* emu, void *handle, void *symbol, const char *vername)
 {
     int version = (vername)?2:-1;
@@ -505,6 +523,7 @@ int my_dladdr1(x64emu_t* emu, void *addr, void *i, void** extra_info, int flags)
     library_t* lib = NULL;
     info->dli_saddr = NULL;
     info->dli_fname = NULL;
+    // TODO: If dli_sname points to native_name, how do I avoid data tampering during usage?
     info->dli_sname = FindSymbolName(my_context->maplib, addr, &info->dli_saddr, NULL, &info->dli_fname, &info->dli_fbase, &lib);
     printf_log(LOG_DEBUG, "     dladdr return saddr=%p, fname=\"%s\", sname=\"%s\"\n", info->dli_saddr, info->dli_sname?info->dli_sname:"", info->dli_fname?info->dli_fname:"");
     if(flags==RTLD_DL_SYMENT) {
@@ -570,9 +589,10 @@ EXPORT int my__dl_find_object(x64emu_t* emu, void* addr, my_dl_find_object_t* re
     elfheader_t* h = FindElfAddress(my_context, (uintptr_t)addr);
     if(h) {
         // find an actual elf
-        /*const char* name =*/ FindNearestSymbolName(h, addr, &start, &sz);
-        result->dlfo_map_start = (void*)start;
-        result->dlfo_map_end = (void*)(start+sz-1);
+        /*const char* name =*/ //FindNearestSymbolName(h, addr, &start, &sz);
+        // simplified version
+        result->dlfo_map_start = (void*)GetBaseAddress(h);
+        result->dlfo_map_end = result->dlfo_map_start+GetBaseSize(h);
         result->dlfo_eh_frame = (void*)(h->ehframehdr+h->delta);
         result->dlfo_flags = 0;   // unused it seems
         result->dlf_link_map = (struct link_map *)getLinkMapElf(h);
@@ -592,6 +612,22 @@ void closeAllDLOpened()
                 printf_log(LOG_DEBUG, "  closing %s\n", dl->dllibs[i].lib->name);
                 my_dlclose(emu, (void*)(i+1));
             }
+    }
+}
+
+void finiPendingDLOpenedNoUnload(x64emu_t* emu)
+{
+    if (!my_context || !my_context->dlprivate)
+        return;
+
+    dlprivate_t* dl = my_context->dlprivate;
+    for (size_t i = dl->lib_sz; i-- > MIN_NLIB;) {
+        if (!dl->dllibs[i].full || dl->dllibs[i].count <= 0 || !dl->dllibs[i].lib)
+            continue;
+        elfheader_t* h = GetElf(dl->dllibs[i].lib);
+        if (!h || h == my_context->elfs[0])
+            continue;
+        RunElfFini(h, emu);
     }
 }
 

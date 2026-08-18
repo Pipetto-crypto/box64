@@ -94,12 +94,15 @@ set(WOW64_BOX64CPU_SRC
     "${BOX64_ROOT}/src/os/symbolfuncs_wine.c"
     "${BOX64_ROOT}/src/os/emit_signal_wine.c"
     "${BOX64_ROOT}/src/os/perfmap.c"
-    "${BOX64_ROOT}/src/os/my_cpuid_wine.c"
-    "${BOX64_ROOT}/src/os/my_cpuid_common.c"
+    "${BOX64_ROOT}/src/os/random_wine.c"
+    "${BOX64_ROOT}/src/os/my_cpuid.c"
+    "${BOX64_ROOT}/src/os/sysinfo.c"
     "${BOX64_ROOT}/src/tools/alternate.c"
     "${BOX64_ROOT}/src/tools/bitutils.c"
     "${BOX64_ROOT}/src/tools/env.c"
+    "${BOX64_ROOT}/src/tools/dynacache.c"
     "${BOX64_ROOT}/src/tools/rbtree.c"
+    "${BOX64_ROOT}/src/tools/cpumask.c"
 )
 
 add_library(wowbox64 SHARED ${WOW64_MAIN_SRC} ${MUSL_SRC} ${WOW64_BOX64CPU_SRC} ${INTERPRETER} ${DYNAREC_ASM}
@@ -117,6 +120,16 @@ include_directories(
     "${BOX64_ROOT}/external/musl"
     "${BOX64_ROOT}/external/musl/internal"
 )
+
+set(DYNACACHE_HASH_HEADER "${BOX64_ROOT}/src/dynacache_hashes.h")
+add_custom_target(generate_dynacache_hashes
+    COMMAND "${PYTHON_EXECUTABLE}" "${BOX64_ROOT}/tools/gen_dynacache_hashes.py"
+        --root "${BOX64_ROOT}"
+        --output "${DYNACACHE_HASH_HEADER}"
+    BYPRODUCTS "${DYNACACHE_HASH_HEADER}"
+    VERBATIM
+)
+add_dependencies(wowbox64 generate_dynacache_hashes)
 
 set(DLLTOOL aarch64-w64-mingw32-dlltool)
 

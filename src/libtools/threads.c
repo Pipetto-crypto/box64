@@ -25,6 +25,7 @@
 #include "bridge.h"
 #include "myalign.h"
 #include "x64tls.h"
+#include "cpumask.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #include "dynarec/native_lock.h"
@@ -33,7 +34,9 @@
 #include "box32.h"
 #include "threads32.h"
 #endif
+#include <stdatomic.h>
 
+static _Atomic int g_active_emu_workers = 0;
 //void _pthread_cleanup_push_defer(void* buffer, void* routine, void* arg);	// declare hidden functions
 //void _pthread_cleanup_pop_restore(void* buffer, int exec);
 typedef void (*vFppp_t)(void*, void*, void*);
@@ -176,6 +179,7 @@ emuthread_t* get_thread(void* t)
 #endif
 
 static pthread_key_t thread_key;
+static int thread_key_ready = 0;
 
 void emuthread_destroy(void* p)
 {
@@ -217,6 +221,7 @@ static void emuthread_cancel(void* p)
 	box_free(et->cancels);
 	et->cancels=NULL;
 	et->cancel_size = et->cancel_cap = 0;
+	atomic_fetch_sub_explicit(&g_active_emu_workers, 1, memory_order_relaxed);
 }
 void thread_forget_emu()
 {
@@ -253,8 +258,16 @@ void thread_set_emu(x64emu_t* emu)
 	pthread_setspecific(thread_key, et);
 }
 
-x64emu_t* thread_get_emu()
+x64emu_t* thread_get_emu_no_create(void)
 {
+	if(!thread_key_ready) return NULL;
+	emuthread_t* et = (emuthread_t*)pthread_getspecific(thread_key);
+	return et ? et->emu : NULL;
+}
+
+x64emu_t* thread_get_emu(void)
+{
+	if(!thread_key_ready) return NULL;
 	emuthread_t *et = (emuthread_t*)pthread_getspecific(thread_key);
 	if(!et) {
 		// this should not happens. So if it happens, use a small stack
@@ -292,6 +305,7 @@ void thread_set_et(emuthread_t* et)
 
 static void* pthread_routine(void* p)
 {
+	atomic_fetch_add_explicit(&g_active_emu_workers, 1, memory_order_relaxed);
 	// free current emuthread if it exist
 	{
 		void* t = pthread_getspecific(thread_key);
@@ -325,8 +339,13 @@ static void* pthread_routine(void* p)
 	DynaRun(emu);
 	pthread_cleanup_pop(0);
 	void* ret = (void*)R_RAX;
+	atomic_fetch_sub_explicit(&g_active_emu_workers, 1, memory_order_relaxed);
 	//void* ret = (void*)RunFunctionWithEmu(et->emu, 0, et->fnc, 1, et->arg);
 	return ret;
+}
+
+	int get_active_emu_workers(void) {
+		return atomic_load_explicit(&g_active_emu_workers, memory_order_relaxed);
 }
 
 #ifdef NOALIGN
@@ -457,11 +476,30 @@ EXPORT int my_pthread_attr_init(x64emu_t* emu, pthread_attr_t* attr)
 	return ret;
 }
 #ifndef ANDROID
-EXPORT int my_pthread_attr_setaffinity_np(x64emu_t* emu, pthread_attr_t* attr, size_t cpusize, void* cpuset)
+EXPORT int my_pthread_attr_getaffinity_np(x64emu_t* emu, pthread_attr_t* attr, size_t cpusize, void* cpuset)
 {
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
-	int ret = pthread_attr_setaffinity_np(PTHREAD_ATTR(attr), cpusize, cpuset);
+	int ret = pthread_attr_getaffinity_np(PTHREAD_ATTR(attr), cpusize, cpuset);
+	PTHREAD_ATTR_UNALIGN(attr);
+	if(BOX64ENV(skipcpu)) {
+		cpumask_shiftright(cpuset, cpusize, BOX64ENV(skipcpu));
+		cpumask_maxcpu(cpuset, cpusize, BOX64ENV(maxcpu));
+	}
+	return ret;
+}
+EXPORT int my_pthread_attr_setaffinity_np(x64emu_t* emu, pthread_attr_t* attr, size_t cpusize, void* cpuset)
+{
+	(void)emu;
+	uint8_t mask_[cpusize];
+	cpu_set_t* cpuset_ = BOX64ENV(skipcpu)?(void*)mask_:cpuset;
+	if(BOX64ENV(skipcpu)) {
+		memcpy(mask_, cpuset, cpusize);
+		cpumask_maxcpu(mask_, cpusize, BOX64ENV(maxcpu));
+		cpumask_shiftleft(mask_, cpusize, BOX64ENV(skipcpu));
+	}
+	PTHREAD_ATTR_ALIGN(attr);
+	int ret = pthread_attr_setaffinity_np(PTHREAD_ATTR(attr), cpusize, cpuset_);
 	PTHREAD_ATTR_UNALIGN(attr);
 	return ret;
 }
@@ -775,7 +813,7 @@ int EXPORT my_pthread_once(x64emu_t* emu, int* once, void* cb)
 		R_RBP = R_RSP;      // mov rbp, rsp
 		R_RSP &= ~63LL;
 
-		DynaCall(emu, (uintptr_t)cb);  // using DynaCall, speedup wine 7.21 initialisation
+		DynaCall(emu, (uintptr_t)cb, 0);  // using DynaCall, speedup wine 7.21 initialisation
 
 		R_RSP = R_RBP;          // mov rsp, rbp
 		R_RBP = Pop64(emu);     // pop rbp
@@ -885,20 +923,38 @@ EXPORT int my_pthread_getaffinity_np(x64emu_t* emu, pthread_t thread, size_t cpu
 	int ret = pthread_getaffinity_np(thread, cpusetsize, cpuset);
 	if(ret<0) {
 		printf_log(LOG_INFO, "Warning, pthread_getaffinity_np(%p, %zd, %p) errored, with errno=%d\n", (void*)thread, cpusetsize, cpuset, errno);
+	} else {
+		if(BOX64ENV(skipcpu)) {
+			cpumask_shiftright(cpuset, cpusetsize, BOX64ENV(skipcpu));
+			cpumask_maxcpu(cpuset, cpusetsize, BOX64ENV(maxcpu));
+		}
 	}
 
     return ret;
 }
 EXPORT int my_pthread_getaffinity_np_old(x64emu_t* emu, pthread_t thread, void* cpuset)
 {
-	return my_pthread_getaffinity_np(emu, thread, 128, cpuset);
+	int ret = my_pthread_getaffinity_np(emu, thread, 128, cpuset);
+	if(ret>=0) {
+		if(BOX64ENV(skipcpu)) {
+			cpumask_shiftright(cpuset, 128, BOX64ENV(skipcpu));
+			cpumask_maxcpu(cpuset, 128, BOX64ENV(maxcpu));
+		}
+	}
 }
 
 
 EXPORT int my_pthread_setaffinity_np(x64emu_t* emu, pthread_t thread, size_t cpusetsize, void* cpuset)
 {
 	(void)emu;
-	int ret = pthread_setaffinity_np(thread, cpusetsize, cpuset);
+	uint8_t mask_[cpusetsize];
+	cpu_set_t* cpuset_ = BOX64ENV(skipcpu)?(void*)mask_:cpuset;
+	if(BOX64ENV(skipcpu)) {
+		memcpy(mask_, cpuset, cpusetsize);
+		cpumask_maxcpu(mask_, cpusetsize, BOX64ENV(maxcpu));
+		cpumask_shiftleft(mask_, cpusetsize, BOX64ENV(skipcpu));
+	}
+	int ret = pthread_setaffinity_np(thread, cpusetsize, cpuset_);
 	if(ret<0) {
 		printf_log(LOG_INFO, "Warning, pthread_setaffinity_np(%p, %zd, %p) errored, with errno=%d\n", (void*)thread, cpusetsize, cpuset, errno);
 	}
@@ -1231,6 +1287,7 @@ EXPORT int my_pthread_cond_destroy_old(x64emu_t* emu, pthread_cond_old_t* cond)
 	pthread_cond_t * c = get_cond(cond);
 	int ret = pthread_cond_destroy(c);
 	box_free(cond->cond);
+	cond->cond = NULL;
 	return ret;
 }
 EXPORT int my_pthread_cond_init_old(x64emu_t* emu, pthread_cond_old_t* cond, void* attr)
@@ -1335,6 +1392,7 @@ void init_pthread_helper()
 	}
 
 	pthread_key_create(&thread_key, emuthread_destroy);
+	thread_key_ready = 1;
 	pthread_setspecific(thread_key, NULL);
 }
 

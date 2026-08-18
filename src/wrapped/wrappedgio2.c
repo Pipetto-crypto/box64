@@ -26,10 +26,25 @@ const char* gio2Name = "libgio-2.0.so.0";
 #define LIBNAME gio2
 
 typedef size_t(*LFv_t)(void);
+typedef void(*vFppp_t)(void*, void*, void*);
+
+typedef struct my_GActionEntry_s
+{
+  void*     name;
+  vFppp_t   activate;
+  void*     parameter_type;
+  void*     state;
+  vFppp_t   change_state;
+  size_t    padding[3];
+} my_GActionEntry_t;
 
 #define ADDED_FUNCTIONS() \
- GO(g_application_get_type, LFv_t)          \
- GO(g_dbus_proxy_get_type, LFv_t)           \
+ GO(g_application_get_type, LFv_t)                  \
+ GO(g_dbus_proxy_get_type, LFv_t)                   \
+ GO(g_dbus_object_manager_client_get_type, LFv_t)   \
+ GO(g_dbus_interface_skeleton_get_type, LFv_t)      \
+ GO(g_initable_get_type, LFv_t)                     \
+ GO(g_async_initable_get_type, LFv_t)               \
 
 #include "wrappedgio2types.h"
 
@@ -39,7 +54,11 @@ typedef size_t(*LFv_t)(void);
 GO(0)   \
 GO(1)   \
 GO(2)   \
-GO(3)
+GO(3)   \
+GO(4)   \
+GO(5)   \
+GO(6)   \
+GO(7)   \
 
 // GAsyncReadyCallback
 #define GO(A)   \
@@ -50,7 +69,7 @@ static void my_GAsyncReadyCallback_##A(void* source, void* res, void* data)     
 }
 SUPER()
 #undef GO
-static void* findGAsyncReadyCallbackFct(void* fct)
+void* findGAsyncReadyCallbackFct(void* fct) // also used in gtkclass.c
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
@@ -117,10 +136,10 @@ static void* findGTaskThreadFuncFct(void* fct)
 
 // GDBusProxyTypeFunc
 #define GO(A)   \
-static uintptr_t my_GDBusProxyTypeFunc_fct_##A = 0;                                                           \
-static int my_GDBusProxyTypeFunc_##A(void* manager, void* path, void* name, void* data)                       \
-{                                                                                                             \
-    return (int)RunFunctionFmt(my_GDBusProxyTypeFunc_fct_##A, "pppp", manager, path, name, data); \
+static uintptr_t my_GDBusProxyTypeFunc_fct_##A = 0;                                                     \
+static uintptr_t my_GDBusProxyTypeFunc_##A(void* manager, void* path, void* name, void* data)           \
+{                                                                                                       \
+    return (uintptr_t)RunFunctionFmt(my_GDBusProxyTypeFunc_fct_##A, "pppp", manager, path, name, data); \
 }
 SUPER()
 #undef GO
@@ -136,6 +155,18 @@ static void* findGDBusProxyTypeFuncFct(void* fct)
     #undef GO
     printf_log(LOG_NONE, "Warning, no more slot for gio2 GDBusProxyTypeFunc callback\n");
     return NULL;
+}
+
+static void bridgeGInitableNewProperties(x64emu_t* emu, const char* property, uintptr_t* b)
+{
+    // GDBusObjectManagerClient callback properties can also arrive through this generic constructor.
+    for (int n = 0; property; n += 2) {
+        if (!strcmp(property, "get-proxy-type-func"))
+            setVArgs(emu, 4, b, n, (uintptr_t)findGDBusProxyTypeFuncFct((void*)getVArgs(emu, 4, b, n)));
+        else if (!strcmp(property, "get-proxy-type-destroy-notify"))
+            setVArgs(emu, 4, b, n, (uintptr_t)findGDestroyNotifyFct((void*)getVArgs(emu, 4, b, n)));
+        property = (const char*)getVArgs(emu, 4, b, n + 1);
+    }
 }
 
 // GSimpleAsyncThreadFunc
@@ -210,9 +241,9 @@ static void* findGDBusSignalCallbackFct(void* fct)
 // GDBusMessageFilterFunction
 #define GO(A)   \
 static uintptr_t my_GDBusMessageFilterFunction_fct_##A = 0;                                                         \
-static void my_GDBusMessageFilterFunction_##A(void* connection, void* message, int incoming, void* data)            \
+static void* my_GDBusMessageFilterFunction_##A(void* connection, void* message, int incoming, void* data)            \
 {                                                                                                                   \
-    RunFunctionFmt(my_GDBusMessageFilterFunction_fct_##A, "ppip", connection, message, incoming, data); \
+    return (void*)RunFunctionFmt(my_GDBusMessageFilterFunction_fct_##A, "ppip", connection, message, incoming, data); \
 }
 SUPER()
 #undef GO
@@ -344,15 +375,31 @@ static void* findGBusNameLostCallbackFct(void* fct)
     printf_log(LOG_NONE, "Warning, no more slot for gio2 GBusNameLostCallback callback\n");
     return NULL;
 }
+// vFppp
+#define GO(A)   \
+static uintptr_t my_vFppp_fct_##A = 0;                  \
+static void my_vFppp_##A(void* a, void* b, void* c)     \
+{                                                       \
+    RunFunctionFmt(my_vFppp_fct_##A, "ppp", a, b, c);   \
+}
+SUPER()
+#undef GO
+static void* findvFpppFct(void* fct)
+{
+    if(!fct) return fct;
+    if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
+    #define GO(A) if(my_vFppp_fct_##A == (uintptr_t)fct) return my_vFppp_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my_vFppp_fct_##A == 0) {my_vFppp_fct_##A = (uintptr_t)fct; return my_vFppp_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for gio2 vFppp callback\n");
+    return NULL;
+}
 
 // GDBusInterfaceVTable....
 // First the structure GDBusInterfaceVTable statics, with paired x64 source pointer
-typedef struct my_GDBusInterfaceVTable_s {
-  void      (*method_call)    (void* connection, void* sender, void* object_path, void* interface_name, void* method_name, void* invocation, void* user_data);
-  void*     (*get_property)   (void* connection, void* sender, void* object_path, void* interface_name, void* error, void* user_data);
-  int       (*set_property)   (void* connection, void* sender, void* object_path, void* interface_name, void* value, void* error, void* user_data);
-} my_GDBusInterfaceVTable_t;
-
 #define GO(A)   \
 static my_GDBusInterfaceVTable_t     my_GDBusInterfaceVTable_##A = {0};   \
 static my_GDBusInterfaceVTable_t   *ref_GDBusInterfaceVTable_##A = NULL;
@@ -376,7 +423,7 @@ static int my_funcs_set_property_##A(void* connection, void* sender, void* objec
 SUPER()
 #undef GO
 // and now the get slot / assign... Taking into account that the desired callback may already be a wrapped one (so unwrapping it)
-static my_GDBusInterfaceVTable_t* findFreeGDBusInterfaceVTable(my_GDBusInterfaceVTable_t* fcts)
+my_GDBusInterfaceVTable_t* findFreeGDBusInterfaceVTable(my_GDBusInterfaceVTable_t* fcts)
 {
     if(!fcts) return fcts;
     #define GO(A) if(ref_GDBusInterfaceVTable_##A == fcts) return &my_GDBusInterfaceVTable_##A;
@@ -623,22 +670,8 @@ EXPORT void my_g_simple_async_result_set_error(x64emu_t* emu, void* simple, uint
 
 EXPORT void* my_g_initable_new(x64emu_t* emu, size_t type, void* cancel, void* err, void* first, uintptr_t* b)
 {
-    #if 0
-    // look for number of pairs
-    int n = 1;
-    emu->scratch[0] = (uint64_t)first;
-    emu->scratch[1] = getVArgs(emu, 4, b, 0);
-    while(getVArgs(emu, 4, b, n)) {
-        emu->scratch[n+1] = getVArgs(emu, 4, b, n);
-        emu->scratch[n+2] = getVArgs(emu, 4, b, n+1);
-        n+=2;
-    }
-    emu->scratch[n+1] = 0;
-    emu->scratch[n+2] = 0;
-    PREPARE_VALIST;
-    #else
+    bridgeGInitableNewProperties(emu, first, b);
     CREATE_VALIST_FROM_VAARG(b, emu->scratch, 4);
-    #endif
     return my->g_initable_new_valist(type, first, VARARGS, cancel, err);
 }
 
@@ -666,29 +699,56 @@ EXPORT void my_g_input_stream_read_async(x64emu_t* emu, void* stream, void* buff
     my->g_input_stream_read_async(stream, buffer, count, io_prio, cancel, findGAsyncReadyCallbackFct(f), data);
 }
 
-EXPORT void my_g_dbus_method_invocation_return_error_valist(x64emu_t* emu, void* invocation, uint32_t domain, int code, void* fmt, x64_va_list_t V)
+EXPORT void my_g_file_trash_async(x64emu_t* emu, void* file, int io_priority, void* cancellable, void* callback, void* user_data)
+{
+    my->g_file_trash_async(file, io_priority, cancellable, findGAsyncReadyCallbackFct(callback), user_data);
+}
+
+EXPORT void my_g_dbus_method_invocation_return_error_valist(x64emu_t* emu, void* invocation, uint32_t domain, int code, void* fmt, x64_va_list_t b)
 {
     #ifdef CONVERT_VALIST
-    CONVERT_VALIST(V);
+    CONVERT_VALIST(b);
     #else
-    CREATE_VALIST_FROM_VALIST(V, emu->scratch);
+    myStackAlignValist(emu, (const char*)fmt, emu->scratch, b);
+    PREPARE_VALIST;
     #endif
     my->g_dbus_method_invocation_return_error_valist(invocation, domain, code, fmt, VARARGS);
 }
 
 EXPORT void my_g_dbus_method_invocation_return_error(x64emu_t* emu, void* invocation, uint32_t domain, int code, void* fmt, uintptr_t* b)
 {
-    CREATE_VALIST_FROM_VAARG(b, emu->scratch, 4);
-    my->g_dbus_method_invocation_return_error(invocation, domain, code, fmt, VARARGS);
+    myStackAlign(emu, (const char*)fmt, b, emu->scratch, R_EAX, 4);
+    PREPARE_VALIST;
+    my->g_dbus_method_invocation_return_error_valist(invocation, domain, code, fmt, VARARGS);
+}
+
+EXPORT void my_g_action_map_add_action_entries(x64emu_t* emu, void* map, my_GActionEntry_t* entries, int n, void* data)
+{
+    my_GActionEntry_t entries_[n];
+    memcpy(entries_, entries, sizeof(my_GActionEntry_t)*n);
+    for(int i=0; i<n; ++i) {
+        entries_[i].activate = findvFpppFct(entries[i].activate);
+        entries_[i].change_state = findvFpppFct(entries[i].change_state);
+    }
+    my->g_action_map_add_action_entries(map, entries_, n, data);
+}
+
+EXPORT void* my_g_memory_input_stream_new_from_data(x64emu_t* emu, void* data, ssize_t len, void* f)
+{
+    return my->g_memory_input_stream_new_from_data(data, len, findGDestroyNotifyFct(f));
 }
 
 #define PRE_INIT \
     if (BOX64ENV(nogtk)) return -2;
 
 #define CUSTOM_INIT \
-    SetGApplicationID(my->g_application_get_type());    \
-    SetGDBusProxyID(my->g_dbus_proxy_get_type());
+    SetGApplicationID(my->g_application_get_type());                            \
+    SetGDBusProxyID(my->g_dbus_proxy_get_type());                               \
+    SetGDBusObjectManagerClientID(my->g_dbus_object_manager_client_get_type()); \
+    SetGDBusInterfaceSkeletonID(my->g_dbus_interface_skeleton_get_type());      \
+    SetGInitableID(my->g_initable_get_type());                                  \
+    SetGAsyncInitableID(my->g_async_initable_get_type());
 
-#define NEEDED_LIBS "libgmodule-2.0.so.0"
+#define NEEDED_LIBS "libgmodule-2.0.so.0", "libz.so.1"
 
 #include "wrappedlib_init.h"

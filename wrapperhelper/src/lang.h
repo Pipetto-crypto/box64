@@ -74,6 +74,7 @@ typedef struct preproc_token_s {
 		PPTOK_NEWLINE,
 		PPTOK_BLANK,
 		PPTOK_START_LINE_COMMENT,
+		PPTOK_AT_SYM,
 		PPTOK_EOF
 	} tokt;
 	loginfo_t loginfo;
@@ -168,6 +169,7 @@ typedef struct proc_token_s {
 				PRAGMA_SIMPLE_SU,
 				PRAGMA_EXPLICIT_CONV,
 				PRAGMA_EXPLICIT_CONV_STRICT,
+				PRAGMA_PRERESERVE,
 			} typ;
 			string_t *val;
 		} pragma;
@@ -309,6 +311,7 @@ typedef struct type_s {
 	};
 	size_t nrefs;
 	enum type_type_e {
+		TYPE_PRERESERVED,  // pre-reserved by pragma
 		TYPE_BUILTIN,      // builtin
 		TYPE_ARRAY,        // array
 		TYPE_STRUCT_UNION, // st
@@ -317,6 +320,9 @@ typedef struct type_s {
 		TYPE_FUNCTION,     // fun
 	} typ;
 	union {
+		struct {
+			unsigned is_simple : 1;
+		} preres;
 		enum type_builtin_e {
 			BTT_VOID,
 			BTT_BOOL,

@@ -1633,7 +1633,7 @@ void inplace_FT_Glyph_shrink(void* a)
         dst_b->top = src_b->top;
         convert_FT_Bitmap_to_32(&dst_b->bitmap, &src_b->bitmap);
     } else {
-        printf_log(LOG_NONE, "BOX32: Warning, unsupported glyph format 0x%x (%c%c%c%c)\n", dst->format, dst->format>>24, (dst->format>>16)&0xff, (dst->format>>8)&0xff, dst->format&0xff);
+        printf_log(LOG_NONE, "Warning, unsupported glyph format 0x%x (%c%c%c%c)\n", dst->format, dst->format >> 24, (dst->format >> 16) & 0xff, (dst->format >> 8) & 0xff, dst->format & 0xff);
     }
 }
 
@@ -2166,7 +2166,7 @@ EXPORT int my32_FT_Open_Face(x64emu_t* emu, void* library, FT_Open_Args_32_t* ar
     args_l.driver = from_ptrv(args->driver);
     args_l.num_params = args->num_params;
     args_l.params = args->params?params:NULL;
-    for(int i=0; args_l.num_params; ++i) {
+    for(int i=0; i<args_l.num_params; ++i) {
         params[i].tag = from_ulong(((FT_Parameter_32_t*)from_ptrv(args->params))[i].tag);
         params[i].data = from_ptrv(((FT_Parameter_32_t*)from_ptrv(args->params))[i].data);
     }
@@ -2335,7 +2335,7 @@ EXPORT void* my32_FT_Get_Sfnt_Table(x64emu_t* emu, void* face, int tag)
         case 5: convert_TT_Postscript_to_32(&tt_post, ret); return &tt_post;
         case 6: convert_TT_PCLT_to_32(&tt_pclt, ret); return &tt_pclt;
     }
-    printf_log(LOG_NONE, "BOX32: Warning, unsupported type %d for FT_Get_Sfnt_Table\n", tag);
+    printf_log(LOG_NONE, "Warning, unsupported type %d for FT_Get_Sfnt_Table\n", tag);
     return ret;
 }
 
@@ -2384,14 +2384,14 @@ EXPORT int my32_FT_Reference_Face(x64emu_t* emu, void* face)
     inplace_FT_FaceRec_shrink(face);
     if(!ret) {
         if(!face_ref) face_ref = kh_init(face_ref);
+        khint_t k = kh_get(face_ref, face_ref, (uintptr_t)face);
+        if(k==kh_end(face_ref)) {
+            int r;
+            k = kh_put(face_ref, face_ref, (uintptr_t)face, &r);
+            kh_value(face_ref, k) = 0;
+        }
+        ++kh_value(face_ref, k);
     }
-    khint_t k = kh_get(face_ref, face_ref, (uintptr_t)face);
-    if(k==kh_end(face_ref)) {
-        int ret;
-        k = kh_put(face_ref, face_ref, (uintptr_t)face, &ret);
-        kh_value(face_ref, k) = 0;
-    }
-    ++kh_value(face_ref, k);
     return ret;
 }
 
@@ -2418,7 +2418,7 @@ EXPORT void my32_FT_Set_Transform(x64emu_t* emu, void* face, FT_Matrix_32_t* mat
     FT_Vector_t delta_l = {0};
     inplace_FT_FaceRec_enlarge(face);
     if(matrix)
-        convert_FT_Matrix_to_64(&delta_l, matrix);
+        convert_FT_Matrix_to_64(&matrix_l, matrix);
     if(delta) {
         delta_l.x = from_long(delta->x);
         delta_l.y = from_long(delta->y);
@@ -2856,7 +2856,7 @@ EXPORT int my32_FT_Glyph_Transform(x64emu_t* emu, void* glyph, void* mat, void* 
 
 EXPORT void my32_FT_Done_Glyph(x64emu_t* emu, void* glyph)
 {
-    inplace_FT_FaceRec_enlarge(glyph);
+    inplace_FT_Glyph_enlarge(glyph);
     my->FT_Done_Glyph(glyph);
 }
 

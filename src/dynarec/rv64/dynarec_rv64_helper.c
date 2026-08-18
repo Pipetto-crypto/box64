@@ -286,7 +286,7 @@ uintptr_t geted16(dynarec_rv64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop
     uint32_t n = (m >> 6) & 3;
     int64_t offset = 0;
     if (!n && (m & 7) == 6) {
-        offset = F16S;
+        offset = F16;
         MOV32w(ret, offset);
     } else {
         switch (n) {
@@ -379,6 +379,7 @@ void jump_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int reg, int ninst)
     }
     TABLE64C(x2, const_epilog);
     SMEND();
+    CHECK_DFNONE(0);
     BR(x2);
 }
 
@@ -398,6 +399,7 @@ void jump_to_epilog_fast(dynarec_rv64_t* dyn, uintptr_t ip, int reg, int ninst)
     }
     TABLE64C(x2, const_epilog_fast);
     SMEND();
+    CHECK_DFNONE(0);
     BR(x2);
 }
 #ifdef JMPTABLE_SHIFT4
@@ -462,6 +464,8 @@ void jump_to_next(dynarec_rv64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
     if (is32bits)
         ip &= 0xffffffffLL;
 
+    CHECK_DFNONE(0);
+
     int dest;
     if (reg) {
         if (reg != xRIP) {
@@ -480,23 +484,26 @@ void jump_to_next(dynarec_rv64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
     }
     CLEARIP();
     SMEND();
-#ifdef HAVE_TRACE
-    JALR(xRA, dest);
-#else
+    // #ifdef HAVE_TRACE
+    // The JALR(xRA, ...) form is only for gdb backtraces, but it breaks the
+    // return-address-stack prediction on every block-to-block jump, which is
+    // not worth it. Uncomment temporarily when debugging with gdb.
+    // JALR(xRA, dest);
+    // #else
     JALR((dyn->insts[ninst].x64.has_callret ? xRA : xZR), dest);
-#endif
+    // #endif
 }
 
-void ret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
+void ret_to_next(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
 {
     MAYUSE(dyn);
     MAYUSE(ninst);
-    MESSAGE(LOG_DUMP, "Ret to epilog\n");
-    POP1z(xRIP);
+    MESSAGE(LOG_DUMP, "Ret to next\n");
+    CHECK_DFNONE(0);
     MVz(x1, xRIP);
     SMEND();
     if (BOX64DRENV(dynarec_callret)) {
-        // pop the actual return address from RV64 stack
+        // pop the actual return address from LA64 stack
         LD(xRA, xSP, 0);      // native addr
         LD(x6, xSP, 8);       // x86 addr
         ADDI(xSP, xSP, 16);   // pop
@@ -512,43 +519,11 @@ void ret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
     CLEARIP();
 }
 
-void retn_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, rex_t rex, int n)
+void iret_to_next(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, int is32bits, int is64bits)
 {
-    MAYUSE(dyn);
+    int64_t j64;
     MAYUSE(ninst);
-    MESSAGE(LOG_DUMP, "Retn to epilog\n");
-    POP1z(xRIP);
-    if (n > 0x7ff) {
-        MOV64x(x1, n);
-        ADDz(xRSP, xRSP, x1);
-    } else {
-        ADDIz(xRSP, xRSP, n);
-    }
-    MVz(x1, xRIP);
-    SMEND();
-    if (BOX64DRENV(dynarec_callret)) {
-        // pop the actual return address from RV64 stack
-        LD(xRA, xSP, 0);      // native addr
-        LD(x6, xSP, 8);       // x86 addr
-        ADDI(xSP, xSP, 16);   // pop
-        BNE(x6, xRIP, 2 * 4); // is it the right address?
-        BR(xRA);
-        // not the correct return address, regular jump, but purge the stack first, it's unsync now...
-        LD(xSP, xEmu, offsetof(x64emu_t, xSPSave));
-        ADDI(xSP, xSP, -16);
-    }
-    NOTEST(x2);
-    int dest = indirect_lookup(dyn, ninst, rex.is32bits, x2, x3);
-    BR(dest);
-    CLEARIP();
-}
-
-void iret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, int is64bits)
-{
-    // #warning TODO: is64bits
-    MAYUSE(ninst);
-    MESSAGE(LOG_DUMP, "IRet to epilog\n");
-    NOTEST(x2);
+    MESSAGE(LOG_DUMP, "IRet to next\n");
     if (is64bits) {
         POP1(xRIP);
         POP1(x2);
@@ -562,7 +537,7 @@ void iret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, int is64bits)
 
     SH(x2, xEmu, offsetof(x64emu_t, segs[_CS]));
     // clean EFLAGS
-    MOV32w(x1, 0x3E7FF7);   // also masking RF
+    MOV32w(x1, 0x3E7FF7); // also masking RF
     AND(xFlags, xFlags, x1);
     ORI(xFlags, xFlags, 0x2);
     SET_DFNONE();
@@ -579,19 +554,24 @@ void iret_to_epilog(dynarec_rv64_t* dyn, uintptr_t ip, int ninst, int is64bits)
     // set new RSP
     MV(xRSP, x3);
     // Ret....
-    // epilog on purpose, CS might have changed!
-    if (dyn->need_reloc)
-        TABLE64C(x2, const_epilog);
-    else
-        MOV64x(x2, getConst(const_epilog));
-    SMEND();
-    BR(x2);
+    rex_t dummy = { 0 };
+    dummy.is32bits = is32bits;
+    dummy.w = is64bits;
+    ANDI(x1, xFlags, 1 << F_TF);
+    BNEZ_MARK2(x1);
+    ret_to_next(dyn, ip, ninst, dummy);
     CLEARIP();
+    MARK2;
+    LWU(x4, xEmu, offsetof(x64emu_t, flags));
+    ORI(x4, x4, 1 << FLAGS_NO_TF);
+    SW(x4, xEmu, offsetof(x64emu_t, flags));
+    jump_to_epilog(dyn, 0, xRIP, ninst);
 }
 
 void call_c(dynarec_rv64_t* dyn, int ninst, rv64_consts_t fnc, int reg, int ret, int saveflags, int savereg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6)
 {
     MAYUSE(fnc);
+    CHECK_DFNONE(1);
     if (savereg == 0)
         savereg = x87pc;
     if (saveflags) {
@@ -612,13 +592,13 @@ void call_c(dynarec_rv64_t* dyn, int ninst, rv64_consts_t fnc, int reg, int ret,
         SD(xRIP, xEmu, offsetof(x64emu_t, ip));
     }
     TABLE64C(reg, fnc);
-    MV(A0, xEmu);
     if (arg1) MV(A1, arg1);
     if (arg2) MV(A2, arg2);
     if (arg3) MV(A3, arg3);
     if (arg4) MV(A4, arg4);
     if (arg5) MV(A5, arg5);
     if (arg6) MV(A6, arg6);
+    MV(A0, xEmu);
     JALR(xRA, reg);
     if (ret >= 0) {
         MV(ret, A0);
@@ -657,6 +637,7 @@ void call_c(dynarec_rv64_t* dyn, int ninst, rv64_consts_t fnc, int reg, int ret,
 void call_n(dynarec_rv64_t* dyn, int ninst, void* fnc, int w)
 {
     MAYUSE(fnc);
+    CHECK_DFNONE(1);
     fpu_pushcache(dyn, ninst, x3, 1);
     // save RSP in case there are x86 callbacks...
     SD(xRSP, xEmu, offsetof(x64emu_t, regs[_SP]));
@@ -669,13 +650,10 @@ void call_n(dynarec_rv64_t* dyn, int ninst, void* fnc, int w)
         }
     }
     // native call
-    if (dyn->need_reloc) {
-        // fnc is indirect, to help with relocation (but PltResolver might be an issue here)
-        TABLE64(x3, (uintptr_t)fnc);
-        LD(x3, x3, 0);
-    } else {
-        TABLE64_(x3, *(uintptr_t*)fnc); // using x16 as scratch regs for call address
-    }
+    TABLE64_(x3, *(uintptr_t*)fnc); // using x16 as scratch regs for call address
+    // Note that if need_reloc is active, the TABLE64 will trigger cancel block,
+    // because native function might be very different on a next run: different function address, different brick, different everything basicaly
+    // and we don't have a relocation mecanism here, it's too complex
     JALR(xRA, x3);
     // put return value in x64 regs
     if (w > 0) {
@@ -1097,7 +1075,6 @@ int x87_get_current_cache(dynarec_rv64_t* dyn, int ninst, int st, int t)
 #endif
             return i;
         }
-        assert(dyn->e.x87cache[i] < 8);
     }
     return -1;
 }
@@ -1144,7 +1121,7 @@ int x87_get_extcache(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int st)
                 || dyn->e.extcache[ii].t == EXT_CACHE_ST_I64)
             && dyn->e.extcache[ii].n == st)
             return ii;
-    assert(0);
+    dynarec_log(LOG_NONE, "Warning: x87_get_extcache didn't find cache for ninst=%d\n", ninst);
     return -1;
 }
 int x87_get_st(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int a, int t)
@@ -1308,7 +1285,7 @@ void x87_free(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int s3, int st)
     if (ret != -1) {
         const int reg = dyn->e.x87reg[ret];
 #if STEP == 1
-        if (dyn->e.extcache[reg].t == EXT_CACHE_ST_F || dyn->e.extcache[reg].t == EXT_CACHE_ST_I64)
+        if (dyn->e.extcache[EXTIDX(reg)].t == EXT_CACHE_ST_F || dyn->e.extcache[EXTIDX(reg)].t == EXT_CACHE_ST_I64)
             extcache_promote_double(dyn, ninst, st);
 #endif
         // Get top
@@ -1341,7 +1318,7 @@ void x87_free(dynarec_rv64_t* dyn, int ninst, int s1, int s2, int s3, int st)
         }
         // and forget that cache
         fpu_free_reg(dyn, reg);
-        dyn->e.extcache[reg].v = 0;
+        dyn->e.extcache[EXTIDX(reg)].v = 0;
         dyn->e.x87cache[ret] = -1;
         dyn->e.x87reg[ret] = -1;
     } else {
@@ -1645,11 +1622,10 @@ int sse_get_reg_empty(dynarec_rv64_t* dyn, int ninst, int s1, int a, int single)
         }
 
         if (dyn->e.ssecache[a].single != single) {
-            if (single) {
-                // writing back the float
+            if (dyn->e.ssecache[a].single)
                 FSW(dyn->e.ssecache[a].reg, xEmu, offsetof(x64emu_t, xmm[a]));
-                // there is no need to clear upper bits, it's cleared manually when needed.
-            }
+            else
+                FSD(dyn->e.ssecache[a].reg, xEmu, offsetof(x64emu_t, xmm[a]));
             dyn->e.olds[a].changed = 1;
             dyn->e.olds[a].purged = 0;
             dyn->e.olds[a].reg = EXTIDX(dyn->e.ssecache[a].reg);
@@ -2041,6 +2017,8 @@ void fpu_popcache(dynarec_rv64_t* dyn, int ninst, int s1, int not07)
                 FLD(dyn->e.mmxcache[i].reg, xEmu, offsetof(x64emu_t, mmx[i]));
                 VFMV_S_F(dyn->e.mmxcache[i].reg, dyn->e.mmxcache[i].reg);
             }
+        if (dyn->vector_sew != VECTOR_SEWNA)
+            dyn->vector_eew = vector_vsetvli(dyn, ninst, s1, dyn->vector_sew, VECTOR_LMUL1, 1);
         MESSAGE(LOG_DUMP, "\t------- Pop (vector) MMX Cache (%d)\n", n);
     }
 }
@@ -2110,12 +2088,13 @@ static int findCacheSlot(dynarec_rv64_t* dyn, int ninst, int t, int n, extcache_
     return -1;
 }
 
-static void swapCache(dynarec_rv64_t* dyn, int ninst, int i, int j, extcache_t* cache)
+static void swapCache(dynarec_rv64_t* dyn, int ninst, int s1, int i, int j, extcache_t* cache)
 {
     if (i == j) return;
 
     if (cache->extcache[i].t == EXT_CACHE_XMMR || cache->extcache[i].t == EXT_CACHE_XMMW
         || cache->extcache[j].t == EXT_CACHE_XMMR || cache->extcache[j].t == EXT_CACHE_XMMW) {
+        SET_CACHE_VECTOR_WIDTH(s1);
         int reg_i = EXTREG(i);
         int reg_j = EXTREG(j);
         if (!cache->extcache[i].v) {
@@ -2174,9 +2153,15 @@ static void loadCache(dynarec_rv64_t* dyn, int ninst, int stack_cnt, int s1, int
 {
     int reg = EXTREG(i);
     if (cache->extcache[i].v && (cache->extcache[i].t == EXT_CACHE_XMMR || cache->extcache[i].t == EXT_CACHE_XMMW)) {
+        SET_CACHE_VECTOR_WIDTH(s1);
         int j = i + 1;
-        while (cache->extcache[j].v)
+        while (j < 24 && cache->extcache[j].v)
             ++j;
+        if (j >= 24) {
+            MESSAGE(LOG_DUMP, "\t  - No free slot to move %d away, aborting\n", i);
+            dyn->abort = 1;
+            return;
+        }
         MESSAGE(LOG_DUMP, "\t  - Moving away %d\n", i);
         VMV_V_V(EXTREG(j), reg);
         cache->extcache[j].v = cache->extcache[i].v;
@@ -2187,8 +2172,13 @@ static void loadCache(dynarec_rv64_t* dyn, int ninst, int stack_cnt, int s1, int
         if (cache->extcache[i].t == EXT_CACHE_SS || cache->extcache[i].t == EXT_CACHE_ST_F)
             single = 1;
         int j = i + 1;
-        while (cache->extcache[j].v)
+        while (j < 24 && cache->extcache[j].v)
             ++j;
+        if (j >= 24) {
+            MESSAGE(LOG_DUMP, "\t  - No free slot to move %d away, aborting\n", i);
+            dyn->abort = 1;
+            return;
+        }
         MESSAGE(LOG_DUMP, "\t  - Moving away %d\n", i);
         if (single) {
             FMVS(EXTREG(j), reg);
@@ -2201,7 +2191,7 @@ static void loadCache(dynarec_rv64_t* dyn, int ninst, int stack_cnt, int s1, int
         case EXT_CACHE_XMMR:
         case EXT_CACHE_XMMW:
             MESSAGE(LOG_DUMP, "\t  - Loading %s\n", getCacheName(t, n));
-            SET_ELEMENT_WIDTH(s1, VECTOR_SEWANY, 0);
+            SET_CACHE_VECTOR_WIDTH(s1);
             ADDI(s1, xEmu, offsetof(x64emu_t, xmm[n]));
             VLE_V(reg, s1, dyn->vector_eew, VECTOR_UNMASKED, VECTOR_NFIELD1);
             break;
@@ -2271,7 +2261,7 @@ static void unloadCache(dynarec_rv64_t* dyn, int ninst, int stack_cnt, int s1, i
             break;
         case EXT_CACHE_XMMW:
             MESSAGE(LOG_DUMP, "\t  - Unloading %s\n", getCacheName(t, n));
-            SET_ELEMENT_WIDTH(s1, VECTOR_SEWANY, 0);
+            SET_CACHE_VECTOR_WIDTH(s1);
             ADDI(s1, xEmu, offsetof(x64emu_t, xmm[n]));
             VSE_V(reg, s1, dyn->vector_eew, VECTOR_UNMASKED, VECTOR_NFIELD1);
             break;
@@ -2407,7 +2397,7 @@ static void fpuCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1, int s2, in
                 else {
                     // it's here, lets swap if needed
                     if (j != i)
-                        swapCache(dyn, ninst, i, j, &cache);
+                        swapCache(dyn, ninst, s1, i, j, &cache);
                 }
             }
             if (cache.extcache[i].t != cache_i2.extcache[i].t) {
@@ -2428,7 +2418,7 @@ static void fpuCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1, int s2, in
                     MESSAGE(LOG_DUMP, "\t  - Convert %s\n", getCacheName(cache.extcache[i].t, cache.extcache[i].n));
                     FCVTLS(s1, EXTREG(i), RD_RTZ);
                     FMVDX(EXTREG(i), s1);
-                    cache.extcache[i].t = EXT_CACHE_ST_D;
+                    cache.extcache[i].t = EXT_CACHE_ST_I64;
                 } else if (cache.extcache[i].t == EXT_CACHE_ST_I64 && cache_i2.extcache[i].t == EXT_CACHE_ST_F) {
                     MESSAGE(LOG_DUMP, "\t  - Convert %s\n", getCacheName(cache.extcache[i].t, cache.extcache[i].n));
                     FMVXD(s1, EXTREG(i));
@@ -2444,7 +2434,7 @@ static void fpuCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1, int s2, in
                 } else if (cache.extcache[i].t == EXT_CACHE_XMMW && cache_i2.extcache[i].t == EXT_CACHE_XMMR) {
                     // refresh cache...
                     MESSAGE(LOG_DUMP, "\t  - Refreh %s\n", getCacheName(cache.extcache[i].t, cache.extcache[i].n));
-                    SET_ELEMENT_WIDTH(s1, VECTOR_SEWANY, 0);
+                    SET_CACHE_VECTOR_WIDTH(s1);
                     ADDI(s1, xEmu, offsetof(x64emu_t, xmm[cache.extcache[i].n]));
                     VSE_V(EXTREG(i), s1, dyn->vector_eew, VECTOR_UNMASKED, VECTOR_NFIELD1);
                     cache.extcache[i].t = EXT_CACHE_XMMR;
@@ -2456,11 +2446,11 @@ static void fpuCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1, int s2, in
         MESSAGE(LOG_DUMP, "\t    - adjust stack count %d -> %d -\n", stack_cnt, cache_i2.stack);
         int a = stack_cnt - cache_i2.stack;
         // Add x87stack to emu fpu_stack
-        LWU(s3, xEmu, offsetof(x64emu_t, fpu_stack));
+        LW(s3, xEmu, offsetof(x64emu_t, fpu_stack));
         ADDI(s3, s3, a);
         SW(s3, xEmu, offsetof(x64emu_t, fpu_stack));
         // Sub x87stack to top, with and 7
-        LWU(s3, xEmu, offsetof(x64emu_t, top));
+        LW(s3, xEmu, offsetof(x64emu_t, top));
         SUBI(s3, s3, a);
         ANDI(s3, s3, 7);
         SW(s3, xEmu, offsetof(x64emu_t, top));
@@ -2477,6 +2467,8 @@ static void fpuCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1, int s2, in
         s3_top = 0;
         stack_cnt = cache_i2.stack;
     }
+    if (dyn->vector_sew != VECTOR_SEWNA)
+        dyn->vector_eew = vector_vsetvli(dyn, ninst, s1, dyn->vector_sew, VECTOR_LMUL1, 1);
     MESSAGE(LOG_DUMP, "\t---- Cache Transform\n");
 }
 static void flagsCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1)
@@ -2485,24 +2477,36 @@ static void flagsCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1)
     int jmp = dyn->insts[ninst].x64.jmp_insts;
     if (jmp < 0)
         return;
-    if (dyn->f.dfnone || ((dyn->insts[jmp].f_exit.dfnone && !dyn->insts[jmp].f_entry.dfnone) && !dyn->insts[jmp].x64.use_flags)) // flags are fully known, nothing we can do more
+    if (dyn->insts[ninst].f_exit == dyn->insts[jmp].f_entry) // flags will be fully known, nothing we can do more
         return;
     MESSAGE(LOG_DUMP, "\tFlags fetch ---- ninst=%d -> %d\n", ninst, jmp);
-    int go = (dyn->insts[jmp].f_entry.dfnone && !dyn->f.dfnone && !dyn->insts[jmp].df_notneeded) ? 1 : 0;
-    switch (dyn->insts[jmp].f_entry.pending) {
-        case SF_UNKNOWN:
-            go = 0;
-            break;
-        default:
-            if (go && !(dyn->insts[jmp].x64.need_before & X_PEND) && (dyn->f.pending != SF_UNKNOWN)) {
-                // just clear df flags
-                go = 0;
-                SW(xZR, xEmu, offsetof(x64emu_t, df));
+    int go_fetch = 0;
+    switch (dyn->insts[jmp].f_entry) {
+        case status_unk:
+            if (dyn->insts[ninst].f_exit == status_none_pending) {
+                FORCE_DFNONE();
             }
             break;
+        case status_set:
+            if (dyn->insts[ninst].f_exit == status_none_pending) {
+                FORCE_DFNONE();
+            }
+            if (dyn->insts[ninst].f_exit == status_unk)
+                go_fetch = 1;
+            break;
+        case status_none_pending:
+            if (dyn->insts[ninst].f_exit != status_none)
+                go_fetch = 1;
+            break;
+        case status_none:
+            if (dyn->insts[ninst].f_exit == status_none_pending) {
+                FORCE_DFNONE();
+            } else
+                go_fetch = 1;
+            break;
     }
-    if (go) {
-        if (dyn->f.pending != SF_PENDING) {
+    if (go_fetch) {
+        if (dyn->f == status_unk) {
             LWU(s1, xEmu, offsetof(x64emu_t, df));
             j64 = (GETMARKF2) - (dyn->native_size);
             BEQZ(s1, j64);
@@ -2510,6 +2514,7 @@ static void flagsCacheTransform(dynarec_rv64_t* dyn, int ninst, int s1)
         CALL_(const_updateflags, -1, 0, 0, 0);
         MARKF2;
     }
+    MESSAGE(LOG_DUMP, "\t---- Flags fetch\n");
 }
 
 static void sewTransform(dynarec_rv64_t* dyn, int ninst, int s1)
@@ -2618,16 +2623,16 @@ void fpu_reset_cache(dynarec_rv64_t* dyn, int ninst, int reset_n)
     // for STEP 2 & 3, just need to refresh with current, and undo the changes (push & swap)
     dyn->e = dyn->insts[ninst].e;
     dyn->vector_sew = dyn->insts[ninst].vector_sew_entry;
+    extcacheUnwind(&dyn->e);
 #else
     dyn->e = dyn->insts[reset_n].e;
     dyn->vector_sew = dyn->insts[reset_n].vector_sew_exit;
 #endif
-    extcacheUnwind(&dyn->e);
 #if STEP == 0
-    if (dyn->need_dump) dynarec_log(LOG_NONE, "New x87stack=%d\n", dyn->e.x87stack);
+    if (dyn->need_dump && dyn->need_dump != 3 && dyn->e.x87stack) dynarec_log(LOG_NONE, "New x87stack=%d at ResetCache in inst %d with %d\n", dyn->e.x87stack, ninst, reset_n);
 #endif
 #if defined(HAVE_TRACE) && (STEP > 2)
-    if (dyn->need_dump)
+    if (dyn->need_dump && 0) // disable for now
         if (memcmp(&dyn->e, &dyn->insts[reset_n].e, sizeof(ext_cache_t))) {
             MESSAGE(LOG_DEBUG, "Warning, difference in extcache: reset=");
             for (int i = 0; i < 24; ++i)
@@ -2688,7 +2693,7 @@ int vector_vsetvli(dynarec_rv64_t* dyn, int ninst, int s1, int sew, int vlmul, f
     uint32_t vl = (int)((float)(16 >> sew) * multiple);
     uint32_t vtypei = (sew << (3 - !!cpuext.xtheadvector)) | vlmul;
     if (dyn->inst_sew == VECTOR_SEWNA || dyn->inst_vl == 0 || dyn->inst_sew != sew || dyn->inst_vl != vl || dyn->inst_vlmul != vlmul) {
-        if (vl == (cpuext.vlen >> (sew - vlmul))) {
+        if (vl == (((uint32_t)cpuext.vlen << vlmul) >> sew)) {
             VSETVLI(s1, xZR, vtypei);
         } else if (vl <= 31 && !cpuext.xtheadvector) {
             VSETIVLI(xZR, vl, vtypei);

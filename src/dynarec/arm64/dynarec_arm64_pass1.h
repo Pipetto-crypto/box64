@@ -3,15 +3,17 @@
 #define MESSAGE(A, ...) do {} while (0)
 #define EMIT(A) do {} while (0)
 
+// do not update dyn->f for SETFLAGS(..., SF_SET_PENDING) because it will use either DF_NONE or DF_SET anyway (similar to SF_SET_NODF)
 #define SETFLAGS(A,B)                                                   \
         dyn->insts[ninst].x64.set_flags = A;                            \
         dyn->insts[ninst].x64.state_flags = (B)&~SF_DF;                 \
-        dyn->f=((B)&SF_SET)?(((B)==SF_SET_NODF)?dyn->f:status_none_pending):(((B)&SF_SET_PENDING)?status_set:status_none_pending);  \
+        if(((B)&SF_SET_PENDING)!=SF_SET_PENDING) dyn->f=((B)&SF_SET)?(((B)==SF_SET_NODF)?dyn->f:status_none_pending):((dyn->f==status_none)?status_none:status_none_pending);  \
         if(!BOX64ENV(dynarec_df)) {dyn->f = status_none; }
 #define NEW_INST                                \
         dyn->insts[ninst].f_entry = dyn->f;     \
         dyn->n.combined1 = dyn->n.combined2 = 0;\
-        dyn->n.swapped = 0; dyn->n.barrier = 0
+        dyn->n.swapped = 0; dyn->n.barrier = 0; \
+        AREFLAGSNEEDED()
 
 #define INST_EPILOG                             \
         dyn->insts[ninst].n = dyn->n;           \

@@ -46,6 +46,9 @@ dynablock_t* InvalidDynablock(dynablock_t* db, int need_lock)
         dynarec_log(LOG_DEBUG, "InvalidDynablock(%p), db->block=%p x64=%p:%p already gone=%d\n", db, db->block, db->x64_addr, db->x64_addr+db->x64_size-1, db->gone);
         // remove jumptable without waiting
         setJumpTableDefault64(db->x64_addr);
+        for(int i=0; i<db->sep_size; ++i)
+            if(db->sep[i].active)
+                setJumpTableDefault64(db->x64_addr+db->sep[i].x64_offs);
         if(need_lock)
             mutex_lock(&my_context->mutex_dyndump);
         db->done = 0;
@@ -72,34 +75,24 @@ dynablock_t* InvalidDynablock(dynablock_t* db, int need_lock)
     return db;
 }
 
-dynablock_t* SwitchDynablock(dynablock_t* db, int need_lock)
+static void DeferFreeDynablockMap(dynablock_t* db)
 {
-    if(db) {
-        if(!db->done || !db->previous || !db->previous->gone)
-            return NULL; // not a correct block!
-        dynarec_log(LOG_DEBUG, "SwitchDynablock(%p/%p), db->block=%p->%p x64=%p:%p->%p hash->%x->%x\n", db, db->previous, db->block, db->previous->block, db->x64_addr, db->x64_addr+db->x64_size-1, db->previous->x64_addr+db->previous->x64_size-1, db->hash, db->previous->hash);
-        // remove jumptable without waiting
-        dynablock_t* db_new = db->previous;
-        db->previous = NULL;
-        if(need_lock)
-            mutex_lock(&my_context->mutex_dyndump);
-        InvalidDynablock(db, 0);
-        db_new->done = 1;
-        db_new->gone = 0;
-        db_new->previous = db;
-        #ifdef ARCH_NOP
-        if(db_new->callret_size) {
-            // mark all callrets to UDF
-            for(int i=0; i<db_new->callret_size; ++i)
-                *(uint32_t*)(db_new->block+db_new->callrets[i].offs) = ARCH_NOP;
-            ClearCache(db_new->block, db_new->size);
-        }
-        #endif
-        if(need_lock)
-            mutex_unlock(&my_context->mutex_dyndump);
-        return db_new;
+    // enq for a deferred free so any threads still running in this block has a better chance to finish.
+    if (my_context->db_zombie_count == DB_ZOMBIE_SIZE) {
+        if(my_context->db_zombie[my_context->db_zombie_head])
+            FreeDynarecMap((uintptr_t)my_context->db_zombie[my_context->db_zombie_head]->actual_block);
+    } else {
+        my_context->db_zombie_count++;
     }
-    return db;
+    my_context->db_zombie[my_context->db_zombie_head] = db;
+    my_context->db_zombie_head = (my_context->db_zombie_head + 1) % DB_ZOMBIE_SIZE;
+}
+
+void DeferFreeDynablockClearRange(void* addr, size_t sz)
+{
+    for(int i=0; i<my_context->db_zombie_count; ++i)
+        if(my_context->db_zombie[i] && ((void*)my_context->db_zombie[i]>=addr) && ((void*)my_context->db_zombie[i]<(addr+sz)))
+            my_context->db_zombie[i] = NULL;
 }
 
 void FreeInvalidDynablock(dynablock_t* db, int need_lock)
@@ -107,18 +100,19 @@ void FreeInvalidDynablock(dynablock_t* db, int need_lock)
     if(db) {
         if(!db->gone)
             return; // already in the process of deletion!
-        dynarec_log(LOG_DEBUG, "FreeInvalidDynablock(%p), db->block=%p x64=%p:%p already gone=%d\n", db, db->block, db->x64_addr, db->x64_addr+db->x64_size-1, db->gone);
+        dynarec_log(LOG_DEBUG, "FreeInvalidDynablock(%p), db->block=%p x64=%p:%p\n", db, db->block, db->x64_addr, db->x64_addr + db->x64_size - 1);
         uintptr_t db_size = db->x64_size;
         if(need_lock)
             mutex_lock(&my_context->mutex_dyndump);
-        if(db_size && my_context && BOX64ENV(dynarec_dirty)) {
+        // need_lock is also used to check if db_size needs to be decremented...
+        if(need_lock && db_size && my_context && BOX64ENV(dynarec_dirty)) {
             uint32_t n = rb_dec(my_context->db_sizes, db_size, db_size+1);
             if(!n && (db_size >= my_context->max_db_size)) {
                 my_context->max_db_size = rb_get_rightmost(my_context->db_sizes);
                 dynarec_log(LOG_INFO, "BOX64 Dynarec: lower max_db=%d\n", my_context->max_db_size);
             }
         }
-        FreeDynarecMap((uintptr_t)db->actual_block);    // will also free db
+        DeferFreeDynablockMap(db);
         if(need_lock)
             mutex_unlock(&my_context->mutex_dyndump);
     }
@@ -131,8 +125,12 @@ void FreeDynablock(dynablock_t* db, int need_lock, int need_remove)
             return; // already in the process of deletion!
         dynarec_log(LOG_DEBUG, "FreeDynablock(%p), db->block=%p x64=%p:%p already gone=%d\n", db, db->block, db->x64_addr, db->x64_addr+db->x64_size-1, db->gone);
         // remove jumptable without waiting
-        if(need_remove)
+        if(need_remove) {
             setJumpTableDefault64(db->x64_addr);
+            for(int i=0; i<db->sep_size; ++i)
+                if(db->sep[i].active)
+                    setJumpTableDefault64(db->x64_addr+db->sep[i].x64_offs);
+        }
         if(need_lock)
             mutex_lock(&my_context->mutex_dyndump);
         dynarec_log(LOG_DEBUG, " -- FreeDyrecMap(%p, %d)\n", db->actual_block, db->size);
@@ -146,41 +144,39 @@ void FreeDynablock(dynablock_t* db, int need_lock, int need_remove)
                 dynarec_log(LOG_INFO, "BOX64 Dynarec: lower max_db=%d\n", my_context->max_db_size);
             }
         }
-        if(db->previous)
-            FreeInvalidDynablock(db->previous, 0);
-        FreeDynarecMap((uintptr_t)db->actual_block);    // will also free db
+        DeferFreeDynablockMap(db);
         if(need_lock)
             mutex_unlock(&my_context->mutex_dyndump);
     }
 }
 
-
-
 void MarkDynablock(dynablock_t* db)
 {
     if(db) {
         dynarec_log(LOG_DEBUG, "MarkDynablock %p %p-%p\n", db, db->x64_addr, db->x64_addr+db->x64_size-1);
+        for(int i=0; i<db->sep_size; ++i)
+            if(db->sep[i].active)
+                setJumpTableIfRef64(db->x64_addr+db->sep[i].x64_offs, db->jmpnext, db->block+db->sep[i].nat_offs);
         if(!setJumpTableIfRef64(db->x64_addr, db->jmpnext, db->block)) {
             dynablock_t* old = db;
             db = getDB((uintptr_t)old->x64_addr);
             if(!old->gone && db!=old) {
                 printf_log(LOG_INFO, "Warning, couldn't mark block as dirty for %p, block=%p, current_block=%p\n", old->x64_addr, old, db);
-                // the block is lost, need to invalidate it...
+                // the block is lost, need to invalidate and defer its free
                 old->gone = 1;
                 old->done = 0;
-                if(!db || db->previous)
-                    FreeInvalidDynablock(old, 1);
-                else
-                    db->previous = old;
+                FreeInvalidDynablock(old, 1);
             }
-        } 
         #ifdef ARCH_NOP
-        else if(db->callret_size) {
-            // mark all callrets to UDF
-            for(int i=0; i<db->callret_size; ++i)
-                *(uint32_t*)(db->block+db->callrets[i].offs) = ARCH_UDF;
-        }
+        } else {
+            if(db->callret_size) {
+                // mark all callrets to UDF
+                for(int i=0; i<db->callret_size; ++i)
+                    *(uint32_t*)(db->block+db->callrets[i].offs) = ARCH_UDF;
+                ClearCache(db->block, db->size);
+            }
         #endif
+        }
     }
 }
 
@@ -201,6 +197,18 @@ void MarkRangeDynablock(dynablock_t* db, uintptr_t addr, uintptr_t size)
         MarkDynablock(db);
 }
 
+void MarkCRCRangeDynablock(dynablock_t* db, uintptr_t addr, uintptr_t size)
+{
+    // Mark will try to find *any* blocks that intersect the range to mark
+    if(!db)
+        return;
+    dynarec_log(LOG_DEBUG, "MarkCRCRangeDynablock %p-%p .. startdb=%p, sizedb=%p\n", (void*)addr, (void*)addr+size-1, (void*)db->x64_addr, (void*)db->x64_size);
+    if(IntervalIntersects((uintptr_t)db->x64_addr, (uintptr_t)db->x64_addr+db->x64_size-1, addr, addr+size+1)) {
+        MarkDynablock(db);  // mark as dirty
+        db->to_delete = 1;  // also invalid hash, so it will be deleted and replace
+    }
+}
+
 int FreeRangeDynablock(dynablock_t* db, uintptr_t addr, uintptr_t size)
 {
     if(!db)
@@ -214,13 +222,6 @@ int FreeRangeDynablock(dynablock_t* db, uintptr_t addr, uintptr_t size)
     return 1;
 }
 
-NEW_JUMPBUFF(dynarec_jmpbuf);
-
-void cancelFillBlock()
-{
-    LongJmp(GET_JUMPBUFF(dynarec_jmpbuf), 1);
-}
-
 void dynablock_leave_runtime(dynablock_t* db)
 {
     if(!db) return;
@@ -228,20 +229,63 @@ void dynablock_leave_runtime(dynablock_t* db)
     __atomic_fetch_sub(&db->in_used, 1, __ATOMIC_ACQ_REL);
 }
 
+dynablock_t* CreateDBnoAlt(x64emu_t* emu, uintptr_t addr, int is32bits)
+{
+    #ifndef WIN32
+    static int critical_filled = 0;
+    static sigset_t critical_prot = {0};
+    sigset_t old_sig = {0};
+    if(!critical_filled) {
+        critical_filled = 1;
+        sigfillset(&critical_prot);
+        sigdelset(&critical_prot, SIGSEGV);
+        sigdelset(&critical_prot, SIGILL);
+        sigdelset(&critical_prot, SIGBUS);
+        sigdelset(&critical_prot, SIGINT);
+        sigdelset(&critical_prot, SIGABRT);
+        sigdelset(&critical_prot, SIGFPE);
+    }
+    #endif
+
+    pthread_sigmask(SIG_BLOCK, &critical_prot, &old_sig);
+
+    if(BOX64ENV(dynarec_wait)) {
+        mutex_lock(&my_context->mutex_dyndump);
+    } else {
+        if(mutex_trylock(&my_context->mutex_dyndump)) {   // FillBlock not available for now
+            pthread_sigmask(SIG_SETMASK, &old_sig, NULL);
+            return NULL;
+        }
+    }
+
+    dynarec_log(LOG_DEBUG, "Will call Fillblock64 for Alt %p\n", (void*)addr);
+    dynablock_t* block = FillBlock64(addr, is32bits, MAX_INSTS, 0, 1);
+    if(block && block->block) block->done = 1;  // validate the alt block
+
+    mutex_unlock(&my_context->mutex_dyndump);
+
+    pthread_sigmask(SIG_SETMASK, &old_sig, NULL);
+
+    return block;
+}
+
 /* 
     return NULL if block is not found / cannot be created. 
     Don't create if create==0
 */
-static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t filladdr, int create, int need_lock, int is32bits, int is_new)
+dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int need_lock, int is32bits, int is_new)
 {
-    if (hasAlternate((void*)filladdr))
-        return NULL;
     const uint32_t req_prot = (box64_pagesize==4096)?(PROT_EXEC|PROT_READ):PROT_READ;
     if(BOX64ENV(nodynarec_delay) && (addr>=BOX64ENV(nodynarec_start)) && (addr<BOX64ENV(nodynarec_end)))
         return NULL;
     dynablock_t* block = getDB(addr);
+    if(block && block->to_delete) {
+        // just delete the block then, so we can create a new one right away
+        FreeDynablock(block, 1, 1);
+        block = NULL;
+    }
     if(block || !create) {
-        if(block && getNeedTest(addr) && (getProtection(addr)&req_prot)!=req_prot)
+        if(block && getNeedTest(addr) && (getProtection(block->x64_readaddr)&req_prot)!=req_prot)
             block = NULL;
         return block;
     }
@@ -273,37 +317,27 @@ static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t 
             }
         }
         block = getDB(addr);    // just in case
+        if(block && block->to_delete) {
+            // just delete the block then, so we can create a new one right away
+            FreeDynablock(block, 0, 1);
+            block = NULL;
+        }
         if(block) {
-            if(block && getNeedTest(addr) && (getProtection_fast(addr)&req_prot)!=req_prot)
+            if(block && getNeedTest(addr) && (getProtection_fast(block->x64_readaddr)&req_prot)!=req_prot)
                 block = NULL;
             mutex_unlock(&my_context->mutex_dyndump);
             pthread_sigmask(SIG_SETMASK, &old_sig, NULL);
             return block;
         }
     }
-#ifndef _WIN32
-    if((getProtection_fast(addr)&req_prot)!=req_prot) {// cannot be run, get out of the Dynarec
-        if(need_lock)
-            mutex_unlock(&my_context->mutex_dyndump);
-        pthread_sigmask(SIG_SETMASK, &old_sig, NULL);
-        return NULL;
-    }
-#endif
-    if (SigSetJmp(GET_JUMPBUFF(dynarec_jmpbuf), 1)) {
-        printf_log(LOG_INFO, "FillBlock at %p triggered a segfault, canceling\n", (void*)addr);
-        if(need_lock)
-            mutex_unlock(&my_context->mutex_dyndump);
-        pthread_sigmask(SIG_SETMASK, &old_sig, NULL);
-        return NULL;
-    }
-    block = FillBlock64(filladdr, (addr==filladdr)?0:1, is32bits, MAX_INSTS, is_new);
+    block = FillBlock64(addr, is32bits, MAX_INSTS, is_new, 0);
     if(!block) {
         dynarec_log(LOG_DEBUG, "Fillblock of block %p for %p returned an error\n", block, (void*)addr);
     }
     // check size
     if(block) {
         // fill-in jumptable
-        if(!addJumpTableIfDefault64(block->x64_addr, (block->dirty || block->always_test)?block->jmpnext:block->block)) {
+        if(!addJumpTableIfDefault64((void*)addr, (block->dirty || block->always_test)?block->jmpnext:block->block)) {
             FreeDynablock(block, 0, 0);
             block = getDB(addr);
             MarkDynablock(block);   // just in case...
@@ -318,6 +352,14 @@ static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t 
                 block->done = 1;    // don't validate the block if the size is null, but keep the block
                 rb_inc(my_context->db_sizes, block->x64_size, block->x64_size+1);
             }
+            for(int i=0; i<block->sep_size; ++i) {
+                uintptr_t x64_offs = block->sep[i].x64_offs;
+                uintptr_t nat_offs = block->sep[i].nat_offs;
+                if(addJumpTableIfDefault64(block->x64_addr+x64_offs, (block->dirty || block->always_test)?block->jmpnext:(block->block+nat_offs)))
+                    block->sep[i].active = 1;
+                else
+                    block->sep[i].active = 0;
+            }
         }
     }
     if(need_lock)
@@ -329,45 +371,39 @@ static dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, uintptr_t 
     return block;
 }
 
+void FlushZombieDynablocks(void)
+{
+    if (!my_context) return;
+    if (!my_context->db_zombie_count) return;
+    int head = my_context->db_zombie_head;
+    for (int i = 0; i < my_context->db_zombie_count; ++i) {
+        int idx = (head - my_context->db_zombie_count + i + DB_ZOMBIE_SIZE) % DB_ZOMBIE_SIZE;
+        FreeDynarecMap((uintptr_t)my_context->db_zombie[idx]->actual_block);
+    }
+    my_context->db_zombie_count = 0;
+}
+
 dynablock_t* DBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int is32bits)
 {
     int is_inhotpage = isInHotPage(addr);
     if(is_inhotpage && !BOX64ENV(dynarec_dirty))
         return NULL;
-    dynablock_t *db = internalDBGetBlock(emu, addr, addr, create, 1, is32bits, 1);
+    dynablock_t *db = internalDBGetBlock(emu, addr, create, 1, is32bits, 1);
     if(db && db->done && db->block && getNeedTest(addr)) {
         //if (db->always_test) SchedYield(); // just calm down...
-        uint32_t hash = X31_hash_code(db->x64_addr, db->x64_size);
+        uint32_t hash = X31_hash_code((void*)db->x64_readaddr, db->x64_size);
         mutex_lock(&my_context->mutex_dyndump)?1:0;
         if(hash!=db->hash) {
-            if(is_inhotpage && db->previous) {
-                // check alternate
-                if(db->previous && !db->dirty && X31_hash_code(db->previous->x64_addr, db->previous->x64_size)==db->previous->hash) {
-                    db = SwitchDynablock(db, 0);
-                    if(!addJumpTableIfDefault64(db->x64_addr, (db->always_test)?db->jmpnext:db->block)) {
-                        FreeDynablock(db, 0, 0);
-                        db = getDB(addr);
-                        MarkDynablock(db);   // just in case...
-                    }
-                    mutex_unlock(&my_context->mutex_dyndump);
-                    return db;
-                }
+            if (is_inhotpage) {
                 mutex_unlock(&my_context->mutex_dyndump);
-                dynarec_log(LOG_DEBUG, "Cannot run block (or previous) %p from %p:%p (hash:%X/%X, always_test:%d, previous=%p/hash=%X) for %p\n", db, db->x64_addr, db->x64_addr+db->x64_size-1, hash, db->hash, db->always_test,db->previous, db->previous?db->previous->hash:0,(void*)addr);
-                return NULL;    // will be handle when hotpage is over
+                dynarec_log(LOG_DEBUG, "Cannot run block %p from %p:%p (hash:%X/%X, always_test:%d) for %p, hotpage\n", db, db->x64_addr, db->x64_addr + db->x64_size - 1, hash, db->hash, db->always_test, (void*)addr);
+                return NULL; // will be handled when hotpage is over
             }
-            db->done = 0;   // invalidating the block
-            dynarec_log(LOG_DEBUG, "Invalidating block %p from %p:%p (hash:%X/%X, always_test:%d, previous=%p/hash=%X) for %p\n", db, db->x64_addr, db->x64_addr+db->x64_size-1, hash, db->hash, db->always_test,db->previous, db->previous?db->previous->hash:0,(void*)addr);
-            // Free db, it's now invalid!
+            db->done = 0;
+            dynarec_log(LOG_DEBUG, "Invalidating block %p from %p:%p (hash:%X, gone:%d, autocrc:%d, to_delete:%d) for %p\n", db, db->x64_addr, db->x64_addr + db->x64_size, db->hash, db->gone, db->autocrc, db->to_delete, (void*)addr);
             dynablock_t* old = InvalidDynablock(db, 0);
-            // start again... (will create a new block)
-            db = internalDBGetBlock(emu, addr, addr, create, 0, is32bits, 0);
-            if(db) {
-                if(db->previous)
-                    FreeInvalidDynablock(db->previous, 0);
-                db->previous = old;
-            } else
-                FreeInvalidDynablock(old, 0);
+            FreeInvalidDynablock(old, 0);
+            db = internalDBGetBlock(emu, addr, 1, 0, is32bits, 0);
         } else {
             if(is_inhotpage) {
                 db->always_test = 2;
@@ -375,9 +411,12 @@ dynablock_t* DBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int is32bits)
             } else {
                 dynarec_log(LOG_DEBUG, "Validating block %p from %p:%p (hash:%X, always_test:%d) for %p\n", db, db->x64_addr, db->x64_addr+db->x64_size-1, db->hash, db->always_test, (void*)addr);
                 if(db->always_test) {
-                    if(db->always_test==2)
+                    if(db->always_test==2) {
                         db->always_test = 0;
-                    protectDB((uintptr_t)db->x64_addr, db->x64_size);
+                        protectDB((uintptr_t)db->x64_addr, db->x64_size);
+                    }
+                    // always_test==1 (NEVERCLEAN): skip protectDB, the page has mixed
+                    // code+data and mprotect would strip writability from data regions
                 } else {
                     #ifdef ARCH_NOP
                     if(db->callret_size) {
@@ -388,51 +427,16 @@ dynablock_t* DBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int is32bits)
                     }
                     #endif
                     protectDBJumpTable((uintptr_t)db->x64_addr, db->x64_size, db->block, db->jmpnext);
+                    if(!db->always_test)
+                        for(int i=0; i<db->sep_size; ++i) {
+                            uint32_t x64_offs = db->sep[i].x64_offs;
+                            uint32_t nat_offs = db->sep[i].nat_offs;
+                            if(setJumpTableIfRef64(db->x64_addr+x64_offs, (db->always_test)?db->jmpnext:(db->block+nat_offs), db->jmpnext))
+                                db->sep[i].active = 1;
+                            else
+                                db->sep[i].active = 0;
+                        }
                 }
-            }
-        }
-        mutex_unlock(&my_context->mutex_dyndump);
-    } 
-    if(!db || !db->block || !db->done)
-        emu->test.test = 0;
-    return db;
-}
-
-dynablock_t* DBAlternateBlock(x64emu_t* emu, uintptr_t addr, uintptr_t filladdr, int is32bits)
-{
-    dynarec_log(LOG_DEBUG, "Creating AlternateBlock at %p for %p%s\n", (void*)addr, (void*)filladdr, is32bits?" 32bits":"");
-    int create = 1;
-    dynablock_t *db = internalDBGetBlock(emu, addr, filladdr, create, 1, is32bits, 1);
-    if(db && db->done && db->block && (db->dirty || getNeedTest(filladdr))) {
-        if (db->always_test) SchedYield(); // just calm down...
-        mutex_lock(&my_context->mutex_dyndump);
-        uint32_t hash = X31_hash_code(db->x64_addr, db->x64_size);
-        if(hash!=db->hash) {
-            db->done = 0;   // invalidating the block
-            dynarec_log(LOG_DEBUG, "Invalidating alt block %p from %p:%p (hash:%X/%X) for %p\n", db, db->x64_addr, db->x64_addr+db->x64_size, hash, db->hash, (void*)addr);
-            // Free db, it's now invalid!
-            dynablock_t* old = InvalidDynablock(db, 0);
-            // start again... (will create a new block)
-            db = internalDBGetBlock(emu, addr, filladdr, create, 0, is32bits, 0);
-            if(db) {
-                if(db->previous)
-                    FreeInvalidDynablock(db->previous, 0);
-                db->previous = old;
-            } else
-                FreeInvalidDynablock(old, 0);
-        } else {
-            if(db->always_test)
-                protectDB((uintptr_t)db->x64_addr, db->x64_size);
-            else {
-                #ifdef ARCH_NOP
-                if(db->callret_size) {
-                    // mark all callrets to UDF
-                    for(int i=0; i<db->callret_size; ++i)
-                        *(uint32_t*)(db->block+db->callrets[i].offs) = ARCH_NOP;
-                    ClearCache(db->block, db->size);
-                }
-                #endif
-                protectDBJumpTable((uintptr_t)db->x64_addr, db->x64_size, db->block, db->jmpnext);
             }
         }
         mutex_unlock(&my_context->mutex_dyndump);

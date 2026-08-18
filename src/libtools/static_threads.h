@@ -20,6 +20,7 @@ int my_pthread_attr_getscope(x64emu_t* emu, pthread_attr_t* attr, int* scope);
 int my_pthread_attr_getstackaddr(x64emu_t* emu, pthread_attr_t* attr, void* addr);
 int my_pthread_attr_getstacksize(x64emu_t* emu, pthread_attr_t* attr, size_t* size);
 int my_pthread_attr_init(x64emu_t* emu, pthread_attr_t* attr);
+int my_pthread_attr_getaffinity_np(x64emu_t* emu, pthread_attr_t* attr, size_t cpusize, void* cpuset);
 int my_pthread_attr_setaffinity_np(x64emu_t* emu, pthread_attr_t* attr, size_t cpusize, void* cpuset);
 int my_pthread_attr_setdetachstate(x64emu_t* emu, pthread_attr_t* attr, int state);
 int my_pthread_attr_setguardsize(x64emu_t* emu, pthread_attr_t* attr, size_t size);
@@ -96,6 +97,7 @@ int my_pthread_cond_wait_old(x64emu_t* emu, pthread_cond_old_t* cond, void* mute
 int my_pthread_getaffinity_np_old(x64emu_t* emu, pthread_t thread, void* cpuset);
 int my_pthread_setaffinity_np_old(x64emu_t* emu, pthread_t thread, void* cpuset);
 int my_pthread_attr_setaffinity_np_old(x64emu_t* emu, pthread_attr_t* attr, void* cpuset);
+pid_t my_fork(x64emu_t* emu);
 
 
 extern int __pthread_mutexattr_destroy(pthread_mutexattr_t *attr);

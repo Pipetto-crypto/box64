@@ -2,6 +2,8 @@
 #define __BOX64CONTEXT_H_
 #include <stdint.h>
 
+#include "mysignal.h"
+
 #include "mypthread.h"
 #include "pathcoll.h"
 #include "dictionnary.h"
@@ -74,6 +76,7 @@ typedef struct needed_libs_s {
     int         init_size;
     char**      names;
     library_t** libs;
+    path_collection_t* rpath;
     int         nb_done;
 } needed_libs_t;
 
@@ -120,7 +123,7 @@ typedef struct box64context_s {
     char*               box64path;      // path of current box64 executable
     char*               box86path;      // path of box86 executable (if present)
     char*               bashpath;       // path of x86_64 bash (defined with BOX64_BASH or by running bash directly)
-    char*               pythonpath;     // path of x86_64 python3 (defined with BOX64_PYTHON3)
+    char*               pythonpath;     // path of python helper (defined with BOX64_PYTHON3 or box64-python)
 
     uint64_t            stacksz;
     size_t              stackalign;
@@ -144,6 +147,9 @@ typedef struct box64context_s {
 
     kh_threadstack_t    *stacksizes;    // stack sizes attributes for thread (temporary)
     bridge_t            *system;        // other bridges
+    #ifdef DYNAREC
+    bridge_t            *alternates;    // jump code for alternates
+    #endif
     uintptr_t           exit_bridge;    // exit bridge value
     uintptr_t           vsyscall;       // vsyscall bridge value
     uintptr_t           vsyscalls[3];   // the 3 x86 VSyscall pseudo bridges (mapped at 0xffffffffff600000+)
@@ -162,6 +168,7 @@ typedef struct box64context_s {
     pthread_mutex_t     mutex_tls;
     pthread_mutex_t     mutex_thread;
     pthread_mutex_t     mutex_bridge;
+    pthread_mutex_t     mutex_dyndump;
     #else
     #ifdef USE_CUSTOM_MUTEX
     uint32_t            mutex_dyndump;
@@ -178,12 +185,16 @@ typedef struct box64context_s {
     #endif
     uintptr_t           max_db_size;    // the biggest (in x86_64 instructions bytes) built dynablock
     rbtree_t*             db_sizes;
+#define DB_ZOMBIE_SIZE 64
+    struct dynablock_s* db_zombie[DB_ZOMBIE_SIZE];  // ring queue of invalidated blocks pending free
+    int                 db_zombie_head;   // next write slot (also the oldest slot when full)
+    int                 db_zombie_count;  // number of entries currently queued
     int                 trace_dynarec;
     pthread_mutex_t     mutex_lock;     // this is for the Test interpreter
-    #if defined(__riscv) || defined(__loongarch64)
+#if defined(__riscv) || defined(__loongarch64) || defined(__powerpc64__)
     uint32_t            mutex_16b;
-    #endif
-    #endif
+#endif
+#endif
 
     library_t           *libclib;       // shortcut to libc library (if loaded, so probably yes)
     library_t           *sdl1mixerlib;
@@ -211,6 +222,11 @@ typedef struct box64context_s {
     cleanup_t           *cleanups;          // atexit functions
     int                 clean_sz;
     int                 clean_cap;
+    cleanup_t           *quick_cleanups;    // at_quick_exit functions
+    int                 quick_clean_sz;
+    int                 quick_clean_cap;
+
+    void*               video_mem;
 
     zydis_dec_t         *dec;           // trace
     zydis_dec_t         *dec32;         // trace
@@ -227,6 +243,8 @@ typedef struct box64context_s {
     uintptr_t           restorer[MAX_SIGNAL+1];
     int                 onstack[MAX_SIGNAL+1];
     int                 is_sigaction[MAX_SIGNAL+1];
+    uint32_t            sigflags[MAX_SIGNAL+1];
+    sigset_t            sigmask[MAX_SIGNAL+1];
     x64emu_t            *emu_sig;       // the emu with stack used for signal handling (must be separated from main ones)
     int                 no_sigsegv;
     int                 no_sigill;
@@ -276,6 +294,7 @@ int AddTLSPartition(box64context_t* context, int tlssize);
 // defined in fact in threads.c
 void thread_set_emu(x64emu_t* emu);
 void thread_forget_emu();
+x64emu_t* thread_get_emu_no_create(void);
 x64emu_t* thread_get_emu(void);
 
 // relock the muxtex that were unlocked

@@ -235,7 +235,7 @@ GO(dup3, iEiiO)
 //GOW(duplocale, pEp)
 GO(__duplocale, aEa)
 // dysize
-//GOW(eaccess, iEpi)
+GOW(eaccess, iEpi)
 // ecb_crypt
 // ecvt
 //GO(ecvt_r, iEdipppL)
@@ -488,7 +488,7 @@ GOW(getcwd, tEpL)
 //GO(getdate, pEp)
 // getdate_err  // type B
 // getdate_r    // Weak
-//GOW(getdelim, iEbp_bL_iS)
+GOW(getdelim, iEbp_bL_iS)
 GOW(__getdelim, iEbp_bL_iS)
 // getdirentries
 // getdirentries64
@@ -526,7 +526,7 @@ GOM(getifaddrs, iEEbp_)
 // getipv4sourcefilter
 //GOW(getitimer, iEip)
 // get_kernel_syms  // Weak
-//GOW(getline, iEppp)
+GOW(getline, iEbp_bL_S)
 GO(getloadavg, iEpi)
 GO(getlogin, pEv)
 GO(getlogin_r, iEpL)
@@ -551,8 +551,8 @@ GOW(get_nprocs, iEv)
 //GOM(getopt, iEipp)             //%noE
 GOM(getopt_long, iEipppp)      //%noE
 //GOM(getopt_long_only, iEipppp) //%noE
-GOW(getpagesize, iEv)
-GO(__getpagesize, iEv)
+GOWM(getpagesize, iEEv)
+GOM(__getpagesize, iEEv)
 GO(getpass, tEp)
 GOW(getpeername, iEipp)
 GOW(getpgid, iEi)
@@ -916,10 +916,10 @@ GO2(__isoc99_fscanf, iEESpV, my32_fscanf)
 // __isoc99_scanf
 GOM(__isoc99_sscanf, iEEppV)  //%%
 GOM(__isoc99_swscanf, iEEppV)   //%%
-//GOM(__isoc99_vfscanf, iEEppp) //%%
+GOM(__isoc99_vfscanf, iEEppp) //%%
 // __isoc99_vfwscanf
 // __isoc99_vscanf
-//GOM(__isoc99_vsscanf, iEEppp) //%% TODO: check if ok
+GOM(__isoc99_vsscanf, iEEppp) //%%
 // __isoc99_vswscanf
 // __isoc99_vwscanf
 // __isoc99_wscanf
@@ -1124,7 +1124,7 @@ GO(mbtowc, iEppL)
 // _mcount
 GOW(memalign, pELL)
 //DATAV(__memalign_hook, 4)
-//GOW(memccpy, pEppiL)
+GOW(memccpy, pEppiL)
 GO(memchr, pEpiL)
 GO(memcmp, iEppL)
 GO(memcpy, pEppL)
@@ -1333,7 +1333,7 @@ GOW(pselect, iEippprLL_p)
 // psignal
 //GO(ptrace, iEiupp)  // will that work???
 //GO(ptsname, pEi)
-//GOW(ptsname_r, iEipu)
+GOW(ptsname_r, iEipu)
 // __ptsname_r_chk
 GOW(putc, iEiS)
 GO(putchar, iEi)
@@ -1411,7 +1411,7 @@ GOW(recvfrom, lEipLipp)
 // __recvfrom_chk
 GOM(recvmmsg, iEEipuurLL_)
 GOWM(recvmsg, lEEipi)
-GO2(__recvmsg64, lEipi, recvmsg)
+GO2(__recvmsg64, lEEipi, my32_recvmsg)
 // re_exec  // Weak
 GOWM(regcomp, iEEppi)
 GOWM(regerror, uEEippu)
@@ -1477,8 +1477,8 @@ GOM(scandir64, iEEpppp) //%%
 //GO(__sched_cpualloc, pEu)   //TODO: check, return cpu_set_t* : should this be aligned/changed?
 GO(__sched_cpucount, iEup)
 //GO(__sched_cpufree, vEp)
-GO(sched_getaffinity, iEiup)
-GO(sched_getcpu, iEv)
+GOM(sched_getaffinity, iEEiLp)
+GOM(sched_getcpu, iEEv)
 GO(__sched_getparam, iEip)
 GOW(sched_getparam, iEip)
 GO(__sched_get_priority_max, iEi)
@@ -1488,7 +1488,7 @@ GOW(sched_get_priority_min, iEi)
 GO(__sched_getscheduler, iEi)
 GOW(sched_getscheduler, iEi)
 //GOW(sched_rr_get_interval, iEip)
-GO(sched_setaffinity, iEiup)
+GOM(sched_setaffinity, iEEiLp)
 //GOW(sched_setparam, iEip)
 GO(__sched_setscheduler, iEiip)
 GOW(sched_setscheduler, iEiip)
@@ -1498,7 +1498,7 @@ GO2(__secure_getenv, tEp, secure_getenv)
 GO(secure_getenv, tEp)
 // seed48
 // seed48_r // Weak
-//GO(seekdir, vEpi)
+GO(seekdir, vEpL)
 GOW(select, iEippprLL_)
 GO(__select, iEippprLL_)
 GO2(__select64, iEipppp, select)
@@ -1511,7 +1511,7 @@ GOW(send, lEipLi)
 GO(sendfile, lEiibl_L)
 GO(sendfile64, lEiipL)
 GOWM(sendmsg, lEEipi)
-GO2(__sendmsg64, lEipi, sendmsg)
+GO2(__sendmsg64, lEEipi, my32_sendmsg)
 GOM(sendmmsg, iEEipuu)
 GOW(sendto, lEipLipu)
 // setaliasent
@@ -1583,7 +1583,8 @@ GOW(shmdt, iEp)
 GOWM(shmat, pEEipi)
 GOWM(shmdt, iEEp)
 #endif
-GOW(shmctl, iEiip)
+GOW(shmctl, iEiip) // this probably needs some wrapping
+GO2(__shmctl64, iEiip, shmctl)
 GOW(shmget, iEiLi)
 GOW(shutdown, iEii)
 GOWM(sigaction, iEEipp)    //%%
@@ -1856,7 +1857,7 @@ GO(tcsetpgrp, iEii)
 // tdelete  // Weak
 // tdestroy // Weak
 // tee
-//GO(telldir, iEp)
+GO(telldir, lEp)
 GO(tempnam, pEpp)
 GOW(textdomain, tEp)
 // tfind    // Weak
@@ -1879,11 +1880,11 @@ GO(toascii, iEi)
 GO(tolower, iEi)
 // _tolower
 // __tolower_l
-//GOW(tolower_l, iEip)
+GOW(tolower_l, iEip)
 GO(toupper, iEi)
 // _toupper
 // __toupper_l
-//GOW(toupper_l, iEip)
+GOW(toupper_l, iEip)
 // towctrans    // Weak
 // __towctrans
 // __towctrans_l
@@ -1895,7 +1896,7 @@ GO(towupper, uEu)
 GO(__towupper_l, uEua)
 GOW(towupper_l, uEua)
 // tr_break
-//GOW(truncate, iEpu)
+GOW(truncate, iEpu)
 GO(truncate64, iESU)
 // tsearch  // Weak
 //GO(ttyname, pEi)
@@ -2234,6 +2235,8 @@ GOM(__register_frame_info, vEpp)  //%%,noE faked function
 GOM(__deregister_frame_info, pEp) //%%,noE
 
 GO(name_to_handle_at, iEipppi) // only glibc 2.14+, so may not be present...
+
+GOW2(__cxa_pure_virtual, vFEv, my___cxa_pure_virtual)     // create a function to trap pure virtual call
 
 //GOM(modify_ldt, iEEipL) // there is suposedly no glibc wrapper for this one
 

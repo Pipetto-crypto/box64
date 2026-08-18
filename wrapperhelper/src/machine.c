@@ -41,6 +41,7 @@ int init_machines(size_t npaths, const char *const *extra_include_path) {
 	
 	size_t paths_offset_post = 0;
 #define DO_PATH(_path) ++paths_offset_post;
+#include "machine_x86_64.gen"
 #include "machine.gen"
 #undef DO_PATH
 	
@@ -58,10 +59,17 @@ int init_machines(size_t npaths, const char *const *extra_include_path) {
 	machine_x86_64.unnamed_bitfield_aligns = 0;
 	INIT_PATHS
 #define DO_PATH ADD_PATH
+#include "machine_x86_64.gen"
 #include "machine.gen"
 #undef DO_PATH
 #undef CUR_MACHINE
 	
+#define DO_PATH(_path) --paths_offset_post;
+#include "machine_x86_64.gen"
+#undef DO_PATH
+#define DO_PATH(_path) ++paths_offset_post;
+#include "machine_x86.gen"
+#undef DO_PATH
 #define CUR_MACHINE x86
 	machine_x86.size_long = 4;
 	machine_x86.align_longdouble = 4;
@@ -74,10 +82,14 @@ int init_machines(size_t npaths, const char *const *extra_include_path) {
 	machine_x86.unnamed_bitfield_aligns = 0;
 	INIT_PATHS
 #define DO_PATH ADD_PATH
+#include "machine_x86.gen"
 #include "machine.gen"
 #undef DO_PATH
 #undef CUR_MACHINE
 	
+#define DO_PATH(_path) --paths_offset_post;
+#include "machine_x86.gen"
+#undef DO_PATH
 #define CUR_MACHINE aarch64
 	machine_aarch64.size_long = 8;
 	machine_aarch64.align_longdouble = 16;
@@ -146,6 +158,7 @@ void fill_self_recursion(type_t *typ, struct_t *st) {
 	if (typ->_internal_use) return; // Recursion, but not self recursion
 	typ->_internal_use = 1;
 	switch (typ->typ) {
+	case TYPE_PRERESERVED: break;
 	case TYPE_BUILTIN: break;
 	case TYPE_ARRAY:
 		fill_self_recursion(typ->val.array.typ, st);
@@ -198,6 +211,7 @@ int validate_type(loginfo_t *loginfo, machine_t *target, type_t *typ) {
 		}
 	}
 	switch (typ->typ) {
+	case TYPE_PRERESERVED: typ->szinfo.align = typ->szinfo.size = 0; return !!typ->converted;
 	case TYPE_BUILTIN:
 		switch (typ->val.builtin) {
 		case BTT_VOID:        typ->szinfo.align = typ->szinfo.size = 0; return 1;

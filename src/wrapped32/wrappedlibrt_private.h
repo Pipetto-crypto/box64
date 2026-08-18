@@ -30,7 +30,7 @@ GO(clock_gettime, iEuBLL_)   // *timespec
 GO2(__clock_gettime, iEuBLL_, clock_gettime)
 GO2(__clock_gettime64, iEup, clock_gettime)
 GO(clock_nanosleep, iEuirLL_BLL_)
-//GO(clock_settime, iEup)
+GO(clock_settime, iEurLL_)
 // lio_listio
 // lio_listio64
 // mq_close
@@ -47,7 +47,7 @@ GO(mq_getattr, iEip)
 GO(shm_open, iEpOu)
 GO(shm_unlink, iEp)
 //GOM(timer_create, iEEupp)
-GO(timer_delete, iEu)
-GO(timer_getoverrun, iEu)
-//GO(timer_gettime, iEup)   //time_t is L, timespec is struct LL, itimerspec (the p) is 2 timespec
-//GO(timer_settime, iEuipp) //same, p are itimerspec
+GO(timer_delete, iEp)
+GO(timer_getoverrun, iEp)
+//GO(timer_gettime, iEpp)   //time_t is L, timespec is struct LL, itimerspec (the p) is 2 timespec
+//GO(timer_settime, iEpipp) //same, p are itimerspec

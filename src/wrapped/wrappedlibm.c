@@ -96,45 +96,94 @@ EXPORT double my___powl_finite(double a, double b) __attribute__((alias("my___po
 #undef F1F
 #undef FINITE
 
-// x86-64
-// FE_TONEAREST     0x0
-// FE_DOWNWARD      0x400
-// FE_UPWARD        0x800
-// FE_TOWARDZERO    0xc00
+#define X64_FE_TONEAREST     0x0
+#define X64_FE_DOWNWARD      0x400
+#define X64_FE_UPWARD        0x800
+#define X64_FE_TOWARDZERO    0xc00
+static int round_to_native(int round) {
+    switch(round) {
+        case X64_FE_TONEAREST: return FE_TONEAREST;
+        case X64_FE_DOWNWARD: return FE_DOWNWARD;
+        case X64_FE_UPWARD: return FE_UPWARD;
+        case X64_FE_TOWARDZERO: return FE_TOWARDZERO;
+        default: 
+            //should warn
+            return round;
+    }
+}
+#define TO_NATIVE(R) round_to_native(R)
 
-#if defined(__aarch64__)
-// AArch64
-// #define FE_TONEAREST  0x000000
-// #define FE_DOWNWARD   0x800000
-// #define FE_UPWARD     0x400000
-// #define FE_TOWARDZERO 0xc00000
-#define TO_NATIVE(round) ((round == 0x400 ? 0x800 : (round == 0x800 ? 0x400 : round)) << 12)
-#elif defined(__riscv)
-// RISC-V
-// #define FE_TONEAREST     0x0
-// #define FE_DOWNWARD      0x2
-// #define FE_UPWARD        0x3
-// #define FE_TOWARDZERO    0x1
-#define TO_NATIVE(round) ((round == 0xc00 ? 0x400 : (round == 0x0 ? round : round + 0x400)) >> 10)
-#elif defined(__loongarch64)
-// LOONGARCH
-// FE_TONEAREST     0x000
-// FE_DOWNWARD      0x300
-// FE_UPWARD        0x200
-// FE_TOWARDZERO    0x100
-#define TO_NATIVE(round) ((round == 0x400 ? 0xc00 : (round == 0xc00 ? 0x400 : round)) >> 2)
-#elif defined(__powerpc64__)
-// PPC
-// FE_TONEAREST     0x0
-// FE_DOWNWARD      0x3
-// FE_UPWARD        0x2
-// FE_TOWARDZERO    0x1
-#define TO_NATIVE(round) ((round == 0x400 ? 0xc00 : (round == 0xc00 ? 0x400 : round)) >> 10)
-#elif defined(__x86_64__)
-#define TO_NATIVE(round) round
-#else
-#error Unknown architecture!
+static int round_from_native(int round) {
+    switch(round) {
+        case FE_TONEAREST:  return X64_FE_TONEAREST;
+        case FE_DOWNWARD:   return X64_FE_DOWNWARD;
+        case FE_UPWARD:     return X64_FE_UPWARD;
+        case FE_TOWARDZERO: return X64_FE_TOWARDZERO;
+        default:
+            //should warn
+            return round;
+    }
+}
+#define FROM_NATIVE(R) round_from_native(R)
+
+static int x86_to_native_excepts(int e) {
+    int n = 0;
+    if (e & 0x01) n |= FE_INVALID;
+    if (e & 0x04) n |= FE_DIVBYZERO;
+    if (e & 0x08) n |= FE_OVERFLOW;
+    if (e & 0x10) n |= FE_UNDERFLOW;
+    if (e & 0x20) n |= FE_INEXACT;
+    return n;
+}
+
+static int native_to_x86_excepts(int e) {
+    int x = 0;
+    if (e & FE_INVALID)    x |= 0x01;
+    if (e & FE_DIVBYZERO)  x |= 0x04;
+    if (e & FE_OVERFLOW)   x |= 0x08;
+    if (e & FE_UNDERFLOW)  x |= 0x10;
+    if (e & FE_INEXACT)    x |= 0x20;
+    return x;
+}
+
+EXPORT int my_feraiseexcept(x64emu_t* emu, int e){
+    return feraiseexcept(x86_to_native_excepts(e));
+}
+
+EXPORT int my_feclearexcept(x64emu_t* emu, int e) {
+    return feclearexcept(x86_to_native_excepts(e));
+}
+
+EXPORT int my_fetestexcept(x64emu_t* emu, int e) {
+    int r = fetestexcept(x86_to_native_excepts(e));
+    return native_to_x86_excepts(r);
+}
+
+// x86_64 FE_DFL_ENV = ((const fenv_t *) -1)
+// x86_64 FE_NOMASK_ENV = ((const fenv_t *) -2)
+// On some architectures (e.g. ppc64le), these are real pointers, not sentinels,
+// so passing x86 sentinel values directly would cause a SIGSEGV.
+// Translate x86 sentinel values to the native equivalents on all architectures.
+static const fenv_t* x86_to_native_fenv(const fenv_t* envp)
+{
+    if (envp == (const fenv_t*)(intptr_t)-1)
+        return FE_DFL_ENV;
+#ifdef FE_NOMASK_ENV
+    if (envp == (const fenv_t*)(intptr_t)-2)
+        return FE_NOMASK_ENV;
 #endif
+    return envp;
+}
+
+EXPORT int my_fesetenv(x64emu_t* emu, const fenv_t* envp)
+{
+    return fesetenv(x86_to_native_fenv(envp));
+}
+
+EXPORT int my_feupdateenv(x64emu_t* emu, const fenv_t* envp)
+{
+    return feupdateenv(x86_to_native_fenv(envp));
+}
 
 // See https://github.com/bminor/glibc/blob/master/sysdeps/x86_64/fpu/fesetround.c
 EXPORT int my_fesetround(x64emu_t* emu, int round)
@@ -152,7 +201,7 @@ EXPORT int my_fesetround(x64emu_t* emu, int round)
 
         return 0;
     } else {
-        return fesetround(round);
+        return fesetround(TO_NATIVE(round));
     }
 }
 
@@ -162,7 +211,7 @@ EXPORT int my_fegetround(x64emu_t* emu)
     if (BOX64ENV(sync_rounding)) {
         return emu->cw.x16 & 0xc00;
     } else {
-        return fegetround();
+        return FROM_NATIVE(fegetround());
     }
 }
 

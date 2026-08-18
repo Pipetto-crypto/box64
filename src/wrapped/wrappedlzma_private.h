@@ -68,8 +68,8 @@ GO(lzma_index_stream_padding, uFpL)
 //GO(lzma_index_total_size, 
 GO(lzma_index_uncompressed_size, LFp)
 GO(lzma_lzma_preset, CFpu)
-//GO(lzma_memlimit_get, 
-//GO(lzma_memlimit_set, 
+GO(lzma_memlimit_get, UFp)
+GO(lzma_memlimit_set, iFpU)
 GO(lzma_memusage, UFp)
 GO(lzma_mf_is_supported, CFu)
 GO(lzma_mode_is_supported, CFu)
@@ -89,6 +89,7 @@ GOM(lzma_stream_buffer_decode, iFEpupppLppL)
 GOM(lzma_stream_decoder, iFEpUi)
 GOM(lzma_stream_encoder, iFEppi)
 GOM(lzma_stream_encoder_mt, iFEpp)
+GOM(lzma_stream_decoder_mt, iFEpp)
 GO(lzma_stream_encoder_mt_memusage, LFp)
 GO(lzma_stream_flags_compare, uFpp)
 GO(lzma_stream_footer_decode, uFpp)

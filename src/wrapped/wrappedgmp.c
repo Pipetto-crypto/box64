@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 #include <dlfcn.h>
 
@@ -12,6 +13,7 @@
 #include "librarian/library_private.h"
 #include "x64emu.h"
 #include "emu/x64emu_private.h"
+#include "myalign.h"
 #include "callback.h"
 #include "librarian.h"
 #include "box64context.h"
@@ -60,8 +62,8 @@ static void* find_alloc_func_Fct(void* fct)
 static void* reverse_alloc_func_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, pFL, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, pFL, fct);
     #define GO(A) if(my_alloc_func_##A == fct) return (void*)my_alloc_func_fct_##A;
     SUPER()
     #undef GO
@@ -93,8 +95,8 @@ static void* find_realloc_func_Fct(void* fct)
 static void* reverse_realloc_func_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, pFpL, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, pFpL, fct);
     #define GO(A) if(my_realloc_func_##A == fct) return (void*)my_realloc_func_fct_##A;
     SUPER()
     #undef GO
@@ -126,8 +128,8 @@ static void* find_free_func_Fct(void* fct)
 static void* reverse_free_func_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, vFp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, vFp, fct);
     #define GO(A) if(my_free_func_##A == fct) return (void*)my_free_func_fct_##A;
     SUPER()
     #undef GO
@@ -143,9 +145,46 @@ EXPORT void my___gmp_get_memory_functions(x64emu_t* emu, void** f_alloc, void** 
     *f_realloc = reverse_realloc_func_Fct(*f_realloc);
     *f_free = reverse_free_func_Fct(*f_free);
 }
+
 EXPORT void my___gmp_set_memory_functions(x64emu_t* emu, void* f_alloc, void* f_realloc, void* f_free)
 {
     my->__gmp_set_memory_functions(find_alloc_func_Fct(f_alloc), find_realloc_func_Fct(f_realloc), find_free_func_Fct(f_free));
+}
+
+EXPORT int my___gmp_asprintf(x64emu_t* emu, char** strp, const char* fmt, void* b)
+{
+    myStackAlign(emu, fmt, b, emu->scratch, R_EAX, 2);
+    PREPARE_VALIST;
+    return my->__gmp_vasprintf(strp, (void *)fmt, VARARGS);
+}
+
+EXPORT int my___gmp_fprintf(x64emu_t* emu, void* stream, const char* fmt, void* b)
+{
+    myStackAlign(emu, fmt, b, emu->scratch, R_EAX, 2);
+    PREPARE_VALIST;
+    return my->__gmp_vfprintf(stream, (void *)fmt, VARARGS);
+}
+
+EXPORT int my___gmp_vasprintf(x64emu_t* emu, char** strp, const char* fmt, x64_va_list_t b)
+{
+#ifdef CONVERT_VALIST
+    CONVERT_VALIST(b);
+#else
+    myStackAlignValist(emu, fmt, emu->scratch, b);
+    PREPARE_VALIST;
+#endif
+    return my->__gmp_vasprintf(strp, (void *)fmt, VARARGS);
+}
+
+EXPORT int my___gmp_vfprintf(x64emu_t* emu, void* stream, const char* fmt, x64_va_list_t b)
+{
+#ifdef CONVERT_VALIST
+    CONVERT_VALIST(b);
+#else
+    myStackAlignValist(emu, fmt, emu->scratch, b);
+    PREPARE_VALIST;
+#endif
+    return my->__gmp_vfprintf(stream, (void *)fmt, VARARGS);
 }
 
 #include "wrappedlib_init.h"

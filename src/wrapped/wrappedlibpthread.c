@@ -44,7 +44,7 @@ EXPORT int32_t my_pthread_atfork(x64emu_t *emu, void* prepare, void* parent, voi
     // this is partly incorrect, because the emulated functions should be executed by actual fork and not by my_atfork...
     if(my_context->atfork_sz==my_context->atfork_cap) {
         my_context->atfork_cap += 4;
-        my_context->atforks = (atfork_fnc_t*)realloc(my_context->atforks, my_context->atfork_cap*sizeof(atfork_fnc_t));
+        my_context->atforks = (atfork_fnc_t*)box_realloc(my_context->atforks, my_context->atfork_cap*sizeof(atfork_fnc_t));
     }
     int i = my_context->atfork_sz++;
     my_context->atforks[i].prepare = (uintptr_t)prepare;
@@ -63,8 +63,8 @@ EXPORT void my___pthread_initialize()
 
 #ifdef STATICBUILD
 #include <semaphore.h>
+#include <signal.h>
 #include "libtools/static_threads.h"
-
 extern void* __pthread_getspecific(size_t);
 extern int __pthread_mutex_destroy(void*);
 extern int __pthread_mutex_lock(void*);
@@ -75,7 +75,6 @@ extern int __pthread_rwlock_rdlock(void*);
 extern int __pthread_rwlock_unlock(void*);
 extern int __pthread_rwlock_wrlock(void*);
 extern int __pthread_setspecific(size_t, void*);
-extern int pthread_sigmask(int, void*, void*);
 #endif
 
 #include "wrappedlib_init.h"

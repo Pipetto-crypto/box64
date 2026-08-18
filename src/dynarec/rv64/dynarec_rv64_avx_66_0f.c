@@ -127,7 +127,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
         case 0x15:
             INST_NAME("VUNPCKHPD Gx, Vx, Ex");
             nextop = F8;
-            GETEX(x1, 0, vex.l ? 16 : 0);
+            GETEX(x1, 0, vex.l ? 24 : 8);
             GETGX();
             GETGY();
             GETVX();
@@ -192,7 +192,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             } else {
                 INST_NAME("VUCOMISD Gx, Ex");
             }
-            SETFLAGS(X_ALL, SF_SET, NAT_FLAGS_NOFUSION);
+            SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION);
             SET_DFNONE();
             nextop = F8;
             GETGXSD(d0);
@@ -250,15 +250,23 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             INST_NAME("VSQRTPD Gx, Ex");
             nextop = F8;
             GETGX();
-            GETEX(x2, 0, 8);
+            GETGY();
+            GETEX(x2, 0, vex.l ? 24 : 8);
             d0 = fpu_get_scratch(dyn);
             if (!BOX64ENV(dynarec_fastnan)) {
                 d1 = fpu_get_scratch(dyn);
                 FMVDX(d1, xZR);
+                MOV64x(x6, 0x0008000000000000ULL);
             }
             for (int i = 0; i < 2; ++i) {
                 FLD(d0, wback, fixedaddress + i * 8);
                 if (!BOX64ENV(dynarec_fastnan)) {
+                    FEQD(x3, d0, d0);
+                    BNEZ(x3, 5 * 4);
+                    FMVXD(x4, d0);
+                    OR(x4, x4, x6);
+                    FMVDX(d0, x4);
+                    J(5 * 4);
                     FLTD(x3, d0, d1);
                 }
                 FSQRTD(d0, d0);
@@ -273,6 +281,12 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                 for (int i = 0; i < 2; ++i) {
                     FLD(d0, wback, fixedaddress + i * 8);
                     if (!BOX64ENV(dynarec_fastnan)) {
+                        FEQD(x3, d0, d0);
+                        BNEZ(x3, 5 * 4);
+                        FMVXD(x4, d0);
+                        OR(x4, x4, x6);
+                        FMVDX(d0, x4);
+                        J(5 * 4);
                         FLTD(x3, d0, d1);
                     }
                     FSQRTD(d0, d0);
@@ -425,20 +439,26 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETVY();
             v0 = fpu_get_scratch(dyn);
             v1 = fpu_get_scratch(dyn);
+            if (!BOX64ENV(dynarec_fastnan)) MOV64x(x6, 0x0008000000000000ULL);
             for (int i = 0; i < 2; ++i) {
                 FLD(v0, wback, fixedaddress + 8 * i);
                 FLD(v1, vback, vxoffset + 8 * i);
                 if (!BOX64ENV(dynarec_fastnan)) {
                     FEQD(x3, v0, v0);
                     FEQD(x4, v1, v1);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 4 + 4 * 4);
                 }
                 FADDD(v0, v0, v1);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    AND(x3, x3, x4);
-                    BEQZ(x3, 16);
-                    FEQD(x3, v0, v0);
-                    BNEZ(x3, 8);
+                    FEQD(x5, v0, v0);
+                    BNEZ(x5, 4 + 6 * 4);
                     FNEGD(v0, v0);
+                    BNEZ(x4, 4 + 4);
+                    FMVD(v0, v1);
+                    FMVXD(x5, v0);
+                    OR(x5, x5, x6);
+                    FMVDX(v0, x5);
                 }
                 FSD(v0, gback, gdoffset + 8 * i);
             }
@@ -450,14 +470,19 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     if (!BOX64ENV(dynarec_fastnan)) {
                         FEQD(x3, v0, v0);
                         FEQD(x4, v1, v1);
+                        AND(x5, x3, x4);
+                        BEQZ(x5, 4 + 4 * 4);
                     }
                     FADDD(v0, v0, v1);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        AND(x3, x3, x4);
-                        BEQZ(x3, 16);
-                        FEQD(x3, v0, v0);
-                        BNEZ(x3, 8);
+                        FEQD(x5, v0, v0);
+                        BNEZ(x5, 4 + 6 * 4);
                         FNEGD(v0, v0);
+                        BNEZ(x4, 4 + 4);
+                        FMVD(v0, v1);
+                        FMVXD(x5, v0);
+                        OR(x5, x5, x6);
+                        FMVDX(v0, x5);
                     }
                     FSD(v0, gback, gyoffset + 8 * i);
                 }
@@ -474,20 +499,26 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETVY();
             v0 = fpu_get_scratch(dyn);
             v1 = fpu_get_scratch(dyn);
+            if (!BOX64ENV(dynarec_fastnan)) MOV64x(x6, 0x0008000000000000ULL);
             for (int i = 0; i < 2; ++i) {
                 FLD(v0, wback, fixedaddress + 8 * i);
                 FLD(v1, vback, vxoffset + 8 * i);
                 if (!BOX64ENV(dynarec_fastnan)) {
                     FEQD(x3, v0, v0);
                     FEQD(x4, v1, v1);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 4 + 4 * 4);
                 }
                 FMULD(v0, v0, v1);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    AND(x3, x3, x4);
-                    BEQZ(x3, 16);
-                    FEQD(x3, v0, v0);
-                    BNEZ(x3, 8);
+                    FEQD(x5, v0, v0);
+                    BNEZ(x5, 4 + 6 * 4);
                     FNEGD(v0, v0);
+                    BNEZ(x4, 4 + 4);
+                    FMVD(v0, v1);
+                    FMVXD(x5, v0);
+                    OR(x5, x5, x6);
+                    FMVDX(v0, x5);
                 }
                 FSD(v0, gback, gdoffset + 8 * i);
             }
@@ -499,14 +530,19 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     if (!BOX64ENV(dynarec_fastnan)) {
                         FEQD(x3, v0, v0);
                         FEQD(x4, v1, v1);
+                        AND(x5, x3, x4);
+                        BEQZ(x5, 4 + 4 * 4);
                     }
                     FMULD(v0, v0, v1);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        AND(x3, x3, x4);
-                        BEQZ(x3, 16);
-                        FEQD(x3, v0, v0);
-                        BNEZ(x3, 8);
+                        FEQD(x5, v0, v0);
+                        BNEZ(x5, 4 + 6 * 4);
                         FNEGD(v0, v0);
+                        BNEZ(x4, 4 + 4);
+                        FMVD(v0, v1);
+                        FMVXD(x5, v0);
+                        OR(x5, x5, x6);
+                        FMVDX(v0, x5);
                     }
                     FSD(v0, gback, gyoffset + 8 * i);
                 }
@@ -519,21 +555,49 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETEX(x2, 0, vex.l ? 24 : 8);
             GETGX();
             d0 = fpu_get_scratch(dyn);
-            d1 = fpu_get_scratch(dyn);
-            FLD(d0, wback, fixedaddress + 0);
-            FLD(d1, wback, fixedaddress + 8);
-            FCVTSD(d0, d0);
-            FCVTSD(d1, d1);
-            FSW(d0, gback, gdoffset + 0);
-            FSW(d1, gback, gdoffset + 4);
+            if (!BOX64ENV(dynarec_fastnan)) LUI(x7, 0x7fc00);
+            for (int i = 0; i < 2; ++i) {
+                FLD(d0, wback, fixedaddress + i * 8);
+                if (!BOX64ENV(dynarec_fastnan)) {
+                    FMVXD(x3, d0);
+                    FEQD(x4, d0, d0);
+                }
+                FCVTSD(d0, d0);
+                if (!BOX64ENV(dynarec_fastnan)) {
+                    BNEZ(x4, 4 + 9 * 4);
+                    SRLI(x6, x3, 63);
+                    SLLI(x6, x6, 31);
+                    SRLI(x3, x3, 29);
+                    MOV32w(x5, 0x007fffff);
+                    AND(x3, x3, x5);
+                    OR(x3, x3, x6);
+                    OR(x3, x3, x7);
+                    FMVWX(d0, x3);
+                }
+                FSW(d0, gback, gdoffset + i * 4);
+            }
             if (vex.l) {
                 GETEY();
-                FLD(d0, wback, fixedaddress + 0);
-                FLD(d1, wback, fixedaddress + 8);
-                FCVTSD(d0, d0);
-                FCVTSD(d1, d1);
-                FSW(d0, gback, gdoffset + 8);
-                FSW(d1, gback, gdoffset + 12);
+                for (int i = 0; i < 2; ++i) {
+                    FLD(d0, wback, fixedaddress + i * 8);
+                    if (!BOX64ENV(dynarec_fastnan)) {
+                        FMVXD(x3, d0);
+                        FEQD(x4, d0, d0);
+                    }
+                    FCVTSD(d0, d0);
+                    if (!BOX64ENV(dynarec_fastnan)) {
+                        BNEZ(x4, 4 + 9 * 4);
+                        SRLI(x6, x3, 63);
+                        SLLI(x6, x6, 31);
+                        SRLI(x3, x3, 29);
+                        MOV32w(x5, 0x007fffff);
+                        AND(x3, x3, x5);
+                        OR(x3, x3, x6);
+                        OR(x3, x3, x7);
+                        FMVWX(d0, x3);
+                    }
+                    FSW(d0, gback, gdoffset + 8 + i * 4);
+                }
             } else
                 SD(xZR, gback, gdoffset + 8);
             YMM0(gd);
@@ -578,20 +642,26 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETVY();
             v0 = fpu_get_scratch(dyn);
             v1 = fpu_get_scratch(dyn);
+            if (!BOX64ENV(dynarec_fastnan)) MOV64x(x6, 0x0008000000000000ULL);
             for (int i = 0; i < 2; ++i) {
                 FLD(v0, wback, fixedaddress + 8 * i);
                 FLD(v1, vback, vxoffset + 8 * i);
                 if (!BOX64ENV(dynarec_fastnan)) {
                     FEQD(x3, v0, v0);
                     FEQD(x4, v1, v1);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 4 + 4 * 4);
                 }
                 FSUBD(v0, v1, v0);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    AND(x3, x3, x4);
-                    BEQZ(x3, 16);
-                    FEQD(x3, v0, v0);
-                    BNEZ(x3, 8);
+                    FEQD(x5, v0, v0);
+                    BNEZ(x5, 4 + 6 * 4);
                     FNEGD(v0, v0);
+                    BNEZ(x4, 4 + 4);
+                    FMVD(v0, v1);
+                    FMVXD(x5, v0);
+                    OR(x5, x5, x6);
+                    FMVDX(v0, x5);
                 }
                 FSD(v0, gback, gdoffset + 8 * i);
             }
@@ -603,14 +673,19 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     if (!BOX64ENV(dynarec_fastnan)) {
                         FEQD(x3, v0, v0);
                         FEQD(x4, v1, v1);
+                        AND(x5, x3, x4);
+                        BEQZ(x5, 4 + 4 * 4);
                     }
                     FSUBD(v0, v1, v0);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        AND(x3, x3, x4);
-                        BEQZ(x3, 16);
-                        FEQD(x3, v0, v0);
-                        BNEZ(x3, 8);
+                        FEQD(x5, v0, v0);
+                        BNEZ(x5, 4 + 6 * 4);
                         FNEGD(v0, v0);
+                        BNEZ(x4, 4 + 4);
+                        FMVD(v0, v1);
+                        FMVXD(x5, v0);
+                        OR(x5, x5, x6);
+                        FMVDX(v0, x5);
                     }
                     FSD(v0, gback, gyoffset + 8 * i);
                 }
@@ -666,20 +741,26 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETVY();
             v0 = fpu_get_scratch(dyn);
             v1 = fpu_get_scratch(dyn);
+            if (!BOX64ENV(dynarec_fastnan)) MOV64x(x6, 0x0008000000000000ULL);
             for (int i = 0; i < 2; ++i) {
                 FLD(v0, wback, fixedaddress + 8 * i);
                 FLD(v1, vback, vxoffset + 8 * i);
                 if (!BOX64ENV(dynarec_fastnan)) {
                     FEQD(x3, v0, v0);
                     FEQD(x4, v1, v1);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 4 + 4 * 4);
                 }
                 FDIVD(v0, v1, v0);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    AND(x3, x3, x4);
-                    BEQZ(x3, 16);
-                    FEQD(x3, v0, v0);
-                    BNEZ(x3, 8);
+                    FEQD(x5, v0, v0);
+                    BNEZ(x5, 4 + 6 * 4);
                     FNEGD(v0, v0);
+                    BNEZ(x4, 4 + 4);
+                    FMVD(v0, v1);
+                    FMVXD(x5, v0);
+                    OR(x5, x5, x6);
+                    FMVDX(v0, x5);
                 }
                 FSD(v0, gback, gdoffset + 8 * i);
             }
@@ -691,14 +772,19 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     if (!BOX64ENV(dynarec_fastnan)) {
                         FEQD(x3, v0, v0);
                         FEQD(x4, v1, v1);
+                        AND(x5, x3, x4);
+                        BEQZ(x5, 4 + 4 * 4);
                     }
                     FDIVD(v0, v1, v0);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        AND(x3, x3, x4);
-                        BEQZ(x3, 16);
-                        FEQD(x3, v0, v0);
-                        BNEZ(x3, 8);
+                        FEQD(x5, v0, v0);
+                        BNEZ(x5, 4 + 6 * 4);
                         FNEGD(v0, v0);
+                        BNEZ(x4, 4 + 4);
+                        FMVD(v0, v1);
+                        FMVXD(x5, v0);
+                        OR(x5, x5, x6);
+                        FMVDX(v0, x5);
                     }
                     FSD(v0, gback, gyoffset + 8 * i);
                 }
@@ -1336,19 +1422,31 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             }
             d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
+            d2 = d0;
+            if (!BOX64ENV(dynarec_fastnan))
+                MOV64x(x7, 0x0008000000000000ULL);
             FLD(d0, gback, vxoffset + 0);
             FLD(d1, gback, vxoffset + 8);
             if (!BOX64ENV(dynarec_fastnan)) {
+                FMVXD(x6, d0);
                 FEQD(x3, d0, d0);
                 FEQD(x4, d1, d1);
-                AND(x3, x3, x4);
+                AND(x5, x3, x4);
+                BEQZ(x5, 24);
             }
             FADDD(d0, d0, d1);
             if (!BOX64ENV(dynarec_fastnan)) {
-                FEQD(x4, d0, d0);
-                BEQZ(x3, 12);
-                BNEZ(x4, 8);
+                FEQD(x5, d0, d0);
+                BNEZ(x5, 40);
                 FNEGD(d0, d0);
+                B(32);
+                BNEZ(x3, 16);
+                OR(x6, x6, x7);
+                FMVDX(d0, x6);
+                B(16);
+                FMVXD(x6, d1);
+                OR(x6, x6, x7);
+                FMVDX(d0, x6);
             }
             FSD(d0, gback, gdoffset + 0);
             if (vex.v == ed) {
@@ -1360,37 +1458,56 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     FLD(d0, wback, fixedaddress + 0);
                 FLD(d1, wback, fixedaddress + 8);
                 if (!BOX64ENV(dynarec_fastnan)) {
+                    FMVXD(x6, d0);
                     FEQD(x3, d0, d0);
                     FEQD(x4, d1, d1);
-                    AND(x3, x3, x4);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 24);
                 }
                 FADDD(d0, d0, d1);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    FEQD(x4, d0, d0);
-                    BEQZ(x3, 12);
-                    BNEZ(x4, 8);
+                    FEQD(x5, d0, d0);
+                    BNEZ(x5, 40);
                     FNEGD(d0, d0);
+                    B(32);
+                    BNEZ(x3, 16);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
+                    B(16);
+                    FMVXD(x6, d1);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
                 }
                 FSD(d0, gback, gdoffset + 8);
             }
             if (vex.l) {
                 GETEY();
+                d0 = d2;
                 if (gd == ed) {
                     FLD(v0, gback, gyoffset + 0);
                 }
                 FLD(d0, gback, vyoffset + 0);
                 FLD(d1, gback, vyoffset + 8);
                 if (!BOX64ENV(dynarec_fastnan)) {
+                    FMVXD(x6, d0);
                     FEQD(x3, d0, d0);
                     FEQD(x4, d1, d1);
-                    AND(x3, x3, x4);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 24);
                 }
                 FADDD(d0, d0, d1);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    FEQD(x4, d0, d0);
-                    BEQZ(x3, 12);
-                    BNEZ(x4, 8);
+                    FEQD(x5, d0, d0);
+                    BNEZ(x5, 40);
                     FNEGD(d0, d0);
+                    B(32);
+                    BNEZ(x3, 16);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
+                    B(16);
+                    FMVXD(x6, d1);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
                 }
                 FSD(d0, gback, gyoffset + 0);
                 if (vex.v == ed) {
@@ -1402,16 +1519,25 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                         FLD(d0, wback, fixedaddress + 0);
                     FLD(d1, wback, fixedaddress + 8);
                     if (!BOX64ENV(dynarec_fastnan)) {
+                        FMVXD(x6, d0);
                         FEQD(x3, d0, d0);
                         FEQD(x4, d1, d1);
-                        AND(x3, x3, x4);
+                        AND(x5, x3, x4);
+                        BEQZ(x5, 24);
                     }
                     FADDD(d0, d0, d1);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        FEQD(x4, d0, d0);
-                        BEQZ(x3, 12);
-                        BNEZ(x4, 8);
+                        FEQD(x5, d0, d0);
+                        BNEZ(x5, 40);
                         FNEGD(d0, d0);
+                        B(32);
+                        BNEZ(x3, 16);
+                        OR(x6, x6, x7);
+                        FMVDX(d0, x6);
+                        B(16);
+                        FMVXD(x6, d1);
+                        OR(x6, x6, x7);
+                        FMVDX(d0, x6);
                     }
                     FSD(d0, gback, gyoffset + 8);
                 }
@@ -1432,19 +1558,31 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             }
             d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
+            d2 = d0;
+            if (!BOX64ENV(dynarec_fastnan))
+                MOV64x(x7, 0x0008000000000000ULL);
             FLD(d0, gback, vxoffset + 0);
             FLD(d1, gback, vxoffset + 8);
             if (!BOX64ENV(dynarec_fastnan)) {
+                FMVXD(x6, d0);
                 FEQD(x3, d0, d0);
                 FEQD(x4, d1, d1);
-                AND(x3, x3, x4);
+                AND(x5, x3, x4);
+                BEQZ(x5, 24);
             }
             FSUBD(d0, d0, d1);
             if (!BOX64ENV(dynarec_fastnan)) {
-                FEQD(x4, d0, d0);
-                BEQZ(x3, 12);
-                BNEZ(x4, 8);
+                FEQD(x5, d0, d0);
+                BNEZ(x5, 40);
                 FNEGD(d0, d0);
+                B(32);
+                BNEZ(x3, 16);
+                OR(x6, x6, x7);
+                FMVDX(d0, x6);
+                B(16);
+                FMVXD(x6, d1);
+                OR(x6, x6, x7);
+                FMVDX(d0, x6);
             }
             FSD(d0, gback, gdoffset + 0);
             if (vex.v == ed) {
@@ -1456,37 +1594,56 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     FLD(d0, wback, fixedaddress + 0);
                 FLD(d1, wback, fixedaddress + 8);
                 if (!BOX64ENV(dynarec_fastnan)) {
+                    FMVXD(x6, d0);
                     FEQD(x3, d0, d0);
                     FEQD(x4, d1, d1);
-                    AND(x3, x3, x4);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 24);
                 }
                 FSUBD(d0, d0, d1);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    FEQD(x4, d0, d0);
-                    BEQZ(x3, 12);
-                    BNEZ(x4, 8);
+                    FEQD(x5, d0, d0);
+                    BNEZ(x5, 40);
                     FNEGD(d0, d0);
+                    B(32);
+                    BNEZ(x3, 16);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
+                    B(16);
+                    FMVXD(x6, d1);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
                 }
                 FSD(d0, gback, gdoffset + 8);
             }
             if (vex.l) {
                 GETEY();
+                d0 = d2;
                 if (gd == ed) {
                     FLD(v0, gback, gyoffset + 0);
                 }
                 FLD(d0, gback, vyoffset + 0);
                 FLD(d1, gback, vyoffset + 8);
                 if (!BOX64ENV(dynarec_fastnan)) {
+                    FMVXD(x6, d0);
                     FEQD(x3, d0, d0);
                     FEQD(x4, d1, d1);
-                    AND(x3, x3, x4);
+                    AND(x5, x3, x4);
+                    BEQZ(x5, 24);
                 }
                 FSUBD(d0, d0, d1);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    FEQD(x4, d0, d0);
-                    BEQZ(x3, 12);
-                    BNEZ(x4, 8);
+                    FEQD(x5, d0, d0);
+                    BNEZ(x5, 40);
                     FNEGD(d0, d0);
+                    B(32);
+                    BNEZ(x3, 16);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
+                    B(16);
+                    FMVXD(x6, d1);
+                    OR(x6, x6, x7);
+                    FMVDX(d0, x6);
                 }
                 FSD(d0, gback, gyoffset + 0);
                 if (vex.v == ed) {
@@ -1498,16 +1655,25 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                         FLD(d0, wback, fixedaddress + 0);
                     FLD(d1, wback, fixedaddress + 8);
                     if (!BOX64ENV(dynarec_fastnan)) {
+                        FMVXD(x6, d0);
                         FEQD(x3, d0, d0);
                         FEQD(x4, d1, d1);
-                        AND(x3, x3, x4);
+                        AND(x5, x3, x4);
+                        BEQZ(x5, 24);
                     }
                     FSUBD(d0, d0, d1);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        FEQD(x4, d0, d0);
-                        BEQZ(x3, 12);
-                        BNEZ(x4, 8);
+                        FEQD(x5, d0, d0);
+                        BNEZ(x5, 40);
                         FNEGD(d0, d0);
+                        B(32);
+                        BNEZ(x3, 16);
+                        OR(x6, x6, x7);
+                        FMVDX(d0, x6);
+                        B(16);
+                        FMVXD(x6, d1);
+                        OR(x6, x6, x7);
+                        FMVDX(d0, x6);
                     }
                     FSD(d0, gback, gyoffset + 8);
                 }
@@ -1557,6 +1723,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                 SD(x3, wback, fixedaddress + 8);
             } else if (MODREG)
                 YMM0(ed);
+            if (!MODREG) SMWRITE2();
             break;
         case 0xC2:
             INST_NAME("VCMPPD Gx, Vx, Ex, Ib");
@@ -1647,7 +1814,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             INST_NAME("VSHUFPD Gx, Vx, Ex, Ib");
             nextop = F8;
             GETGX();
-            GETEX(x2, 1, 8);
+            GETEX(x2, 1, vex.l ? 24 : 8);
             GETGY();
             GETVX();
             GETVY();
@@ -1675,6 +1842,8 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
             GETVY();
             v0 = fpu_get_scratch(dyn);
             v1 = fpu_get_scratch(dyn);
+            if (!BOX64ENV(dynarec_fastnan))
+                MOV64x(x7, 0x0008000000000000ULL);
             for (int i = 0; i < 2; ++i) {
                 FLD(v0, wback, fixedaddress + 8 * i);
                 FLD(v1, vback, vxoffset + 8 * i);
@@ -1687,10 +1856,17 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                 else
                     FADDD(v0, v1, v0);
                 if (!BOX64ENV(dynarec_fastnan)) {
-                    AND(x3, x3, x4);
-                    BEQZ(x3, 16);
-                    FEQD(x3, v0, v0);
-                    BNEZ(x3, 8);
+                    AND(x5, x3, x4);
+                    BNEZ(x5, 32);
+                    BNEZ(x4, 12);
+                    LD(x6, vback, vxoffset + 8 * i);
+                    J(8);
+                    LD(x6, wback, fixedaddress + 8 * i);
+                    OR(x6, x6, x7);
+                    FMVDX(v0, x6);
+                    J(16);
+                    FEQD(x6, v0, v0);
+                    BNEZ(x6, 8);
                     FNEGD(v0, v0);
                 }
                 FSD(v0, gback, gdoffset + 8 * i);
@@ -1709,10 +1885,17 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
                     else
                         FADDD(v0, v1, v0);
                     if (!BOX64ENV(dynarec_fastnan)) {
-                        AND(x3, x3, x4);
-                        BEQZ(x3, 16);
-                        FEQD(x3, v0, v0);
-                        BNEZ(x3, 8);
+                        AND(x5, x3, x4);
+                        BNEZ(x5, 32);
+                        BNEZ(x4, 12);
+                        LD(x6, vback, vyoffset + 8 * i);
+                        J(8);
+                        LD(x6, wback, fixedaddress + 8 * i);
+                        OR(x6, x6, x7);
+                        FMVDX(v0, x6);
+                        J(16);
+                        FEQD(x6, v0, v0);
+                        BNEZ(x6, 8);
                         FNEGD(v0, v0);
                     }
                     FSD(v0, gback, gyoffset + 8 * i);
@@ -1828,7 +2011,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
         case 0xD4:
             INST_NAME("VPADDQ Gx, Vx, Ex");
             nextop = F8;
-            GETEX(x2, 0, 8);
+            GETEX(x2, 0, vex.l ? 24 : 8);
             GETGX();
             GETGY();
             GETVX();
@@ -2005,7 +2188,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
         case 0xDB:
             INST_NAME("VPAND Gx, Vx, Ex");
             nextop = F8;
-            GETEX(x2, 0, 8);
+            GETEX(x2, 0, vex.l ? 24 : 8);
             GETGX();
             GETGY();
             GETVX();
@@ -2141,7 +2324,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
         case 0xDF:
             INST_NAME("VPANDN Gx, Vx, Ex");
             nextop = F8;
-            GETEX(x2, 0, 8);
+            GETEX(x2, 0, vex.l ? 24 : 8);
             GETGX();
             GETGY();
             GETVX();
@@ -2849,7 +3032,7 @@ uintptr_t dynarec64_AVX_66_0F(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip,
         case 0xFB:
             INST_NAME("VPSUBQ Gx, Vx, Ex");
             nextop = F8;
-            GETEX(x2, 0, 8);
+            GETEX(x2, 0, vex.l ? 24 : 8);
             GETGX();
             GETGY();
             GETVX();

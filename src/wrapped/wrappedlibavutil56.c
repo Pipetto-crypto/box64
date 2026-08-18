@@ -210,7 +210,9 @@ EXPORT void* my_av_asprintf(x64emu_t* emu, void * fmt, uint64_t * b) {
     myStackAlign(emu, (const char*)fmt, b, emu->scratch, R_EAX, 1);
     PREPARE_VALIST;
     char* buff = NULL;
-    vasprintf(&buff, (char*)fmt, VARARGS);
+    int va = vasprintf(&buff, (char*)fmt, VARARGS);
+    if ((va < 0) || !buff)
+        return NULL;
     void* ret = my->av_asprintf("%s", buff);
     free(buff);
     return ret;
@@ -242,14 +244,19 @@ EXPORT int my_av_expr_parse(x64emu_t* emu, void* expr, void* s, void** const_nam
 {
     int n_f1 = 0, n_f2 = 0;
     // find n of f1 and f2 first
-    while(funcs1[n_f1]) ++n_f1;
-    while(funcs2[n_f2]) ++n_f2;
-    n_f1++; n_f2++; // include NULL marker
+    if(funcs1) {
+        while(funcs1[n_f1]) ++n_f1;
+        n_f1++; // include NULL marker
+    }
+    if(funcs2) {
+        while(funcs2[n_f2]) ++n_f2;
+        n_f2++; // include NULL marker
+    }
     void* funcs1_[n_f1];
     void* funcs2_[n_f2];
     for(int i=0; i<n_f1; ++i) funcs1_[i] = find_func1_Fct(funcs1[i]);
     for(int i=0; i<n_f2; ++i) funcs2_[i] = find_func2_Fct(funcs2[i]);
-    return my->av_expr_parse(expr, s, const_names, func1_names, funcs1_, func2_names, funcs2_, offset, log);
+    return my->av_expr_parse(expr, s, const_names, func1_names, funcs1?funcs1_:NULL, func2_names, funcs2?funcs2_:NULL, offset, log);
 }
 
 EXPORT void my_av_log(x64emu_t* emu, void* avcl, int lvl, void* fmt, uint64_t* b)
@@ -257,7 +264,9 @@ EXPORT void my_av_log(x64emu_t* emu, void* avcl, int lvl, void* fmt, uint64_t* b
     myStackAlign(emu, (const char*)fmt, b, emu->scratch, R_EAX, 3);
     PREPARE_VALIST;
     char* buff = NULL;
-    vasprintf(&buff, (char*)fmt, VARARGS);
+    int va = vasprintf(&buff, (char*)fmt, VARARGS);
+    if((va < 0) || !buff)
+        return;
     my->av_log(avcl, lvl, "%s", buff);
     free(buff);
 }
@@ -282,7 +291,9 @@ EXPORT size_t my_av_strlcatf(x64emu_t* emu, void* dst, size_t size, void* fmt, u
     myStackAlign(emu, (const char*)fmt, b, emu->scratch, R_EAX, 3);
     PREPARE_VALIST;
     char* buff = NULL;
-    vasprintf(&buff, (char*)fmt, VARARGS);
+    int va = vasprintf(&buff, (char*)fmt, VARARGS);
+    if ((va < 0) || !buff)
+        return 0;
     size_t ret = my->av_strlcatf(dst, size, "%s", buff);
     free(buff);
     return ret;
@@ -298,7 +309,16 @@ EXPORT void* my_av_buffer_create(x64emu_t* emu, void* data, int size, void* f, v
     return my->av_buffer_create(data, size, find_free_Fct(f), opaque, flags);
 }
 
+// will allow wrapped lib if and only if libavformat.so.58 && libavcodec.so.58 are also available!
 #define PRE_INIT \
-    if (BOX64ENV(nogtk)) return -2;
+    if (BOX64ENV(nogtk)) return -2;                                     \
+    {                                                                   \
+        void* h = dlopen("libavformat.so.58", RTLD_LAZY | RTLD_GLOBAL); \
+        if(!h) return -2;                                               \
+        else dlclose(h);                                                \
+        h = dlopen("libavcodec.so.58", RTLD_LAZY | RTLD_GLOBAL);        \
+        if(!h) return -2;                                               \
+        else dlclose(h);                                                \
+    }
 
 #include "wrappedlib_init.h"

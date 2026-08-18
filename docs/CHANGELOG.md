@@ -1,3 +1,111 @@
+v0.4.4
+======
+
+Highlights:
+* This version adds a lot of refactor and speed improvements to the LoongArch backend, so more opcodes on the RISC-V backend, and many QoL new features!
+    => A new box64-configurator is now present (a python app) to help managing custom RCFILE profiles. It is available in both english and chinese.
+    => DynaCache is now enabled by default. It will compress the files and use up to 2GB of disk space.
+    => You can use box64-configurator on the special `[*]` profile to change default values
+    => More improvements on emulation accuracy that help running more DRM'd games
+
+Version summary:
+
+* RCFILE: Created a new GUI tools to edit custom rcfile: box64-configurator
+* RCFILE: Created a KDE plugin to quickly set box64 properties for an executable file
+* RCFILE: Added more profiles
+* RCFILE: Added BOX64_SKIPCPU to avoid using N first cores (for big.LITTLE configuration)
+* ELF: Some more Relocation handling
+* Wrapping: Improved MALLOC_HACK=2 behaviour
+* Wrapping: more fixes to some functions signatures
+* Wrapping: added more wrapped functions
+* Wrapping: added some more wrapped libraries
+* Wrapping: Added more Syscall
+* Wrapping: Some rework on the bridges to avoid unexpected reuse of bridges for different function signature
+* Wrapping: Box32: Some fixes and improvement on some wrapped functions
+* Emulation: Some improvement on handling of x87 80bits values
+* Emulation: Added some deferred signal support for improved stability
+* Emulation: Improved TF handling
+* Emulation: Improved CPUID handling
+* Emulation: optimised some sha1 function
+* Emulation: LA64: Enabled AVX by default (on par with ARM64)
+* Interpreter: A few fixes in some opcodes
+* Interpreter: Added unaligned handling of more lock opcodes
+* DynaCache: many improvements and fixes
+* DynaCache: added libz compression of the dynacache files
+* DynaCache: added disk size limit, to purge old/outdated dynacache once a threshold is reached
+* Dynarec: Many small opcodes optimisation here and there
+* Dynarec: Some improvement on handling of x87 80bits values
+* Dynarec: Optimised the internal jump handling while building a dynablock
+* Dynarec: Improved TF handling
+* Dynarec: Reworked Alt Address handling
+* Dynarec: Reworked a bit the jump table to save some memory
+* Dynarec: Made BOX64_CALLRET=2 default
+* Dynarec: ARM64: Some improvement in some x87 opcodes handling
+* Dynarec: ARM64: A few fixes to some opcodes
+* Dynarec: LA64: Added optimisation on the zeroing out of the upper 32 bits of registers
+* Dynarec: LA64: Added a Dynarec version of UpdateFlags (on par with ARM64)
+* Dynarec: LA64: More work FASTNAN / FASTROUND handling
+* Dynarec: LA64: Many fixes on many opcodes
+* Dynarec: LA64: Added a few opcodes
+* Dynarec: LA64: Added fastpath on many logical opcodes (when no flags are needed)
+* Dynarec: LA64: AES opcodes optimisations
+* Dynarec: LA64: Improved Native flags use for more cases
+* Dynarec: LA64: Improved jump_safe macro (removing many useless NOP)
+* Dynarec: RV64: Improvement on flags handling (on par with ARM64 & LA64)
+* Dynarec: RV64: Many fixes on NaN handling
+* Dynarec: RV64: Some fixes to various opcodes
+* Dynarec: RV64: Improved Native Flags handling
+* Dynarec: RV64: Added some opcodes
+* Dynarec: RV64: Detect and use the new Zicbop/Zicond/Zicbom cpu extension when available
+* WrapperHelper: some more improvements and fixes
+
+v0.4.2
+======
+
+Highlights:
+* This version add lots on unconnected new things, like a PPC64LE backend, Vulkan overlay support or more Dynarec finetunning!
+    => Vulkan x64 overlay support. That means using the linux version of Steam, Fossilize & GameOverlayUI will work.
+    => Many dynarec refactors, especialy on ARM64 & LA64 with fixes to speed regression introduced with the the last 2 releases and improved compatibility.
+    => Support for SteamRT3 & new Proton 11
+    => New PCC64LE in the work. Not finished, but usable already. Note that the platform seems to use a 64k pagesize by default, so compatibility will suffer on this platformm.
+
+Version summary:
+
+* New RISC-V support for the script to denerate Debian .deb package
+* Improved the way system informations (like cpu brand and number of cores) is gathered and cpuid opcode handled
+* Improved support for Steam and new SteamRT3 64bit version
+* Elf: Improved handling of large pagesize (usefull for PPC64LE with its 64k pagesize)
+* Elf: Improved support for AppImage
+* Wrapping: Vulkan: Added support wor x64 overlay
+* Wrapping; Vulkan: Added BOX64_NOVULKANOVERLAY to disable x64 overlay handling
+* Wrapping: more wrapped functions, reworked some existing one with wrapperhelper
+* Wrapping: Added more wrapped libs
+* Wrapping: BOX32: more wrapped function and some fixes to existing ones
+* Wrapping: PPC64: Better handling of ioctl
+* Interpreter: Added a few more exotic opcodes
+* Dynarec: Added support for STRONGMEM=4
+* Dynarec: Improved TF flag handling
+* Dynarec: Reworked HotPage detection and handling
+* Dynarec: Reworked dynarec generation to batter handle abort mid-block
+* Dynarec: Rework how "Alt" addresses are handled
+* Dynarec: Removed BOX64_DYNAREC_HOTPAGE_ALT
+* Dynarec: Added support for Secondary Entry Point on dynablock when using CALLRET=1
+* Dynarec: Improve CALL FAR / RET FAR opcodes handling, adding CALLRET optimisation support
+* Dynarec: Improve IRET opcodes handling, adding CALLRET optimisation support
+* Dynarec: ARM64: Some new fixes for existing opcodes
+* Dynarec: ARM64: Reworked XMM/YMM register handling
+* Dynarec: ARM64: Reworked DIRTY=2 with AutoCRC Dynablock
+* Dynarec: LA64: Lots of new opcodes added & fixes
+* Dynarec: LA64: Added full support for SAFEFLAGS=2
+* Dynarec: LA64: Lots of fixes & improvements for FASTNAN=0
+* Dynarec: LA64: Refactor opcode printer
+* Dynarec: LA64: Reworked DIRTY=2 with AutoCRC Dynablock
+* Dynarec: LA64: Added CALLRET=2 support
+* Dynarec: RV64: A few fixes to existing opcodes
+* Dynarec: RV64: Added CALLRET=2 support
+* Dynarec: PPC64: Created a new backend for PPC64LE, with some opcodes already (still WIP)
+* WOWBOX64: Some small fixes
+
 v0.4.0
 ======
 

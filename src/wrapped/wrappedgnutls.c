@@ -23,6 +23,28 @@ const char* gnutlsName = "libgnutls.so.30";
 
 #define LIBNAME gnutls
 
+EXPORT uintptr_t my_gnutls_free = 0;
+static void (*native_gnutls_free)(void *p) = NULL;
+
+void my_wrap_gnutls_free(void* p)
+{
+    if(my_gnutls_free){
+        RunFunctionFmt(my_gnutls_free, "p", p);
+        return;
+    }
+    if (native_gnutls_free)
+        native_gnutls_free(p);
+}
+
+#define ADDED_INIT() \
+    void** p;                            \
+    p=dlsym(lib->w.lib, "gnutls_free");  \
+    my_gnutls_free = (p && *p)?AddCheckBridge(lib->w.bridge, vFp, *p, 0, "my_wrap_gnutls_free"):0; \
+    if(p) {                              \
+        native_gnutls_free = *p;         \
+        *p = my_wrap_gnutls_free;        \
+    }
+
 #include "generated/wrappedgnutlstypes.h"
 
 #include "wrappercallback.h"
@@ -107,6 +129,32 @@ static void* find_timeout_Fct(void* fct)
     return NULL;
 }
 
+// gnutls_certificate_retrieve_function
+#define GO(A)                                                                                               \
+static uintptr_t my_gnutls_certificate_retrieve_function_fct_##A = 0;                                       \
+static int my_gnutls_certificate_retrieve_function_##A(void* sess, void* rdn, int nreqs, void* algos,      \
+    int nalgos, void* retr)                                                                                  \
+{                                                                                                            \
+    return (int)RunFunctionFmt(my_gnutls_certificate_retrieve_function_fct_##A, "ppipip", sess, rdn,       \
+        nreqs, algos, nalgos, retr);                                                                         \
+}
+SUPER()
+#undef GO
+static void* find_gnutls_certificate_retrieve_function_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my_gnutls_certificate_retrieve_function_fct_##A == (uintptr_t)fct) return my_gnutls_certificate_retrieve_function_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my_gnutls_certificate_retrieve_function_fct_##A == 0) {my_gnutls_certificate_retrieve_function_fct_##A = (uintptr_t)fct; return my_gnutls_certificate_retrieve_function_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libgnutls.so.30 gnutls_certificate_retrieve_function callback\n");
+    return NULL;
+}
+
 #undef SUPER
 
 
@@ -131,6 +179,12 @@ EXPORT void my_gnutls_transport_set_pull_timeout_function(x64emu_t* emu, void* s
 {
     (void)emu;
     my->gnutls_transport_set_pull_timeout_function(session, find_timeout_Fct(f));
+}
+
+EXPORT void my_gnutls_certificate_set_retrieve_function(x64emu_t* emu, void* cert, void* f)
+{
+    (void)emu;
+    my->gnutls_certificate_set_retrieve_function(cert, find_gnutls_certificate_retrieve_function_Fct(f));
 }
 
 #include "wrappedlib_init.h"

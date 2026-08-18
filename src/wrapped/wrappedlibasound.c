@@ -102,7 +102,7 @@ static void* findPCMHookFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my_pcm_hook_fct_##A == (uintptr_t)fct) return my_elem_##A;
+    #define GO(A) if(my_pcm_hook_fct_##A == (uintptr_t)fct) return my_pcm_hook_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my_pcm_hook_fct_##A == 0) {my_pcm_hook_fct_##A = (uintptr_t)fct; return my_pcm_hook_##A; }
@@ -114,9 +114,9 @@ static void* findPCMHookFct(void* fct)
 //  snd_mixer_compare_t
 #define GO(A)   \
 static uintptr_t my_mixer_compare_fct_##A = 0;                       \
-static int my_mixer_compare_##A(void* a)                             \
+static int my_mixer_compare_##A(void* a, void* b)                    \
 {                                                               \
-    return (int)RunFunctionFmt(my_mixer_compare_fct_##A, "p", a);    \
+    return (int)RunFunctionFmt(my_mixer_compare_fct_##A, "pp", a, b); \
 }
 SUPER()
 #undef GO
@@ -124,7 +124,7 @@ static void* findMixerCompareFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my_mixer_compare_fct_##A == (uintptr_t)fct) return my_elem_##A;
+    #define GO(A) if(my_mixer_compare_fct_##A == (uintptr_t)fct) return my_mixer_compare_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my_mixer_compare_fct_##A == 0) {my_mixer_compare_fct_##A = (uintptr_t)fct; return my_mixer_compare_##A; }
@@ -146,7 +146,7 @@ static void* findPrivateFreeFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my_private_free_fct_##A == (uintptr_t)fct) return my_elem_##A;
+    #define GO(A) if(my_private_free_fct_##A == (uintptr_t)fct) return my_private_free_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my_private_free_fct_##A == 0) {my_private_free_fct_##A = (uintptr_t)fct; return my_private_free_##A; }
@@ -168,7 +168,7 @@ static void* findMixerEventFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my_mixer_event_fct_##A == (uintptr_t)fct) return my_elem_##A;
+    #define GO(A) if(my_mixer_event_fct_##A == (uintptr_t)fct) return my_mixer_event_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my_mixer_event_fct_##A == 0) {my_mixer_event_fct_##A = (uintptr_t)fct; return my_mixer_event_##A; }
@@ -281,8 +281,14 @@ void* my_dlvsym(x64emu_t* emu, void *handle, void *symbol, void *version);
 EXPORT void * my_snd_dlopen(x64emu_t* emu, void* name, int mode, void* errbuf, size_t errbuflen)
 {
     void* ret = my_dlopen(emu, name, mode);  // Does NULL name (so dlopen libasound) need special treatment?
-    if(!ret && errbuf) {
-        strncpy(errbuf, my_dlerror(emu), errbuflen);
+    if(!ret && errbuf && errbuflen) {
+        const char* err = my_dlerror(emu);
+        if(err) {
+            strncpy(errbuf, err, errbuflen-1);
+            ((char *)errbuf)[errbuflen-1] = '\0';
+        } else {
+            ((char *)errbuf)[0] = '\0';
+        }
     }
     return ret;
 }

@@ -77,7 +77,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     BSTRPICK_D(x3, x1, 15, 0);
                     SRLI_W(x1, x1, 16);
                     ADD_D(x4, x1, x5);
-                    BSTRINS_D(x3, x4, 31, 15);
+                    BSTRINS_D(x3, x4, 31, 16);
                     SC_W(x3, wback, 0);
                     BEQZ_MARK2(x3);
                     MARK3;
@@ -120,7 +120,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 BSTRPICK_D(x3, x1, 15, 0);
                 SRLI_W(x1, x1, 16);
                 OR(x4, x1, x5);
-                BSTRINS_D(x3, x4, 31, 15);
+                BSTRINS_D(x3, x4, 31, 16);
                 SC_W(x3, wback, 0);
                 BEQZ_MARK2(x3);
                 MARK3;
@@ -145,7 +145,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                         SET_DFNONE();
                         nextop = F8;
-                        GETGD;
+                        GETGDs;
                         addr = geted(dyn, addr, ninst, nextop, &wback, x3, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
                         if (rex.w) {
                             SRAI_D(x1, gd, 3);
@@ -183,7 +183,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         INST_NAME("LOCK CMPXCHG Ew, Gw");
                         SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_NOFUSION);
                         nextop = F8;
-                        GETGD;
+                        GETGDs;
                         BSTRPICK_D(x6, xRAX, 15, 0);
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
                         // Aligned
@@ -231,7 +231,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                         SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                         SET_DFNONE();
                         nextop = F8;
-                        GETGD;
+                        GETGDs;
                         addr = geted(dyn, addr, ninst, nextop, &wback, x3, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
                         if (rex.w) {
                             SRAI_D(x1, gd, 3);
@@ -311,7 +311,6 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                                 INST_NAME("LOCK BTR Ew, Ib");
                                 SETFLAGS(X_CF, SF_SUBSET, NAT_FLAGS_NOFUSION);
                                 SET_DFNONE();
-                                GETGD;
                                 addr = geted(dyn, addr, ninst, nextop, &wback, x3, x1, &fixedaddress, rex, NULL, 0, 1);
                                 u8 = F8;
                                 u8 &= (rex.w ? 0x3f : 0xf);
@@ -349,7 +348,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                     } else {
                         INST_NAME("LOCK XADD Gw, Ew");
                         SETFLAGS(X_ALL, SF_SET_PENDING, NAT_FLAGS_FUSION);
-                        GETGD;
+                        GETGDw;
                         BSTRPICK_D(x5, gd, 15, 0);
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, x1, &fixedaddress, rex, LOCK_LOCK, 0, 0);
                         if (cpuext.lam_bh) {
@@ -374,14 +373,14 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             BSTRPICK_D(x3, x1, 15, 0);
                             SRLI_W(x1, x1, 16);
                             ADD_D(x4, x1, x5);
-                            BSTRINS_D(x3, x4, 31, 15);
+                            BSTRINS_D(x3, x4, 31, 16);
                             SC_W(x3, wback, 0);
                             BEQZ_MARK2(x3);
                             MARK3;
                         }
                         IFXORNAT (X_ALL | X_PEND) {
                             BSTRPICK_D(x6, x1, 15, 0);
-                            emit_add16(dyn, ninst, x6, gd, x3, x4, x5);
+                            emit_add16(dyn, ninst, x6, x5, x3, x4, x7);
                         }
                         BSTRINS_D(gd, x1, 15, 0);
                     }
@@ -436,7 +435,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             BSTRPICK_D(x3, x1, 15, 0);
                             SRLI_W(x1, x1, 16);
                             ADD_D(x4, x1, x5);
-                            BSTRINS_D(x3, x4, 31, 15);
+                            BSTRINS_D(x3, x4, 31, 16);
                             SC_W(x3, wback, 0);
                             BEQZ_MARK2(x3);
                             MARK3;
@@ -488,7 +487,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             BSTRPICK_D(x3, x1, 15, 0);
                             SRLI_W(x1, x1, 16);
                             ADDI_D(x4, x1, 1);
-                            BSTRINS_D(x3, x4, 31, 15);
+                            BSTRINS_D(x3, x4, 31, 16);
                             SC_W(x3, wback, 0);
                             BEQZ_MARK2(x3);
                             MARK3;
@@ -534,7 +533,7 @@ uintptr_t dynarec64_66F0(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                             BSTRPICK_D(x3, x1, 15, 0);
                             SRLI_W(x1, x1, 16);
                             ADDI_D(x4, x1, -1);
-                            BSTRINS_D(x3, x4, 31, 15);
+                            BSTRINS_D(x3, x4, 31, 16);
                             SC_W(x3, wback, 0);
                             BEQZ_MARK2(x3);
                             MARK3;

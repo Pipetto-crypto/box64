@@ -48,6 +48,10 @@
 #include "dynarec/rv64/rv64_mapping.h"
 #define CONTEXT_REG(P, X)   P->uc_mcontext.__gregs[X]
 #define CONTEXT_PC(P)       P->uc_mcontext.__gregs[REG_PC]
+#elif defined(PPC64LE)
+#include "dynarec/ppc64le/ppc64le_mapping.h"
+#define CONTEXT_REG(P, X)   P->uc_mcontext.gp_regs[X]
+#define CONTEXT_PC(P)       P->uc_mcontext.gp_regs[PT_NIP]
 #else
 #error Unsupported Architecture
 #endif //arch
@@ -355,7 +359,7 @@ uint32_t RunFunctionHandler32(int* exit, int dynarec, i386_ucontext_t* sigcontex
         va_start (va, nargs);
         int sig = va_arg(va, int);
         va_end (va);
-        printf_log(LOG_NONE, "%04d|BOX32: Warning, calling Signal %d function handler %s\n", GetTID(), sig, fnc?"SIG_IGN":"SIG_DFL");
+        printf_log(LOG_NONE, "%04d|Warning, calling Signal %d function handler %s\n", GetTID(), sig, fnc ? "SIG_IGN" : "SIG_DFL");
         if(fnc==0) {
             printf_log(LOG_NONE, "Unhandled signal caught, aborting\n");
             abort();
@@ -397,7 +401,7 @@ uint32_t RunFunctionHandler32(int* exit, int dynarec, i386_ucontext_t* sigcontex
     R_CS = 0x23;
 
     if(dynarec)
-        DynaCall(emu, fnc);
+        DynaCall(emu, fnc, 0);
     else
         EmuCall(emu, fnc);
 
@@ -481,12 +485,12 @@ int unlockMutex();
 int write_opcode(uintptr_t rip, uintptr_t native_ip, int is32bits);
 #define is_memprot_locked (1<<1)
 #define is_dyndump_locked (1<<8)
-void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, siginfo_t* info, void * ucntx, int* old_code, void* cur_db)
+int my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, siginfo_t* info, void * ucntx, int* old_code, void* cur_db)
 {
     int Locks = unlockMutex();
     int log_minimum = (BOX64ENV(showsegv))?LOG_NONE:((sig==X64_SIGSEGV && my_context->is_sigaction[sig])?LOG_DEBUG:LOG_INFO);
 
-    printf_log(LOG_DEBUG, "Sigactionhanlder32 for signal #%d called (jump to %p/%s)\n", sig, (void*)my_context->signals[sig], GetNativeName((void*)my_context->signals[sig]));
+    printf_log(LOG_DEBUG, "Sigactionhanlder32 for signal #%d called (jump to %p/%s)\n", sig, (void*)my_context->signals[sig], GetNativeName((void*)my_context->signals[sig], 1));
 
     uintptr_t restorer = my_context->restorer[sig];
     // get that actual ESP first!
@@ -593,7 +597,7 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     uint32_t mmapped = memExist((uintptr_t)info->si_addr);
     uint32_t sysmapped = (info->si_addr<(void*)box64_pagesize)?1:mmapped;
     uint32_t real_prot = 0;
-    int skip = 1;   // in case sigjump is used to restore exectuion, 1 will switch to interpreter, 3 will switch to dynarec
+    int skip = 3;   // in case sigjump is used to restore exectuion, 1 will switch to interpreter, 3 will switch to dynarec
     if(prot&PROT_READ) real_prot|=PROT_READ;
     if(prot&PROT_WRITE) real_prot|=PROT_WRITE;
     if(prot&PROT_EXEC) real_prot|=PROT_WRITE;
@@ -617,6 +621,13 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
                 sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 14;
                 if(!mmapped) info2->si_code = 1;
                 info2->si_errno = 0;
+            } else if (info->si_errno==0xb09d) {
+                // bound exception
+                sigcontext->uc_mcontext.gregs[I386_ERR] = 0;
+                sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 5;
+                info2->si_errno = 0;
+                info2->si_code = 128;
+                info2->_sifields._sigfault.__si_addr = 0;
             }else {
                 sigcontext->uc_mcontext.gregs[I386_ERR] = 0x14|((sysmapped && !(real_prot&PROT_READ))?0:1);
                 sigcontext->uc_mcontext.gregs[I386_TRAPNO] = 14;
@@ -732,11 +743,14 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             GO(SP);
             GO(BX);
             #undef GO
-            if((skip==1) && (emu->ip.q[0]!=sigcontext->uc_mcontext.gregs[I386_EIP]))
-                skip = 3;   // if it jumps elsewhere, it can resume with dynarec...
-            emu->ip.q[0]=sigcontext->uc_mcontext.gregs[I386_EIP];
             // flags
             emu->eflags.x64=sigcontext->uc_mcontext.gregs[I386_EFL];
+            if(ACCESS_FLAG(F_TF))
+                skip = 1;   // no_tf may not be consumed in dynarec, force to use interpreter
+            else if((skip==1) && (emu->ip.q[0]!=sigcontext->uc_mcontext.gregs[I386_EIP]))
+                skip = 3;   // if it jumps elsewhere, it can resume with dynarec...
+            emu->ip.q[0]=sigcontext->uc_mcontext.gregs[I386_EIP];
+            if (ACCESS_FLAG(F_TF) && skip == 1) emu->flags.no_tf = 1;
             // get segments
             #define GO(S) if(emu->segs[_##S]!=sigcontext->uc_mcontext.gregs[I386_##S])  emu->segs[_##S]=sigcontext->uc_mcontext.gregs[I386_##S]
             GO(CS);
@@ -754,12 +768,13 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
             if(Locks & is_dyndump_locked)
                 CancelBlock64(1);
             #endif
-            #ifdef RV64
+            #if defined(RV64) || defined(PPC64LE)
             emu->xSPSave = emu->old_savedsp;
             #endif
             #ifdef DYNAREC
             dynablock_leave_runtime((dynablock_t*)cur_db);
             #endif
+            cancel_deferred_signal_processing(emu);
             #ifdef ANDROID
             siglongjmp(*emu->jmpbuf, skip);
             #else
@@ -780,6 +795,7 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     GO(EBX);
     #undef GO
     emu->eflags.x64=sigcontext->uc_mcontext.gregs[I386_EFL];
+    if(ACCESS_FLAG(F_TF)) emu->flags.no_tf = 1;
     #define GO(R)   R_##R=sigcontext->uc_mcontext.gregs[I386_##R]
     GO(CS);
     GO(DS);
@@ -801,10 +817,15 @@ void my_sigactionhandler_oldcode_32(x64emu_t* emu, int32_t sig, int simple, sigi
     if(restorer)
         RunFunctionHandler32(&exits, 0, NULL, restorer, 0);
     relockMutex(Locks);
+    return 0;
 }
 
 void my32_sigactionhandler(int32_t sig, siginfo_t* info, void * ucntx)
 {
+    sig = signal_to_x64(sig);
+    x64emu_t* emu = thread_get_emu_no_create();
+    if (defer_signal(emu, sig, info))
+        return;
     #ifdef DYNAREC
     ucontext_t *p = (ucontext_t *)ucntx;
     #ifdef ARM64
@@ -813,6 +834,8 @@ void my32_sigactionhandler(int32_t sig, siginfo_t* info, void * ucntx)
     void * pc = (void*)p->uc_mcontext.__pc;
     #elif defined(RV64)
     void * pc = (void*)p->uc_mcontext.__gregs[0];
+    #elif defined(PPC64LE)
+    void * pc = (void*)p->uc_mcontext.gp_regs[PT_NIP];
     #else
     #error Unsupported architecture
     #endif
@@ -821,7 +844,24 @@ void my32_sigactionhandler(int32_t sig, siginfo_t* info, void * ucntx)
     void* db = NULL;
     #endif
 
-    my_sigactionhandler_oldcode_32(NULL, sig, 0, info, ucntx, NULL, db);
+    my_sigactionhandler_oldcode_32(emu, sig, 0, info, ucntx, NULL, db);
+}
+
+static int is_box64_signal_32(int signum)
+{
+    return signum == X64_SIGSEGV || signum == X64_SIGBUS || signum == X64_SIGILL || signum == X64_SIGABRT;
+}
+
+static void fill_emulated_sigaction_32(i386_sigaction_t *oldact, int signum, uintptr_t handler)
+{
+    memset(oldact, 0, sizeof(*oldact));
+    oldact->sa_flags = my_context->sigflags[signum];
+    oldact->sa_mask = my_context->sigmask[signum];
+    oldact->sa_restorer = to_ptr(my_context->restorer[signum]);
+    if(my_context->is_sigaction[signum])
+        oldact->_u._sa_sigaction = to_ptr(handler);
+    else
+        oldact->_u._sa_handler = to_ptr(handler);
 }
 
 
@@ -841,7 +881,12 @@ EXPORT int my32_sigaction(x64emu_t* emu, int signum, const i386_sigaction_t *act
     struct sigaction newact = {0};
     struct sigaction old = {0};
     uintptr_t old_handler = my_context->signals[signum];
+    int box64_signal = is_box64_signal_32(signum);
+    if(oldact && box64_signal)
+        fill_emulated_sigaction_32(oldact, signum, old_handler);
     if(act) {
+        my_context->sigflags[signum] = act->sa_flags;
+        my_context->sigmask[signum] = act->sa_mask;
         newact.sa_mask = act->sa_mask;
         newact.sa_flags = act->sa_flags&~0x04000000;  // No sa_restorer...
         if(act->sa_flags&0x04) {
@@ -864,9 +909,9 @@ EXPORT int my32_sigaction(x64emu_t* emu, int signum, const i386_sigaction_t *act
         my_context->onstack[signum] = (act->sa_flags&SA_ONSTACK)?1:0;
     }
     int ret = 0;
-    if(signum!=X64_SIGSEGV && signum!=X64_SIGBUS && signum!=X64_SIGILL && signum!=X64_SIGABRT)
+    if(!box64_signal)
         ret = sigaction(signal_from_x64(signum), act?&newact:NULL, oldact?&old:NULL);
-    if(oldact) {
+    if(oldact && !box64_signal) {
         oldact->sa_flags = old.sa_flags;
         oldact->sa_mask = old.sa_mask;
         if(old.sa_flags & 0x04)

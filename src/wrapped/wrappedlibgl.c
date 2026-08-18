@@ -219,7 +219,7 @@ EXPORT int my_eglDebugMessageControlKHR(x64emu_t* emu, void* prod, void* param)
 {
     iFpp_t fnc = getBridgeFnc2((void*)R_RIP);
     if(!fnc) fnc=my->eglDebugMessageControlKHR;
-    return fnc(find_debug_callback_Fct(prod), param);
+    return fnc(find_egl_debug_callback_Fct(prod), param);
 }
 // eglSetBlobCacheFuncsANDROID ...
 EXPORT void my_eglSetBlobCacheFuncsANDROID(x64emu_t* emu, void* dpy, void* set, void* get)
@@ -229,22 +229,22 @@ EXPORT void my_eglSetBlobCacheFuncsANDROID(x64emu_t* emu, void* dpy, void* set, 
     fnc(dpy, find_set_blob_func_Fct(set), find_get_blob_func_Fct(get));
 }
 // glXSwapIntervalMESA ...
-EXPORT int my_dummy_glXSwapIntervalMESA(int interval)
+EXPORT int my_dummy_glXSwapIntervalMESA(unsigned int interval)
 {
     return 5; // GLX_BAD_CONTEXT
 }
-EXPORT int my_glXSwapIntervalMESA(x64emu_t* emu, int interval)
+EXPORT int my_glXSwapIntervalMESA(x64emu_t* emu, unsigned int interval)
 {
-    iFi_t fnc = getBridgeFnc2((void*)R_RIP);
+    iFu_t fnc = getBridgeFnc2((void*)R_RIP);
     if(!fnc) fnc=my->glXSwapIntervalMESA;
     if(!fnc) fnc=my_dummy_glXSwapIntervalMESA;
     return fnc(interval);
 }
 // glXSwapIntervalEXT ...
-EXPORT void my_dummy_glXSwapIntervalEXT(void* dpy, void* drawable, int interval) {}
-EXPORT void my_glXSwapIntervalEXT(x64emu_t* emu, void* dpy, void* drawable, int interval)
+EXPORT void my_dummy_glXSwapIntervalEXT(void* dpy, unsigned long drawable, int interval) {}
+EXPORT void my_glXSwapIntervalEXT(x64emu_t* emu, void* dpy, unsigned long drawable, int interval)
 {
-    vFppi_t fnc = getBridgeFnc2((void*)R_RIP);
+    vFpLi_t fnc = getBridgeFnc2((void*)R_RIP);
     if(!fnc) fnc=my->glXSwapIntervalEXT;
     if(!fnc) fnc=my_dummy_glXSwapIntervalEXT;
     fnc(dpy, drawable, interval);
@@ -345,12 +345,6 @@ void* getGLProcAddress(x64emu_t* emu, const char* my, glprocaddress_t procaddr, 
         printf_dlsym_prefix(0, LOG_DEBUG, "%p\n", NULL);
         return NULL;    // easy
     }
-    // check if alread bridged
-    uintptr_t ret = CheckBridged2(emu->context->system, symbol, fnc);
-    if(ret) {
-        printf_dlsym_prefix(0, LOG_DEBUG, "%p\n", (void*)ret);
-        return (void*)ret; // already bridged
-    }
     // get wrapper
     k = kh_get(symbolmap, wrappers->glwrappers, rname);
     if(k==kh_end(wrappers->glwrappers) && strstr(rname, "ARB")==NULL) {
@@ -374,6 +368,12 @@ void* getGLProcAddress(x64emu_t* emu, const char* my, glprocaddress_t procaddr, 
     }
     symbol1_t* s = &kh_value(wrappers->glwrappers, k);
     const char* constname = kh_key(wrappers->glwrappers, k);
+    // check if alread bridged
+    uintptr_t ret = CheckBridged2(emu->context->system, s->w, symbol, fnc);
+    if(ret) {
+        printf_dlsym_prefix(0, LOG_DEBUG, "%p\n", (void*)ret);
+        return (void*)ret; // already bridged
+    }
     ret = AddCheckBridge2(emu->context->system, s->w, symbol, fnc, 0, constname);
     printf_dlsym_prefix(0, LOG_DEBUG, "%p\n", (void*)ret);
     return (void*)ret;

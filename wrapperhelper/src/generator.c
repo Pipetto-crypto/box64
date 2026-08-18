@@ -24,10 +24,12 @@ void request_print(const request_t *req) {
 	case RQT_FUN_MY:
 	case RQT_FUN_D:
 		if (req->def.fun.typ) {
-			printf(" function%s%s %s%s%s",
+			printf(" function%s%s %s%s%s%s%s",
 				rft2str[req->def.rty],
 				req->def.fun.needs_S ? " (with S)" : "",
 				string_content(req->def.fun.typ),
+				req->sym_ver ? "@" : "",
+				req->sym_ver ? string_content(req->sym_ver) : "",
 				req->def.fun.fun2 ? " -> " : "",
 				req->def.fun.fun2 ? string_content(req->def.fun.fun2) : "");
 		} else {
@@ -52,10 +54,12 @@ void request_print(const request_t *req) {
 		case RQT_FUN_MY:
 		case RQT_FUN_D:
 			if (req->val.fun.typ) {
-				printf(" function%s%s %s%s%s",
+				printf(" function%s%s %s%s%s%s%s",
 					rft2str[req->val.rty],
 					req->val.fun.needs_S ? " (with S)" : "",
 					string_content(req->val.fun.typ),
+					req->sym_ver ? "@" : "",
+					req->sym_ver ? string_content(req->sym_ver) : "",
 					req->val.fun.fun2 ? " -> " : "",
 					req->val.fun.fun2 ? string_content(req->val.fun.fun2) : "");
 			} else {
@@ -110,8 +114,10 @@ void request_print_check(const request_t *req) {
 			       && !strcmp(string_content(req->def.fun.typ) + 2, string_content(req->val.fun.typ) + 3);
 		}
 		if (!similar) {
-			printf("%s%s: function with %s%sdefault%s%s%s%s%s%s and dissimilar %ssolved%s%s%s%s%s%s\n",
+			printf("%s%s%s%s: function with %s%sdefault%s%s%s%s%s%s and dissimilar %ssolved%s%s%s%s%s%s\n",
 				string_content(req->obj_name),
+				req->sym_ver ? "@" : "",
+				req->sym_ver ? string_content(req->sym_ver) : "",
 				req->weak ? " (weak)" : "",
 				req->default_comment ? "commented " : "",
 				req->def.fun.typ ? "" : "untyped ",
@@ -170,6 +176,7 @@ void references_print_check(const VECTOR(references) *refs) {
 
 static void request_del(request_t *req) {
 	string_del(req->obj_name);
+	if (req->sym_ver) string_del(req->sym_ver);
 	switch (req->def.rty) {
 	case RQT_FUN:    if (req->def.fun.typ) string_del(req->def.fun.typ);                                                       break;
 	case RQT_FUN_2:  if (req->def.fun.typ) string_del(req->def.fun.typ); if (req->def.fun.fun2) string_del(req->def.fun.fun2); break;
@@ -226,28 +233,32 @@ static const char *rqt_suffix[8] = {
 	[RQT_DATAM] = "M",
 };
 
-static void request_output(FILE *f, const request_t *req) {
+static void request_output(FILE *f, const request_t *req, int check_only) {
 	if (!req->has_val) {
 		if (IS_RQT_FUNCTION(req->def.rty)) {
 			if (!req->def.fun.typ) {
-				fprintf(f, "//GO%s%s%s(%s, \n",
+				fprintf(f, "//GO%s%s%s(%s%s%s, \n",
 					req->weak ? "W" : "",
 					req->def.fun.needs_S ? "S" : "",
 					rqt_suffix[req->def.rty],
-					string_content(req->obj_name));
+					string_content(req->obj_name),
+					req->sym_ver ? "@" : "",
+					req->sym_ver ? string_content(req->sym_ver) : "");
 			} else {
-				fprintf(f, "%sGO%s%s%s(%s, %s%s%s%s%s)%s\n",
+				fprintf(f, "%sGO%s%s%s(%s%s%s, %s%s%s%s%s)%s\n",
 					req->default_comment ? "//" : "",
 					req->weak ? "W" : "",
 					req->def.fun.needs_S ? "S" : "",
 					rqt_suffix[req->def.rty],
 					string_content(req->obj_name),
+					req->sym_ver ? "@" : "",
+					req->sym_ver ? string_content(req->sym_ver) : "",
 					valid_reqtype(req->def.fun.typ) ? "" : "\"",
 					string_content(req->def.fun.typ),
 					valid_reqtype(req->def.fun.typ) ? "" : "\"",
 					IS_RQT_FUN2(req->def.rty) ? ", " : "",
 					IS_RQT_FUN2(req->def.rty) ? string_content(req->def.fun.fun2) : "",
-					(req->ignored || req->default_comment) ? "" : " // Warning: failed to confirm");
+					(req->ignored || req->default_comment || check_only) ? "" : " // Warning: failed to confirm");
 			}
 		} else {
 			if (req->def.dat.has_size) {
@@ -257,7 +268,7 @@ static void request_output(FILE *f, const request_t *req) {
 					rqt_suffix[req->def.rty],
 					string_content(req->obj_name),
 					req->def.dat.sz,
-					(req->ignored || req->default_comment) ? "" : " // Warning: failed to confirm");
+					(req->ignored || req->default_comment || check_only) ? "" : " // Warning: failed to confirm");
 			} else {
 				fprintf(f, "//DATA%s%s(%s, \n",
 					req->weak ? "V" : "",
@@ -270,12 +281,14 @@ static void request_output(FILE *f, const request_t *req) {
 			int is_comment =
 				(IS_RQT_FUNCTION(req->def.rty) && req->def.fun.typ && !req->default_comment)
 				  ? (req->val.rty != req->def.rty) : (req->val.rty != RQT_FUN);
-			fprintf(f, "%sGO%s%s%s(%s, %s%s%s)\n",
+			fprintf(f, "%sGO%s%s%s(%s%s%s, %s%s%s)\n",
 				is_comment ? "//" : "",
 				req->weak ? "W" : "",
 				req->val.fun.needs_S ? "S" : "",
 				rqt_suffix[req->val.rty],
 				string_content(req->obj_name),
+				req->sym_ver ? "@" : "",
+				req->sym_ver ? string_content(req->sym_ver) : "",
 				string_content(req->val.fun.typ),
 				IS_RQT_FUN2(req->val.rty) ? ", " : "",
 				IS_RQT_FUN2(req->val.rty) ? req->val.fun.fun2 ? string_content(req->val.fun.fun2) : "<error: no val>" : "");
@@ -297,10 +310,10 @@ static void request_output(FILE *f, const request_t *req) {
 		}
 	}
 }
-static void reference_output(FILE *f, const reference_t *ref) {
+static void reference_output(FILE *f, const reference_t *ref, int check_only) {
 	switch (ref->typ) {
 	case REF_REQ:
-		request_output(f, &ref->req);
+		request_output(f, &ref->req, check_only);
 		break;
 	case REF_LINE:
 		fputs(string_content(ref->line), f);
@@ -320,10 +333,10 @@ static void reference_output(FILE *f, const reference_t *ref) {
 		break;
 	}
 }
-void output_from_references(FILE *f, const VECTOR(references) *refs) {
+void output_from_references(FILE *f, const VECTOR(references) *refs, int check_only) {
 	fprintf(f, "#if !(defined(GO) && defined(GOM) && defined(GO2) && defined(DATA))\n#error Meh...\n#endif\n");
 	vector_for(references, ref, refs) {
-		reference_output(f, ref);
+		reference_output(f, ref, check_only);
 	}
 }
 
@@ -503,6 +516,7 @@ VECTOR(references) *references_from_file(const char *filename, FILE *f) {
 				.has_val = 0,
 				.ignored = 0,
 				.obj_name = NULL,
+				.sym_ver = NULL,
 				.weak = isweak,
 				.def = {
 					.rty =
@@ -532,13 +546,17 @@ VECTOR(references) *references_from_file(const char *filename, FILE *f) {
 			req.obj_name = tok.tokv.str;
 			// Token moved
 			tok = pre_next_token(prep, 0);
-			if ((tok.tokt != PPTOK_SYM) || (tok.tokv.sym != SYM_COMMA)) {
+			if (tok.tokt == PPTOK_AT_SYM) {
+				// Empty destructor
+				tok = pre_next_string_token_comma(prep);
+				req.sym_ver = tok.tokv.str;
+			} else if ((tok.tokt != PPTOK_SYM) || (tok.tokv.sym != SYM_COMMA)) {
 				log_error(&tok.loginfo, "invalid reference file: invalid GO line %d (comma)\n", lineno);
 				string_del(req.obj_name);
 				preproc_token_del(&tok);
 				goto failed;
 			}
-			// Empty destructor
+			// Empty destructor or token moved
 			tok = pre_next_token(prep, 0);
 			if ((tok.tokt == PPTOK_IDENT) || (tok.tokt == PPTOK_STRING)) {
 				req.def.fun.typ = (tok.tokt == PPTOK_STRING) ? tok.tokv.sstr : tok.tokv.str;
@@ -727,14 +745,16 @@ success:
 
 // Simple versions (in practice, only use x86_64 and aarch64 as emu/target pair)
 static int is_simple_type_ptr_to_simple(type_t *typ, int *needs_D, int *needs_my, khash_t(conv_map) *conv_map) {
-	if (typ->converted) {
-		// printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+	if (typ->converted && (typ->typ != TYPE_PRERESERVED)) {
+		// log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 	} else if (kh_get(conv_map, conv_map, typ) != kh_end(conv_map)) {
-		// printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+		// log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 	}
 	switch (typ->typ) {
+	case TYPE_PRERESERVED:
+		return typ->val.preres.is_simple;
 	case TYPE_BUILTIN:
 		return 1; // Assume pointers to builtin are simple
 	case TYPE_ARRAY:
@@ -762,19 +782,21 @@ static int is_simple_type_ptr_to_simple(type_t *typ, int *needs_D, int *needs_my
 		*needs_my = 1;
 		return 1;
 	default:
-		printf("Error: is_simple_type_ptr_to_simple on unknown type %u\n", typ->typ);
+		log_error_nopos("is_simple_type_ptr_to_simple on unknown type %u\n", typ->typ);
 		return 0;
 	}
 }
 static int is_simple_type_simple(type_t *typ, int *needs_D, int *needs_my, khash_t(conv_map) *conv_map) {
 	if (typ->converted) {
-		// printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+		// log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 	} else if (kh_get(conv_map, conv_map, typ) != kh_end(conv_map)) {
-		// printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+		// log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 	}
 	switch (typ->typ) {
+	case TYPE_PRERESERVED:
+		return typ->val.preres.is_simple;
 	case TYPE_BUILTIN:
 		return (typ->val.builtin != BTT_FLOAT128)
 		    && (typ->val.builtin != BTT_CFLOAT128)
@@ -805,7 +827,7 @@ static int is_simple_type_simple(type_t *typ, int *needs_D, int *needs_my, khash
 		// Functions should be handled differently (GO instead of DATA)
 		return 0;
 	default:
-		printf("Error: is_simple_type_simple on unknown type %u\n", typ->typ);
+		log_error_nopos("is_simple_type_simple on unknown type %u\n", typ->typ);
 		return 0;
 	}
 }
@@ -814,7 +836,7 @@ static int convert_type_simple(string_t *dest, type_t *emu_typ, type_t *target_t
                                int is_ret, int *needs_D, int *needs_my, khash_t(conv_map) *conv_map, string_t *obj_name) {
 	if (emu_typ->converted) {
 		if (!string_add_string(dest, emu_typ->converted)) {
-			printf("Error: failed to add explicit type conversion\n");
+			log_error_nopos("failed to add explicit type conversion\n");
 			return 0;
 		}
 		return 1;
@@ -822,20 +844,23 @@ static int convert_type_simple(string_t *dest, type_t *emu_typ, type_t *target_t
 	khiter_t it = kh_get(conv_map, conv_map, emu_typ);
 	if (it != kh_end(conv_map)) {
 		if (!string_add_string(dest, kh_val(conv_map, it))) {
-			printf("Error: failed to add explicit type conversion\n");
+			log_error_nopos("failed to add explicit type conversion\n");
 			return 0;
 		}
 		return 1;
 	}
 	if ((emu_typ->is_atomic) || (target_typ->is_atomic)) {
-		printf("Error: TODO: convert_type_simple for atomic types\n");
+		log_TODO_nopos("convert_type_simple for atomic types\n");
 		return 0;
 	}
 	if (emu_typ->typ != target_typ->typ) {
-		printf("Error: %s: %s type is different between emulated and target\n", string_content(obj_name), is_ret ? "return" : "argument");
+		log_error_nopos("%s: %s type is different between emulated and target\n", string_content(obj_name), is_ret ? "return" : "argument");
 		*needs_my = 1;
 	}
 	switch (emu_typ->typ) {
+	case TYPE_PRERESERVED:
+		log_internal_nopos("convert_type_simple fallthrough to switch for TYPE_PRERESERVED\n");
+		return 0;
 	case TYPE_BUILTIN: {
 		int has_char = 0;
 		char c;
@@ -877,48 +902,48 @@ static int convert_type_simple(string_t *dest, type_t *emu_typ, type_t *target_t
 		case BTT_LONGDOUBLE: *needs_D = 1; has_char = 1; c = 'D'; break;
 		case BTT_CLONGDOUBLE: *needs_D = 1; has_char = 1; c = 'Y'; break;
 		case BTT_ILONGDOUBLE: *needs_D = 1; has_char = 1; c = 'D'; break;
-		case BTT_FLOAT128: printf("Error: TODO: %s\n", builtin2str[emu_typ->val.builtin]); return 0;
-		case BTT_CFLOAT128: printf("Error: TODO: %s\n", builtin2str[emu_typ->val.builtin]); return 0;
-		case BTT_IFLOAT128: printf("Error: TODO: %s\n", builtin2str[emu_typ->val.builtin]); return 0;
+		case BTT_FLOAT128: log_TODO_nopos("%s\n", builtin2str[emu_typ->val.builtin]); return 0;
+		case BTT_CFLOAT128: log_TODO_nopos("%s\n", builtin2str[emu_typ->val.builtin]); return 0;
+		case BTT_IFLOAT128: log_TODO_nopos("%s\n", builtin2str[emu_typ->val.builtin]); return 0;
 		case BTT_VA_LIST: *needs_my = 1; has_char = 1; c = 'A'; break;
 		default:
-			printf("Error: convert_type_simple on unknown builtin %u\n", emu_typ->val.builtin);
+			log_error_nopos("convert_type_simple on unknown builtin %u\n", emu_typ->val.builtin);
 			return 0;
 		}
 		if (has_char) {
 			if (!string_add_char(dest, c)) {
-				printf("Error: failed to add type char for %s\n", builtin2str[emu_typ->val.builtin]);
+				log_error_nopos("failed to add type char for %s\n", builtin2str[emu_typ->val.builtin]);
 				return 0;
 			}
 			return 1;
 		} else {
-			printf("Internal error: unknown state builtin=%u\n", emu_typ->val.builtin);
+			log_internal_nopos("unknown state builtin=%u\n", emu_typ->val.builtin);
 			return 0;
 		} }
 	case TYPE_ARRAY:
-		printf("Error: convert_type_simple on raw array\n");
+		log_error_nopos("convert_type_simple on raw array\n");
 		return 0;
 	case TYPE_STRUCT_UNION:
 		if (!emu_typ->is_validated || emu_typ->is_incomplete) {
-			printf("Error: incomplete structure for %s\n", string_content(obj_name));
+			log_error_nopos("incomplete structure for %s\n", string_content(obj_name));
 			return 0;
 		}
 		if (is_ret) {
 			if (emu_typ->szinfo.size <= 8) {
 				if (!string_add_char(dest, 'U')) {
-					printf("Error: failed to add type char for structure return\n");
+					log_error_nopos("failed to add type char for structure return\n");
 					return 0;
 				}
 				return 1;
 			} else if (emu_typ->szinfo.size <= 16) {
 				if (!string_add_char(dest, 'H')) {
-					printf("Error: failed to add type char for large structure return\n");
+					log_error_nopos("failed to add type char for large structure return\n");
 					return 0;
 				}
 				return 1;
 			} else {
 				if (!string_add_char(dest, 'p')) {
-					printf("Error: failed to add type char for very large structure return\n");
+					log_error_nopos("failed to add type char for very large structure return\n");
 					return 0;
 				}
 				return 1;
@@ -927,7 +952,7 @@ static int convert_type_simple(string_t *dest, type_t *emu_typ, type_t *target_t
 			if ((emu_typ->val.st->nmembers == 1) && (target_typ->typ == TYPE_STRUCT_UNION) && (target_typ->val.st->nmembers == 1)) {
 				return convert_type_simple(dest, emu_typ->val.st->members[0].typ, target_typ->val.st->members[0].typ, is_ret, needs_D, needs_my, conv_map, obj_name);
 			}
-			printf("Error: TODO: convert_type_simple on structure as argument (%s)\n", string_content(obj_name));
+			log_TODO_nopos("convert_type_simple on structure as argument (%s)\n", string_content(obj_name));
 			return 0;
 		}
 	case TYPE_ENUM:
@@ -940,46 +965,47 @@ static int convert_type_simple(string_t *dest, type_t *emu_typ, type_t *target_t
 	case TYPE_PTR:
 		if (is_simple_type_ptr_to_simple(emu_typ->val.typ, needs_D, needs_my, conv_map)) {
 			if (!string_add_char(dest, 'p')) {
-				printf("Error: failed to add type char for simple pointer\n");
+				log_error_nopos("failed to add type char for simple pointer\n");
 				return 0;
 			}
 			return 1;
 		} else {
 			*needs_my = 1;
 			if (!string_add_char(dest, 'p')) {
-				printf("Error: failed to add type char for complex pointer\n");
+				log_error_nopos("failed to add type char for complex pointer\n");
 				return 0;
 			}
 			return 1;
 		}
 	case TYPE_FUNCTION:
-		printf("Error: convert_type_simple on raw function\n");
+		log_error_nopos("convert_type_simple on raw function\n");
 		return 0;
 	default:
-		printf("Error: convert_type_simple on unknown type %u\n", emu_typ->typ);
+		log_error_nopos("convert_type_simple on unknown type %u\n", emu_typ->typ);
 		return 0;
 	}
 }
 static int convert_type_post_simple(string_t *dest, type_t *emu_typ, type_t *target_typ, string_t *obj_name) {
 	if (emu_typ->converted) return 1;
 	if (emu_typ->is_atomic) {
-		printf("Error: TODO: convert_type_post_simple for atomic types\n");
+		log_TODO_nopos("convert_type_post_simple for atomic types\n");
 		return 0;
 	}
 	(void)target_typ;
 	switch (emu_typ->typ) {
+	case TYPE_PRERESERVED: return 1;
 	case TYPE_BUILTIN: return 1;
 	case TYPE_ARRAY: return 1;
 	case TYPE_STRUCT_UNION:
 		if (!emu_typ->is_validated || emu_typ->is_incomplete) {
-			printf("Error: incomplete structure for %s\n", string_content(obj_name));
+			log_error_nopos("incomplete structure for %s\n", string_content(obj_name));
 			return 0;
 		}
 		if (emu_typ->szinfo.size <= 16) {
 			return 1;
 		} else {
 			if (!string_add_char(dest, 'p')) {
-				printf("Error: failed to add type char for very large structure return as parameter\n");
+				log_error_nopos("failed to add type char for very large structure return as parameter\n");
 				return 0;
 			}
 			return 2;
@@ -988,46 +1014,49 @@ static int convert_type_post_simple(string_t *dest, type_t *emu_typ, type_t *tar
 	case TYPE_PTR: return 1;
 	case TYPE_FUNCTION: return 1;
 	}
-	printf("Error: convert_type_post_simple on unknown type %u\n", emu_typ->typ);
+	log_error_nopos("convert_type_post_simple on unknown type %u\n", emu_typ->typ);
 	return 0;
 }
 
 int solve_request_simple(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(conv_map) *conv_map) {
 	if (emu_typ->typ != target_typ->typ) {
-		printf("Error: %s: emulated and target types are different (emulated is %u, target is %u)\n",
+		log_error_nopos("%s: emulated and target types are different (emulated is %u, target is %u)\n",
 			string_content(req->obj_name), emu_typ->typ, target_typ->typ);
 		return 0;
 	}
 	if (emu_typ->typ == TYPE_FUNCTION) {
-		int needs_D = 0, needs_my = req->def.fun.typ && (req->def.rty == RQT_FUN_MY), needs_2 = 0;
+		int needs_D = 0;
+		int needs_my = req->def.fun.typ && (req->def.rty == RQT_FUN_MY);
+		int needs_e = req->def.fun.typ && (req->def.rty == RQT_FUN_2) && !strncmp(string_content(req->def.fun.fun2), "my_", 3);
+		int needs_2 = 0;
 		int convert_post;
 		size_t idx_conv;
 		req->val.fun.typ = string_new();
 		if (!req->val.fun.typ) {
-			printf("Error: failed to create function type string\n");
+			log_error_nopos("failed to create function type string\n");
 			return 0;
 		}
 		if (!convert_type_simple(req->val.fun.typ, emu_typ->val.fun.ret, target_typ->val.fun.ret, 1, &needs_D, &needs_my, conv_map, req->obj_name))
 			goto fun_fail;
 		idx_conv = string_len(req->val.fun.typ);
 		if (!string_add_char(req->val.fun.typ, 'F')) {
-			printf("Error: failed to add convention char\n");
+			log_error_nopos("failed to add convention char\n");
 			goto fun_fail;
 		}
 		convert_post = convert_type_post_simple(req->val.fun.typ, emu_typ->val.fun.ret, target_typ->val.fun.ret, req->obj_name);
 		if (!convert_post) goto fun_fail;
 		if (emu_typ->val.fun.nargs == (size_t)-1) {
-			printf("Warning: %s: assuming empty specification is void specification\n", string_content(req->obj_name));
+			log_warning_nopos("%s: assuming empty specification is void specification\n", string_content(req->obj_name));
 			if (convert_post == 1) {
 				if (!string_add_char(req->val.fun.typ, 'v')) {
-					printf("Error: failed to add void specification char\n");
+					log_error_nopos("failed to add void specification char\n");
 					goto fun_fail;
 				}
 			}
 		} else if (!emu_typ->val.fun.nargs && !emu_typ->val.fun.has_varargs) {
 			if (convert_post == 1) {
 				if (!string_add_char(req->val.fun.typ, 'v')) {
-					printf("Error: failed to add void specification char\n");
+					log_error_nopos("failed to add void specification char\n");
 					goto fun_fail;
 				}
 			}
@@ -1043,7 +1072,7 @@ int solve_request_simple(request_t *req, type_t *emu_typ, type_t *target_typ, kh
 				      && ((string_content(req->def.fun.typ)[string_len(req->val.fun.typ)] == 'M')
 				       || (string_content(req->def.fun.typ)[string_len(req->val.fun.typ)] == 'N'))) {
 					if (!string_add_char(req->val.fun.typ, string_content(req->def.fun.typ)[string_len(req->val.fun.typ)])) {
-						printf("Error: failed to add type char '%c' for %s\n",
+						log_error_nopos("failed to add type char '%c' for %s\n",
 							string_content(req->def.fun.typ)[string_len(req->val.fun.typ)],
 							builtin2str[emu_typ->val.builtin]);
 						goto fun_fail;
@@ -1051,7 +1080,7 @@ int solve_request_simple(request_t *req, type_t *emu_typ, type_t *target_typ, kh
 				} else {
 					needs_my = 1;
 					if (!string_add_char(req->val.fun.typ, 'V')) {
-						printf("Error: failed to add type char 'V' for %s\n", builtin2str[emu_typ->val.builtin]);
+						log_error_nopos("failed to add type char 'V' for %s\n", builtin2str[emu_typ->val.builtin]);
 						goto fun_fail;
 					}
 				}
@@ -1060,11 +1089,12 @@ int solve_request_simple(request_t *req, type_t *emu_typ, type_t *target_typ, kh
 		
 	// fun_succ:
 		// Add 'E' by default, unless we have the same function as before
-		if (needs_my && (req->default_comment
-		                  || (req->def.rty != RQT_FUN_MY)
-		                  || strcmp(string_content(req->def.fun.typ), string_content(req->val.fun.typ)))) {
+		if ((needs_my || needs_e) &&
+		    (req->default_comment
+		      || (req->def.rty != RQT_FUN_MY)
+		      || strcmp(string_content(req->def.fun.typ), string_content(req->val.fun.typ)))) {
 			if (!string_add_char_at(req->val.fun.typ, 'E', idx_conv + 1)) {
-				printf("Error: failed to add emu char\n");
+				log_error_nopos("failed to add emu char\n");
 				goto fun_fail;
 			}
 		}
@@ -1072,20 +1102,20 @@ int solve_request_simple(request_t *req, type_t *emu_typ, type_t *target_typ, kh
 			needs_2 = 1;
 			req->val.fun.fun2 = string_dup(req->def.fun.fun2);
 			if (!req->val.fun.fun2) {
-				printf("Error: failed to duplicate string (request for function %s with default redirection)\n", string_content(req->obj_name));
+				log_error_nopos("failed to duplicate string (request for function %s with default redirection)\n", string_content(req->obj_name));
 				return 0;
 			}
 		} else if (req->def.fun.typ && (req->def.rty == RQT_FUN_D) && !needs_my) {
 			needs_2 = 0;
 			req->val.fun.fun2 = string_dup(req->def.fun.fun2);
 			if (!req->val.fun.fun2) {
-				printf("Error: failed to duplicate string (request for function %s with long double types)\n", string_content(req->obj_name));
+				log_error_nopos("failed to duplicate string (request for function %s with long double types)\n", string_content(req->obj_name));
 				return 0;
 			}
 		} else if (!needs_my && needs_D) {
 			req->val.fun.fun2 = string_new();
 			if (!req->val.fun.fun2) {
-				printf("Error: failed to create empty string (request for function %s with long double types)\n", string_content(req->obj_name));
+				log_error_nopos("failed to create empty string (request for function %s with long double types)\n", string_content(req->obj_name));
 				return 0;
 			}
 		}
@@ -1117,45 +1147,48 @@ int solve_request_simple(request_t *req, type_t *emu_typ, type_t *target_typ, kh
 	}
 }
 int solve_request_map_simple(request_t *req, khash_t(decl_map) *emu_decl_map, khash_t(decl_map) *target_decl_map, khash_t(conv_map) *conv_map) {
-	int hasemu = 0, hastarget = 0;
-	khiter_t emuit, targetit;
-	emuit = kh_get(decl_map, emu_decl_map, string_content(req->obj_name));
-	if (emuit == kh_end(emu_decl_map)) {
-		goto failed;
+	khiter_t emuit = kh_get(decl_map, emu_decl_map, string_content(req->obj_name));
+	khiter_t targetit = kh_get(decl_map, target_decl_map, string_content(req->obj_name));
+	int hasemu = (emuit != kh_end(emu_decl_map));
+	int hastarget = (targetit != kh_end(target_decl_map));
+	if (hasemu &&
+	    ((kh_val(emu_decl_map, emuit)->storage == STORAGE_STATIC) ||
+	     (kh_val(emu_decl_map, emuit)->storage == STORAGE_TLS_STATIC))) {
+		hasemu = 0;
 	}
-	if ((kh_val(emu_decl_map, emuit)->storage == STORAGE_STATIC) || (kh_val(emu_decl_map, emuit)->storage == STORAGE_TLS_STATIC)) {
-		goto failed;
+	if (hastarget &&
+	    ((kh_val(target_decl_map, targetit)->storage == STORAGE_STATIC) ||
+	     (kh_val(target_decl_map, targetit)->storage == STORAGE_TLS_STATIC))) {
+		hastarget = 0;
 	}
-	targetit = kh_get(decl_map, target_decl_map, string_content(req->obj_name));
-	if (targetit == kh_end(target_decl_map)) {
-		goto failed;
+	if (hasemu && hastarget) {
+		return solve_request_simple(req, kh_val(emu_decl_map, emuit)->typ, kh_val(target_decl_map, targetit)->typ, conv_map);
 	}
-	if ((kh_val(target_decl_map, targetit)->storage == STORAGE_STATIC) || (kh_val(target_decl_map, targetit)->storage == STORAGE_TLS_STATIC)) {
-		goto failed;
-	}
-	return solve_request_simple(req, kh_val(emu_decl_map, emuit)->typ, kh_val(target_decl_map, targetit)->typ, conv_map);
 	
-failed:
 	if (string_content(req->obj_name)[0] != '_') {
 		if (!hasemu && !hastarget) {
-			printf("Error: %s was not declared in the emulated and target architectures\n", string_content(req->obj_name));
+			log_error_nopos("%s was not declared in the emulated and target architectures\n", string_content(req->obj_name));
 		} else if (!hasemu) {
-			printf("Error: %s was not declared only in the emulated architecture\n", string_content(req->obj_name));
+			log_error_nopos("%s was not declared only in the emulated architecture\n", string_content(req->obj_name));
 		} else if (!hastarget) {
-			printf("Error: %s was not declared only in the target architecture\n", string_content(req->obj_name));
+			log_error_nopos("%s was not declared only in the target architecture\n", string_content(req->obj_name));
 		} else {
-			printf("Error: internal error: failed but found for %s\n", string_content(req->obj_name));
+			log_error_nopos("internal error: failed but found for %s\n", string_content(req->obj_name));
 		}
 	}
 	return 0;
 }
-int solve_references_simple(VECTOR(references) *refs, khash_t(decl_map) *emu_decl_map, khash_t(decl_map) *target_decl_map, khash_t(conv_map) *conv_map) {
+int solve_references_simple(VECTOR(references) *refs, khash_t(decl_map) *emu_decl_map, khash_t(decl_map) *target_decl_map, khash_t(conv_map) *conv_map, int check_only) {
 	int ret = 1;
 	int cond_depth = 0, ok_depth = 0;
 	vector_for(references, ref, refs) {
 		switch (ref->typ) {
 		case REF_REQ:
 			if (ok_depth == cond_depth) {
+				if (check_only && (
+				    (IS_RQT_FUNCTION(ref->req.def.rty) && !ref->req.def.fun.typ) ||
+				    (!IS_RQT_FUNCTION(ref->req.def.rty) && !ref->req.def.dat.has_size)
+				)) break;
 				if (!solve_request_map_simple(&ref->req, emu_decl_map, target_decl_map, conv_map)) ret = 0;
 			} else {
 				ref->req.ignored = 1;
@@ -1191,61 +1224,63 @@ enum safeness_e {
 };
 static enum safeness_e get_safeness_ptr(type_t *emu_typ, type_t *target_typ, int *needs_D, int *needs_my, khash_t(conv_map) *conv_map, string_t *obj_name) {
 	if (emu_typ->typ != target_typ->typ) {
-		printf("Error: %s: pointer with different types between emu and target\n", string_content(obj_name));
+		log_error_nopos("%s: pointer with different types between emu and target\n", string_content(obj_name));
 		return SAFE_ABORT;
 	}
-	if (emu_typ->converted) {
-		printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+	if ((emu_typ->converted) && (emu_typ->typ != TYPE_PRERESERVED)) {
+		log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 		return SAFE_OK;
 	} else if (kh_get(conv_map, conv_map, emu_typ) != kh_end(conv_map)) {
-		printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+		log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 		return SAFE_OK;
 	}
 	switch (emu_typ->typ) {
+	case TYPE_PRERESERVED:
+		return SAFE_ABORT;
 	case TYPE_BUILTIN:
 		if (emu_typ->val.builtin != target_typ->val.builtin) {
-			// printf("Warning: %s: emu and target have pointers to different size type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to different size type\n", string_content(obj_name));
 			return SAFE_ABORT;
 		}
 		if (emu_typ->szinfo.size != target_typ->szinfo.size) {
-			// printf("Warning: %s: emu and target have pointers to different size type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to different size type\n", string_content(obj_name));
 			return SAFE_EXPAND;
 		}
 		/* if (emu_typ->szinfo.align != target_typ->szinfo.align) {
-			// printf("Warning: %s: emu and target have pointers to different alignment type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to different alignment type\n", string_content(obj_name));
 			return SAFE_EXPAND;
 		} */
 		// Assume pointers to builtins of the same size and alignment are simple
 		return SAFE_OK;
 	case TYPE_ARRAY:
 		if (emu_typ->szinfo.size != target_typ->szinfo.size) {
-			// printf("Warning: %s: emu and target have pointers to arrays with different size type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to arrays with different size type\n", string_content(obj_name));
 			return SAFE_EXPAND;
 		}
 		if (emu_typ->szinfo.align != target_typ->szinfo.align) {
-			// printf("Warning: %s: emu and target have pointers to arrays with different alignment type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to arrays with different alignment type\n", string_content(obj_name));
 			return SAFE_EXPAND;
 		}
 		if (emu_typ->val.array.array_sz != target_typ->val.array.array_sz) {
-			printf("Error: %s: emu and target have arrays of different size\n", string_content(obj_name));
+			log_error_nopos("%s: emu and target have arrays of different size\n", string_content(obj_name));
 			return SAFE_ABORT; // Shouldn't happen
 		}
 		// Elements also have the same size
 		if ((emu_typ->val.array.array_sz == (size_t)-1) || (target_typ->val.array.array_sz == (size_t)-1)) {
-			printf("Error: %s: has variable length arrays\n", string_content(obj_name));
+			log_error_nopos("%s: has variable length arrays\n", string_content(obj_name));
 			return SAFE_ABORT; // VLA require manual intervention
 		}
 		return get_safeness_ptr(emu_typ->val.array.typ, target_typ->val.array.typ, needs_D, needs_my, conv_map, obj_name);
 	case TYPE_STRUCT_UNION:
 		if (emu_typ->val.st->is_struct != target_typ->val.st->is_struct) {
-			printf("Error: %s: incoherent struct/union type between emulated and target architectures for %s\n",
+			log_error_nopos("%s: incoherent struct/union type between emulated and target architectures for %s\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_ABORT;
 		}
 		if (emu_typ->is_incomplete != target_typ->is_incomplete) {
-			printf("Error: %s: incoherent struct/union completion type between emulated and target architectures for %s\n",
+			log_error_nopos("%s: incoherent struct/union completion type between emulated and target architectures for %s\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_ABORT;
 		}
@@ -1253,7 +1288,7 @@ static enum safeness_e get_safeness_ptr(type_t *emu_typ, type_t *target_typ, int
 			return SAFE_OK; // Undefined structures are OK since they are opaque
 		}
 		if (emu_typ->val.st->nmembers != target_typ->val.st->nmembers) {
-			printf("Error: %s: struct/union %s has different number of members between emulated and target architectures\n",
+			log_error_nopos("%s: struct/union %s has different number of members between emulated and target architectures\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_ABORT;
 		}
@@ -1300,25 +1335,27 @@ static enum safeness_e get_safeness_ptr(type_t *emu_typ, type_t *target_typ, int
 		*needs_my = 1;
 		return SAFE_OK;
 	default:
-		printf("Error: get_safeness_ptr on unknown type %u\n", emu_typ->typ);
+		log_error_nopos("get_safeness_ptr on unknown type %u\n", emu_typ->typ);
 		return SAFE_ABORT;
 	}
 }
 static enum safeness_e get_safeness(type_t *emu_typ, type_t *target_typ, int *needs_D, int *needs_my, khash_t(conv_map) *conv_map, string_t *obj_name) {
 	if (emu_typ->typ != target_typ->typ) {
-		printf("Error: %s: data with different types between emu and target\n", string_content(obj_name));
+		log_error_nopos("%s: data with different types between emu and target\n", string_content(obj_name));
 		return SAFE_ABORT; // Invalid type
 	}
-	if (emu_typ->converted) {
-		// printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+	if ((emu_typ->converted) && (emu_typ->typ != TYPE_PRERESERVED)) {
+		// log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 		return SAFE_OK;
 	} else if (kh_get(conv_map, conv_map, emu_typ) != kh_end(conv_map)) {
-		// printf("Warning: %s uses a converted type but is not the converted type\n", string_content(obj_name));
+		// log_warning_nopos("%s uses a converted type but is not the converted type\n", string_content(obj_name));
 		*needs_my = 1;
 		return SAFE_OK;
 	}
 	switch (emu_typ->typ) {
+	case TYPE_PRERESERVED:
+		return SAFE_ABORT;
 	case TYPE_BUILTIN:
 		if ((emu_typ->val.builtin != target_typ->val.builtin)
 		    || (emu_typ->szinfo.size != target_typ->szinfo.size)
@@ -1332,41 +1369,41 @@ static enum safeness_e get_safeness(type_t *emu_typ, type_t *target_typ, int *ne
 		return SAFE_OK;
 	case TYPE_ARRAY:
 		if (emu_typ->szinfo.size != target_typ->szinfo.size) {
-			// printf("Warning: %s: emu and target have pointers to different size type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to different size type\n", string_content(obj_name));
 			return SAFE_EXPAND;
 		}
 		if (emu_typ->szinfo.align != target_typ->szinfo.align) {
-			// printf("Warning: %s: emu and target have pointers to different alignment type\n", string_content(obj_name));
+			// log_warning_nopos("%s: emu and target have pointers to different alignment type\n", string_content(obj_name));
 			return SAFE_EXPAND;
 		}
 		if (emu_typ->val.array.array_sz != target_typ->val.array.array_sz) {
-			printf("Error: %s: emu and target have arrays of different size\n", string_content(obj_name));
+			log_error_nopos("%s: emu and target have arrays of different size\n", string_content(obj_name));
 			return SAFE_ABORT; // Shouldn't happen
 		}
 		// Elements also have the same size
 		if ((emu_typ->val.array.array_sz == (size_t)-1) || (target_typ->val.array.array_sz == (size_t)-1)) {
-			printf("Error: %s: has variable length arrays\n", string_content(obj_name));
+			log_error_nopos("%s: has variable length arrays\n", string_content(obj_name));
 			return SAFE_ABORT; // VLA require manual intervention
 		}
 		return get_safeness_ptr(emu_typ->val.array.typ, target_typ->val.array.typ, needs_D, needs_my, conv_map, obj_name);
 	case TYPE_STRUCT_UNION:
 		if (emu_typ->val.st->is_struct != target_typ->val.st->is_struct) {
-			printf("Error: %s: incoherent struct/union type between emulated and target architectures for %s\n",
+			log_error_nopos("%s: incoherent struct/union type between emulated and target architectures for %s\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_ABORT;
 		}
 		if (emu_typ->is_incomplete != target_typ->is_incomplete) {
-			printf("Error: %s: incoherent struct/union completion type between emulated and target architectures for %s\n",
+			log_error_nopos("%s: incoherent struct/union completion type between emulated and target architectures for %s\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_ABORT;
 		}
 		if (emu_typ->is_incomplete) {
-			printf("Warning: %s: undefined struct/union %s considered as simple\n",
+			log_warning_nopos("%s: undefined struct/union %s considered as simple\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_OK; // Assume undefined structures are OK since they are opaque
 		}
 		if (emu_typ->val.st->nmembers != target_typ->val.st->nmembers) {
-			printf("Error: %s: struct/union %s has different number of members between emulated and target architectures\n",
+			log_error_nopos("%s: struct/union %s has different number of members between emulated and target architectures\n",
 				string_content(obj_name), emu_typ->val.st->tag ? string_content(emu_typ->val.st->tag) : "<no tag>");
 			return SAFE_ABORT;
 		}
@@ -1393,7 +1430,7 @@ static enum safeness_e get_safeness(type_t *emu_typ, type_t *target_typ, int *ne
 		// Functions should be handled differently (GO instead of DATA)
 		return SAFE_ABORT;
 	default:
-		printf("Error: get_safeness on unknown type %u\n", emu_typ->typ);
+		log_error_nopos("get_safeness on unknown type %u\n", emu_typ->typ);
 		return SAFE_ABORT;
 	}
 }
@@ -1403,7 +1440,7 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
                         _Bool *needs_S, int *needs_D, int *needs_my, khash_t(conv_map) *conv_map, string_t *obj_name) {
 	if (emu_typ->converted) {
 		if (!string_add_string(dest, emu_typ->converted)) {
-			printf("Error: failed to add explicit type conversion\n");
+			log_error_nopos("failed to add explicit type conversion\n");
 			return 0;
 		}
 		return 1;
@@ -1411,20 +1448,23 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 	khiter_t it = kh_get(conv_map, conv_map, emu_typ);
 	if (it != kh_end(conv_map)) {
 		if (!string_add_string(dest, kh_val(conv_map, it))) {
-			printf("Error: failed to add explicit type conversion\n");
+			log_error_nopos("failed to add explicit type conversion\n");
 			return 0;
 		}
 		return 1;
 	}
 	if ((emu_typ->is_atomic) || (target_typ->is_atomic)) {
-		printf("Error: TODO: convert_type for atomic types\n");
+		log_TODO_nopos("convert_type for atomic types\n");
 		return 0;
 	}
 	if (emu_typ->typ != target_typ->typ) {
-		printf("Error: %s: %s type is different between emulated and target\n", string_content(obj_name), needs_S ? "return" : "argument");
+		log_error_nopos("%s: %s type is different between emulated and target\n", string_content(obj_name), needs_S ? "return" : "argument");
 		return 0;
 	}
 	switch (emu_typ->typ) {
+	case TYPE_PRERESERVED:
+		log_internal_nopos("convert_type fallthrough to switch for TYPE_PRERESERVED\n");
+		return 0;
 	case TYPE_BUILTIN: {
 		int has_char = 0;
 		char c;
@@ -1466,36 +1506,36 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 		case BTT_LONGDOUBLE: *needs_D = 1; has_char = 1; c = 'D'; break;
 		case BTT_CLONGDOUBLE: *needs_D = 1; has_char = 1; c = 'Y'; break;
 		case BTT_ILONGDOUBLE: *needs_D = 1; has_char = 1; c = 'D'; break;
-		case BTT_FLOAT128: printf("Error: TODO: %s\n", builtin2str[emu_typ->val.builtin]); return 0;
-		case BTT_CFLOAT128: printf("Error: TODO: %s\n", builtin2str[emu_typ->val.builtin]); return 0;
-		case BTT_IFLOAT128: printf("Error: TODO: %s\n", builtin2str[emu_typ->val.builtin]); return 0;
+		case BTT_FLOAT128: log_TODO_nopos("%s\n", builtin2str[emu_typ->val.builtin]); return 0;
+		case BTT_CFLOAT128: log_TODO_nopos("%s\n", builtin2str[emu_typ->val.builtin]); return 0;
+		case BTT_IFLOAT128: log_TODO_nopos("%s\n", builtin2str[emu_typ->val.builtin]); return 0;
 		case BTT_VA_LIST: *needs_my = 1; has_char = 1; c = 'p'; break;
 		default:
-			printf("Error: convert_type on unknown builtin %u\n", emu_typ->val.builtin);
+			log_error_nopos("convert_type on unknown builtin %u\n", emu_typ->val.builtin);
 			return 0;
 		}
 		if (has_char) {
 			if (!string_add_char(dest, c)) {
-				printf("Error: failed to add type char for complex pointer\n");
+				log_error_nopos("failed to add type char for complex pointer\n");
 				return 0;
 			}
 			return 1;
 		} else {
-			printf("Internal error: unknown state builtin=%u\n", emu_typ->val.builtin);
+			log_internal_nopos("unknown state builtin=%u\n", emu_typ->val.builtin);
 			return 0;
 		} }
 	case TYPE_ARRAY: {
 		// May come from the content of a pointer or structure
 		if ((emu_typ->val.array.array_sz == (size_t)-1) || (target_typ->val.array.array_sz == (size_t)-1)) {
-			printf("Error: %s: has variable length arrays\n", string_content(obj_name));
+			log_error_nopos("%s: has variable length arrays\n", string_content(obj_name));
 			return 0; // VLA require manual intervention
 		}
 		if (emu_typ->val.array.array_sz != target_typ->val.array.array_sz) {
-			printf("Error: %s: emu and target have arrays of different size\n", string_content(obj_name));
+			log_error_nopos("%s: emu and target have arrays of different size\n", string_content(obj_name));
 			return 0; // Shouldn't happen
 		}
 		if (!emu_typ->val.array.array_sz) {
-			// printf("Warning: %s: has zero-length array\n", string_content(obj_name));
+			// log_warning_nopos("%s: has zero-length array\n", string_content(obj_name));
 			return 1;
 		}
 		size_t idx = string_len(dest);
@@ -1504,7 +1544,7 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 		size_t end = string_len(dest);
 		if (idx == end) return 1;
 		if (!string_reserve(dest, idx + (end - idx) * emu_typ->val.array.array_sz)) {
-			printf("Error: failed to reserve string capacity (for array of type conversing length %zu and size %zu)\n",
+			log_error_nopos("failed to reserve string capacity (for array of type conversing length %zu and size %zu)\n",
 				end - idx, emu_typ->val.array.array_sz);
 			return 0;
 		}
@@ -1517,14 +1557,14 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 		return 1; }
 	case TYPE_STRUCT_UNION:
 		if (!emu_typ->is_validated || emu_typ->is_incomplete) {
-			printf("Error: incomplete structure for %s\n", string_content(obj_name));
+			log_error_nopos("incomplete structure for %s\n", string_content(obj_name));
 			return 0;
 		}
 		if (needs_S) {
 			*needs_S = 1;
 			// TODO: remove this and add support in the python wrappers for structure returns
 			if (!string_add_char(dest, 'p')) {
-				printf("Error: failed to add type char for very large structure return\n");
+				log_error_nopos("failed to add type char for very large structure return\n");
 				return 0;
 			}
 			return 1;
@@ -1532,7 +1572,7 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 			if ((emu_typ->val.st->nmembers == 1) && (target_typ->typ == TYPE_STRUCT_UNION) && (target_typ->val.st->nmembers == 1)) {
 				return convert_type(dest, emu_typ->val.st->members[0].typ, target_typ->val.st->members[0].typ, allow_nesting, needs_S, needs_D, needs_my, conv_map, obj_name);
 			}
-			printf("Error: TODO: convert_type on structure as argument (%s)\n", string_content(obj_name));
+			log_TODO_nopos("convert_type on structure as argument (%s)\n", string_content(obj_name));
 			return 0;
 		}
 	case TYPE_ENUM:
@@ -1540,7 +1580,7 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 	case TYPE_PTR:
 		switch (get_safeness_ptr(emu_typ->val.typ, target_typ->val.typ, needs_D, needs_my, conv_map, obj_name)) {
 		default:
-			printf("Internal error: %s: pointer to unknown type\n", string_content(obj_name));
+			log_internal_nopos("%s: pointer to unknown type\n", string_content(obj_name));
 			return 0;
 			
 		case SAFE_ABORT:
@@ -1548,7 +1588,7 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 			
 		case SAFE_OK:
 			if (!string_add_char(dest, 'p')) {
-				printf("Error: failed to add type char for simple pointer\n");
+				log_error_nopos("failed to add type char for simple pointer\n");
 				return 0;
 			}
 			return 1;
@@ -1558,13 +1598,13 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 				// TODO remove this with a better rebuild_wrappers.py
 				*needs_my = 1;
 				if (!string_add_char(dest, 'p')) {
-					printf("Error: failed to add type char for simple pointer\n");
+					log_error_nopos("failed to add type char for simple pointer\n");
 					return 0;
 				}
 				return 1;
 			}
 			if (!string_add_char(dest, emu_typ->is_const ? 'r' : 'b')) {
-				printf("Error: failed to add start type char for wrapping pointer\n");
+				log_error_nopos("failed to add start type char for wrapping pointer\n");
 				return 0;
 			}
 			// Find the underlying type to convert
@@ -1572,6 +1612,9 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 			target_typ = target_typ->val.typ;
 		do_expanded:
 			switch (emu_typ->typ) {
+			case TYPE_PRERESERVED:
+				log_internal_nopos("convert_type got SAFE_EXPAND for TYPE_PRERESERVED\n");
+				return 0;
 			case TYPE_BUILTIN:
 				if (!convert_type(dest, emu_typ, target_typ, 0, needs_S, needs_D, needs_my, conv_map, obj_name)) {
 					return 0;
@@ -1584,7 +1627,7 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 				break;
 			case TYPE_STRUCT_UNION:
 				if (!emu_typ->val.st->is_defined) {
-					printf("Internal error: EXPAND with undefined struct/union ptr\n");
+					log_internal_nopos("EXPAND with undefined struct/union ptr\n");
 					return 0;
 				}
 				if (emu_typ->val.st->nmembers == 1) { // Single-member struct/union
@@ -1617,16 +1660,16 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 				break;
 			}
 			if (!string_add_char(dest, '_')) {
-				printf("Error: failed to add end type char for wrapping pointer\n");
+				log_error_nopos("failed to add end type char for wrapping pointer\n");
 				return 0;
 			}
 			return 1;
 		}
 	case TYPE_FUNCTION:
-		printf("Internal error: convert_type on raw function\n");
+		log_internal_nopos("convert_type on raw function\n");
 		return 1;
 	default:
-		printf("Error: convert_type on unknown type %u\n", emu_typ->typ);
+		log_error_nopos("convert_type on unknown type %u\n", emu_typ->typ);
 		return 0;
 	}
 }
@@ -1634,21 +1677,22 @@ static int convert_type(string_t *dest, type_t *emu_typ, type_t *target_typ, int
 static int convert_type_post(string_t *dest, type_t *emu_typ, type_t *target_typ, string_t *obj_name) {
 	if (emu_typ->converted) return 1;
 	if (emu_typ->is_atomic) {
-		printf("Error: TODO: convert_type_post for atomic types\n");
+		log_TODO_nopos("convert_type_post for atomic types\n");
 		return 0;
 	}
 	(void)target_typ;
 	switch (emu_typ->typ) {
+	case TYPE_PRERESERVED: return 1;
 	case TYPE_BUILTIN: return 1;
 	case TYPE_ARRAY: return 1;
 	case TYPE_STRUCT_UNION:
 		if (!emu_typ->is_validated || emu_typ->is_incomplete) {
-			printf("Error: incomplete structure for %s\n", string_content(obj_name));
+			log_error_nopos("incomplete structure for %s\n", string_content(obj_name));
 			return 0;
 		}
 		// Hard coded
 		if (!string_add_char(dest, 'p')) {
-			printf("Error: failed to add type char for very large structure return as parameter\n");
+			log_error_nopos("failed to add type char for very large structure return as parameter\n");
 			return 0;
 		}
 		return 2;
@@ -1656,13 +1700,13 @@ static int convert_type_post(string_t *dest, type_t *emu_typ, type_t *target_typ
 	case TYPE_PTR: return 1;
 	case TYPE_FUNCTION: return 1;
 	}
-	printf("Error: convert_type_post on unknown type %u\n", emu_typ->typ);
+	log_error_nopos("convert_type_post on unknown type %u\n", emu_typ->typ);
 	return 0;
 }
 
 int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(conv_map) *conv_map) {
 	if (emu_typ->typ != target_typ->typ) {
-		printf("Error: %s: emulated and target types are different (emulated is %u, target is %u)\n",
+		log_error_nopos("%s: emulated and target types are different (emulated is %u, target is %u)\n",
 			string_content(req->obj_name), emu_typ->typ, target_typ->typ);
 		return 0;
 	}
@@ -1672,30 +1716,30 @@ int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(c
 		size_t idx_conv;
 		req->val.fun.typ = string_new();
 		if (!req->val.fun.typ) {
-			printf("Error: failed to create function type string\n");
+			log_error_nopos("failed to create function type string\n");
 			return 0;
 		}
 		if (!convert_type(req->val.fun.typ, emu_typ->val.fun.ret, target_typ->val.fun.ret, 0, &req->val.fun.needs_S, &needs_D, &needs_my, conv_map, req->obj_name))
 			goto fun_fail;
 		idx_conv = string_len(req->val.fun.typ);
 		if (!string_add_char(req->val.fun.typ, 'F')) {
-			printf("Error: failed to add convention char\n");
+			log_error_nopos("failed to add convention char\n");
 			goto fun_fail;
 		}
 		convert_post = convert_type_post(req->val.fun.typ, emu_typ->val.fun.ret, target_typ->val.fun.ret, req->obj_name);
 		if (!convert_post) goto fun_fail;
 		if (emu_typ->val.fun.nargs == (size_t)-1) {
-			printf("Warning: %s: assuming empty specification is void specification\n", string_content(req->obj_name));
+			log_warning_nopos("%s: assuming empty specification is void specification\n", string_content(req->obj_name));
 			if (convert_post == 1) {
 				if (!string_add_char(req->val.fun.typ, 'v')) {
-					printf("Error: failed to add void specification char\n");
+					log_error_nopos("failed to add void specification char\n");
 					goto fun_fail;
 				}
 			}
 		} else if (!emu_typ->val.fun.nargs && !emu_typ->val.fun.has_varargs) {
 			if (convert_post == 1) {
 				if (!string_add_char(req->val.fun.typ, 'v')) {
-					printf("Error: failed to add void specification char\n");
+					log_error_nopos("failed to add void specification char\n");
 					goto fun_fail;
 				}
 			}
@@ -1711,7 +1755,7 @@ int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(c
 				      && ((string_content(req->def.fun.typ)[string_len(req->val.fun.typ)] == 'M')
 				       || (string_content(req->def.fun.typ)[string_len(req->val.fun.typ)] == 'N'))) {
 					if (!string_add_char(req->val.fun.typ, string_content(req->def.fun.typ)[string_len(req->val.fun.typ)])) {
-						printf("Error: failed to add type char '%c' for %s\n",
+						log_error_nopos("failed to add type char '%c' for %s\n",
 							string_content(req->def.fun.typ)[string_len(req->val.fun.typ)],
 							builtin2str[emu_typ->val.builtin]);
 						goto fun_fail;
@@ -1719,7 +1763,7 @@ int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(c
 				} else {
 					needs_my = 1;
 					if (!string_add_char(req->val.fun.typ, 'V')) {
-						printf("Error: failed to add type char 'V' for %s\n", builtin2str[emu_typ->val.builtin]);
+						log_error_nopos("failed to add type char 'V' for %s\n", builtin2str[emu_typ->val.builtin]);
 						goto fun_fail;
 					}
 				}
@@ -1732,7 +1776,7 @@ int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(c
 		                  || (req->def.rty != RQT_FUN_MY)
 		                  || strcmp(string_content(req->def.fun.typ), string_content(req->val.fun.typ)))) {
 			if (!string_add_char_at(req->val.fun.typ, 'E', idx_conv + 1)) {
-				printf("Error: failed to add emu char\n");
+				log_error_nopos("failed to add emu char\n");
 				goto fun_fail;
 			}
 		}
@@ -1740,20 +1784,20 @@ int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(c
 			needs_2 = 1;
 			req->val.fun.fun2 = string_dup(req->def.fun.fun2);
 			if (!req->val.fun.fun2) {
-				printf("Error: failed to duplicate string (request for function %s with default redirection)\n", string_content(req->obj_name));
+				log_error_nopos("failed to duplicate string (request for function %s with default redirection)\n", string_content(req->obj_name));
 				return 0;
 			}
 		} else if (req->def.fun.typ && (req->def.rty == RQT_FUN_D) && !needs_my) {
 			needs_2 = 0;
 			req->val.fun.fun2 = string_dup(req->def.fun.fun2);
 			if (!req->val.fun.fun2) {
-				printf("Error: failed to duplicate string (request for function %s with long double types)\n", string_content(req->obj_name));
+				log_error_nopos("failed to duplicate string (request for function %s with long double types)\n", string_content(req->obj_name));
 				return 0;
 			}
 		} else if (!needs_my && needs_D) {
 			req->val.fun.fun2 = string_new();
 			if (!req->val.fun.fun2) {
-				printf("Error: failed to create empty string (request for function %s with long double types)\n", string_content(req->obj_name));
+				log_error_nopos("failed to create empty string (request for function %s with long double types)\n", string_content(req->obj_name));
 				return 0;
 			}
 		}
@@ -1790,47 +1834,48 @@ int solve_request(request_t *req, type_t *emu_typ, type_t *target_typ, khash_t(c
 	}
 }
 int solve_request_map(request_t *req, khash_t(decl_map) *emu_decl_map, khash_t(decl_map) *target_decl_map, khash_t(conv_map) *conv_map) {
-	int hasemu = 0, hastarget = 0;
-	khiter_t emuit, targetit;
-	emuit = kh_get(decl_map, emu_decl_map, string_content(req->obj_name));
-	if (emuit == kh_end(emu_decl_map)) {
-		goto failed;
+	khiter_t emuit = kh_get(decl_map, emu_decl_map, string_content(req->obj_name));
+	khiter_t targetit = kh_get(decl_map, target_decl_map, string_content(req->obj_name));
+	int hasemu = (emuit != kh_end(emu_decl_map));
+	int hastarget = (targetit != kh_end(target_decl_map));
+	if (hasemu &&
+	    ((kh_val(emu_decl_map, emuit)->storage == STORAGE_STATIC) ||
+	     (kh_val(emu_decl_map, emuit)->storage == STORAGE_TLS_STATIC))) {
+		hasemu = 0;
 	}
-	if ((kh_val(emu_decl_map, emuit)->storage == STORAGE_STATIC) || (kh_val(emu_decl_map, emuit)->storage == STORAGE_TLS_STATIC)) {
-		goto failed;
+	if (hastarget &&
+	    ((kh_val(target_decl_map, targetit)->storage == STORAGE_STATIC) ||
+	     (kh_val(target_decl_map, targetit)->storage == STORAGE_TLS_STATIC))) {
+		hastarget = 0;
 	}
-	hasemu = 1;
-	targetit = kh_get(decl_map, target_decl_map, string_content(req->obj_name));
-	if (targetit == kh_end(target_decl_map)) {
-		goto failed;
+	if (hasemu && hastarget) {
+		return solve_request(req, kh_val(emu_decl_map, emuit)->typ, kh_val(target_decl_map, targetit)->typ, conv_map);
 	}
-	if ((kh_val(target_decl_map, targetit)->storage == STORAGE_STATIC) || (kh_val(target_decl_map, targetit)->storage == STORAGE_TLS_STATIC)) {
-		goto failed;
-	}
-	hastarget = 1;
-	return solve_request(req, kh_val(emu_decl_map, emuit)->typ, kh_val(target_decl_map, targetit)->typ, conv_map);
 	
-failed:
 	if (string_content(req->obj_name)[0] != '_') {
 		if (!hasemu && !hastarget) {
-			printf("Error: %s was not declared in the emulated and target architectures\n", string_content(req->obj_name));
+			log_error_nopos("%s was not declared in the emulated and target architectures\n", string_content(req->obj_name));
 		} else if (!hasemu) {
-			printf("Error: %s was not declared only in the emulated architecture\n", string_content(req->obj_name));
+			log_error_nopos("%s was not declared only in the emulated architecture\n", string_content(req->obj_name));
 		} else if (!hastarget) {
-			printf("Error: %s was not declared only in the target architecture\n", string_content(req->obj_name));
+			log_error_nopos("%s was not declared only in the target architecture\n", string_content(req->obj_name));
 		} else {
-			printf("Error: internal error: failed but found for %s\n", string_content(req->obj_name));
+			log_error_nopos("internal error: failed but found for %s\n", string_content(req->obj_name));
 		}
 	}
 	return 0;
 }
-int solve_references(VECTOR(references) *refs, khash_t(decl_map) *emu_decl_map, khash_t(decl_map) *target_decl_map, khash_t(conv_map) *conv_map) {
+int solve_references(VECTOR(references) *refs, khash_t(decl_map) *emu_decl_map, khash_t(decl_map) *target_decl_map, khash_t(conv_map) *conv_map, int check_only) {
 	int ret = 1;
 	int cond_depth = 0, ok_depth = 0;
 	vector_for(references, ref, refs) {
 		switch (ref->typ) {
 		case REF_REQ:
 			if (ok_depth == cond_depth) {
+				if (check_only && (
+				    (IS_RQT_FUNCTION(ref->req.def.rty) && !ref->req.def.fun.typ) ||
+				    (!IS_RQT_FUNCTION(ref->req.def.rty) && !ref->req.def.dat.has_size)
+				)) break;
 				if (!solve_request_map(&ref->req, emu_decl_map, target_decl_map, conv_map)) ret = 0;
 			} else {
 				ref->req.ignored = 1;

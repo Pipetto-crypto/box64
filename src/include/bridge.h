@@ -11,8 +11,8 @@ bridge_t *NewBridge(void);
 void FreeBridge(bridge_t** bridge);
 
 uintptr_t AddBridge(bridge_t* bridge, wrapper_t w, void* fnc, int N, const char* name);
-uintptr_t CheckBridged(bridge_t* bridge, void* fnc);
-uintptr_t CheckBridged2(bridge_t* bridge, void* fnc, void* fnc2);
+uintptr_t CheckBridged(bridge_t* bridge, wrapper_t w, void* fnc);
+uintptr_t CheckBridged2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2);
 uintptr_t AddBridge2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2, int N, const char* name);
 uintptr_t AddCheckBridge(bridge_t* bridge, wrapper_t w, void* fnc, int N, const char* name);
 uintptr_t AddCheckBridge2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2, int N, const char* name);
@@ -26,11 +26,12 @@ uintptr_t AddVSyscall(bridge_t* bridge, int num);
 
 const char* getBridgeName(void* addr);
 void* getBridgeFnc2(void* addr);
+int isInlinableNativeCall(uintptr_t addr);
 
 void init_bridge_helper(void);
 void fini_bridge_helper(void);
 
 // Is what pointed at addr a native call? And if yes, to what function?
 int isNativeCallInternal(uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t* retn);
-
+uintptr_t AddAltJump(bridge_t* bridge, uintptr_t addr, uintptr_t jump_to_addr);
 #endif //__BRIDGE_H_

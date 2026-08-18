@@ -75,7 +75,11 @@ uintptr_t RunAVX_0F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             CLEAR_FLAG(F_CF);
             CLEAR_FLAG(F_OF);
             CLEAR_FLAG(F_AF);   // Undef
-            CLEAR_FLAG(F_PF);   // Undef
+            if (BOX64ENV(cputype)) {
+                CLEAR_FLAG(F_PF);
+            } else {
+                CONDITIONAL_SET_FLAG(PARITY(GD->byte[0] & 0xff), F_PF);
+            }
             break;
         case 0xF3:
             nextop = F8;
@@ -152,6 +156,7 @@ uintptr_t RunAVX_0F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
         case 0xF5:  /* BZHI Gd, Ed, Vd */
             nextop = F8;
             if(vex.l) EmitSignal(emu, X64_SIGILL, (void*)R_RIP, 0);
+            ResetFlags(emu);
             GETGD;
             GETED(0);
             GETVD;
@@ -170,11 +175,7 @@ uintptr_t RunAVX_0F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
             CLEAR_FLAG(F_OF);
             // UD flags
             CLEAR_FLAG(F_AF);
-            if(BOX64ENV(cputype)) {
-                CLEAR_FLAG(F_PF);
-            } else {
-                CONDITIONAL_SET_FLAG(PARITY(VD->byte[0] & 0xff), F_PF);
-            }
+            CLEAR_FLAG(F_PF);
             break;
 
         case 0xF7:  /* BEXTR Gd, Ed, Vd */
@@ -204,8 +205,7 @@ uintptr_t RunAVX_0F38(x64emu_t *emu, vex_t vex, uintptr_t addr, int *step)
                     GD->dword[0] = (ED->dword[0]>>tmp32u)&tmp64u;
                 else
                     GD->dword[0] = 0;
-                if(MODREG)
-                    GD->dword[1] = 0;
+                GD->dword[1] = 0;
             }
             ResetFlags(emu);
             CONDITIONAL_SET_FLAG(rex.w?(GD->q[0]==0):(GD->dword[0]==0), F_ZF);

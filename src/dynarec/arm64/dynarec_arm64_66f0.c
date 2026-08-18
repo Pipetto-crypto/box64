@@ -210,11 +210,16 @@ uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                 SETFLAGS(X_ALL, SF_SET_PENDING);
                 GETGW(x5);
                 addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, NULL, 0, 0, rex, LOCK_LOCK, 0, 0);
+                MOVx_REG(x6, xFlags);
+                MRS_nzcv(x87pc);
                 MARKLOCK;
+                MOVx_REG(xFlags, x6);
+                MSR_nzcv(x87pc);
                 LDAXRH(x1, wback);
                 emit_adc16(dyn, ninst, x1, x5, x3, x4);
                 STLXRH(x3, x1, wback);
                 CBNZx_MARKLOCK(x3);
+                NATIVE_RESTORE_X87PC();
             }
             break;
 
@@ -320,11 +325,11 @@ uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         SETFLAGS(X_ALL, SF_SET_PENDING);
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, NULL, 0, 0, rex, LOCK_LOCK, 0, (opcode==0x81)?2:1);
                         if(opcode==0x81) i16 = F16S; else i16 = F8S;
-                        if(!i64) {MOV32w(x5, i16);}
                         if(cpuext.atomics) {
+                            MOV32w(x5, i16);
                             UFLAG_IF {
                                 LDSETALH(x5, x1, wback);
-                                emit_or16c(dyn, ninst, x1, i16, x3, x4);
+                                emit_or16(dyn, ninst, x1, x5, x3, x4);
                             } else {
                                 STSETLH(x5, wback);
                             }
@@ -355,12 +360,17 @@ uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         SETFLAGS(X_ALL, SF_SET_PENDING);
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, NULL, 0, 0, rex, LOCK_LOCK, 0, (opcode==0x81)?2:1);
                         if(opcode==0x81) i16 = F16S; else i16 = F8S;
-                        MOV32w(x5, i16);
+                        MOV32w(x5, (uint16_t)i16);
+                        MOVx_REG(x6, xFlags);
+                        MRS_nzcv(x87pc);
                         MARKLOCK;
+                        MOVx_REG(xFlags, x6);
+                        MSR_nzcv(x87pc);
                         LDAXRH(x1, wback);
                         emit_adc16(dyn, ninst, x1, x5, x3, x4);
                         STLXRH(x3, x1, wback);
                         CBNZx_MARKLOCK(x3);
+                        NATIVE_RESTORE_X87PC();
                     }
                     break;
                 case 3: //SBB
@@ -375,12 +385,17 @@ uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         SETFLAGS(X_ALL, SF_SET_PENDING);
                         addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, NULL, 0, 0, rex, LOCK_LOCK, 0, (opcode==0x81)?2:1);
                         if(opcode==0x81) i16 = F16S; else i16 = F8S;
-                        MOV32w(x5, i16);
+                        MOV32w(x5, (uint16_t)i16);
+                        MOVx_REG(x6, xFlags);
+                        MRS_nzcv(x87pc);
                         MARKLOCK;
+                        MOVx_REG(xFlags, x6);
+                        MSR_nzcv(x87pc);
                         LDAXRH(x1, wback);
                         emit_sbb16(dyn, ninst, x1, x5, x3, x4);
                         STLXRH(x3, x1, wback);
                         CBNZx_MARKLOCK(x3);
+                        NATIVE_RESTORE_X87PC();
                     }
                     break;
                 case 4: //AND
@@ -455,7 +470,7 @@ uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                             MARKLOCK;
                             LDAXRH(x1, wback);
                             SUBw_REG(x4, x1, x5);
-                            STLXRH(x3, x1, wback);
+                            STLXRH(x3, x4, wback);
                             CBNZx_MARKLOCK(x3);
                         }
                         if(!ALIGNED_ATOMICH) {
@@ -489,9 +504,10 @@ uintptr_t dynarec64_66F0(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int n
                         if(opcode==0x81) i16 = F16S; else i16 = F8S;
                         i64 = convert_bitmask_w(i16);
                         if(cpuext.atomics) {
+                            MOV32w(x5, i16);
                             UFLAG_IF {
                                 LDEORALH(x5, x1, wback);
-                                emit_xor16c(dyn, ninst, x1, i16, x3, x4);
+                                emit_xor16(dyn, ninst, x1, x5, x3, x4);
                             } else {
                                 STEORLH(x5, wback);
                             }

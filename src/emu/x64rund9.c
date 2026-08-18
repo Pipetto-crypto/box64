@@ -50,10 +50,19 @@ uintptr_t RunD9(x64emu_t *emu, rex_t rex, uintptr_t addr)
         case 0xC5:
         case 0xC6:
         case 0xC7:  /* FLD STx */
-            ll = ST(nextop&7).q;
-            fpu_do_push(emu);
-            ST0.q = ll;
-            break;
+            {
+                int i = nextop&7;
+                fpu_ld_t ld = STld(i);
+                int ld_valid = fpu_ld80_raw_valid(emu, i);
+                ll = ST(i).q;
+                fpu_do_push(emu);
+                ST0.q = ll;
+                if(ld_valid)
+                    STld(0) = ld;
+                else
+                    fpu_ld80_clear(emu, 0);
+                break;
+            }
         case 0xC8:
         case 0xC9:
         case 0xCA:
@@ -62,10 +71,11 @@ uintptr_t RunD9(x64emu_t *emu, rex_t rex, uintptr_t addr)
         case 0xCD:
         case 0xCE:
         case 0xCF:  /* FXCH STx */
-            ll = ST(nextop&7).q;
-            ST(nextop&7).q = ST0.q;
-            ST0.q = ll;
-            break;
+            {
+                int i = nextop&7;
+                fpu_ld80_swap(emu, 0, i);
+                break;
+            }
 
         case 0xD0:  /* FNOP */
             break;
@@ -78,15 +88,39 @@ uintptr_t RunD9(x64emu_t *emu, rex_t rex, uintptr_t addr)
         case 0xDD:
         case 0xDE:
         case 0xDF:
-            ST(nextop&7).q = ST0.q;
+            fpu_ld80_copy(emu, nextop&7, 0);
             fpu_do_pop(emu);
             break;
         case 0xE0:  /* FCHS */
-            ST0.d = -ST0.d;
-            break;
+            {
+                int i = fpu_ld80_raw_valid(emu, 0);
+                ST0.d = -ST0.d;
+                if(i) {
+#ifdef HAVE_LD80BITS
+                    STld(0).ld = -STld(0).ld;
+#else
+                    STld(0).ld.l.upper ^= 0x8000;
+#endif
+                    STld(0).uref = ST0.q;
+                } else
+                    fpu_ld80_clear(emu, 0);
+                break;
+            }
         case 0xE1:  /* FABS */
-            ST0.d = fabs(ST0.d);
-            break;
+            {
+                int i = fpu_ld80_raw_valid(emu, 0);
+                ST0.d = fabs(ST0.d);
+                if(i) {
+#ifdef HAVE_LD80BITS
+                    STld(0).ld = fabsl(STld(0).ld);
+#else
+                    STld(0).ld.l.upper &= 0x7fff;
+#endif
+                    STld(0).uref = ST0.q;
+                } else
+                    fpu_ld80_clear(emu, 0);
+                break;
+            }
         
         case 0xE4:  /* FTST */
             fpu_ftst(emu);
@@ -169,13 +203,30 @@ uintptr_t RunD9(x64emu_t *emu, rex_t rex, uintptr_t addr)
             break;
 
         case 0xF5:  /* FPREM1 */
-            // get exponant(ST(0))-exponant(ST(1)) in temp32s
-            ll = (int64_t)round(ST0.d/ST1.d);
-            ST0.d = ST0.d - (ST1.d*ll);
-            emu->sw.f.F87_C2 = 0;
-            emu->sw.f.F87_C1 = (ll&1)?1:0;
-            emu->sw.f.F87_C3 = (ll&2)?1:0;
-            emu->sw.f.F87_C0 = (ll&4)?1:0;
+            {
+                double x = ST0.d, y = ST1.d;
+                int q = 0;
+                if (isnan(x) || isnan(y)) {
+                    ST0.d = NAN;
+                } else if (isinf(x) || y == 0.0) {
+#if !defined(_WIN32) && !defined(__MINGW32__)
+                    feraiseexcept(FE_INVALID);
+#endif
+                    ST0.d = NAN;
+                } else {
+#if defined(_WIN32) || defined(__MINGW32__)
+                    q = (int)round(x / y);
+                    ST0.d = x - (y * q);
+#else
+                    ST0.d = remquo(x, y, &q);
+#endif
+                }
+                q &= 7;
+                emu->sw.f.F87_C2 = 0;
+                emu->sw.f.F87_C1 = q & 1;
+                emu->sw.f.F87_C3 = (q >> 1) & 1;
+                emu->sw.f.F87_C0 = (q >> 2) & 1;
+            }
             break;
         case 0xF6:  /* FDECSTP */
             emu->top=(emu->top-1)&7;    // this will probably break a few things
@@ -187,12 +238,41 @@ uintptr_t RunD9(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 emu->top=(emu->top+1)&7;    // this will probably break a few things
             break;
         case 0xF8:  /* FPREM */
-            ll = (int64_t)trunc(ST0.d/ST1.d);
-            ST0.d = ST0.d - (ST1.d*ll);
-            emu->sw.f.F87_C2 = 0;
-            emu->sw.f.F87_C1 = (ll&1)?1:0;
-            emu->sw.f.F87_C3 = (ll&2)?1:0;
-            emu->sw.f.F87_C0 = (ll&4)?1:0;
+            {
+                int go = 1;
+                if(fpu_ld80_raw_valid(emu, 0) && fpu_ld80_raw_valid(emu, 1)) {
+                    // try a full precision fpre alternative
+                    if(full_ld_fprem(emu))
+                        go = 0;
+                }
+                if(go) {
+                    double x = ST0.d, y = ST1.d;
+                    int64_t q = 0;
+                    if (isnan(x) || isnan(y)) {
+                        ST0.d = NAN;
+                        q = 0;
+                    } else if (isinf(x) || y == 0.0) {
+#if !defined(_WIN32) && !defined(__MINGW32__)
+                        feraiseexcept(FE_INVALID);
+#endif
+                        ST0.d = NAN;
+                        q = 0;
+                    } else {
+#if defined(_WIN32) || defined(__MINGW32__)
+                        q = (int64_t)trunc(x / y);
+                        ST0.d = x - (y * q);
+#else
+                        ST0.d = fmod(x, y);
+                        q = (int64_t)trunc(x / y);
+#endif
+                    }
+                    q &= 7;
+                    emu->sw.f.F87_C2 = 0;
+                    emu->sw.f.F87_C1 = q & 1;
+                    emu->sw.f.F87_C3 = (q >> 1) & 1;
+                    emu->sw.f.F87_C0 = (q >> 2) & 1;
+                }
+            }
             break;
         case 0xF9:  /* FYL2XP1 */
             // Using the log1p instead of log2(ST0+1) can avoid losing precision much,

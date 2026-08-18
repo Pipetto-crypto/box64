@@ -111,7 +111,7 @@ static void* findPCMHookFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my32_pcm_hook_fct_##A == (uintptr_t)fct) return my32_elem_##A;
+    #define GO(A) if(my32_pcm_hook_fct_##A == (uintptr_t)fct) return my32_pcm_hook_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my32_pcm_hook_fct_##A == 0) {my32_pcm_hook_fct_##A = (uintptr_t)fct; return my32_pcm_hook_##A; }
@@ -123,9 +123,9 @@ static void* findPCMHookFct(void* fct)
 //  snd_mixer_compare_t
 #define GO(A)   \
 static uintptr_t my32_mixer_compare_fct_##A = 0;                       \
-static int my32_mixer_compare_##A(void* a)                             \
+static int my32_mixer_compare_##A(void* a, void* b)                    \
 {                                                               \
-    return (int)RunFunctionFmt(my32_mixer_compare_fct_##A, "p", a);    \
+    return (int)RunFunctionFmt(my32_mixer_compare_fct_##A, "pp", a, b); \
 }
 SUPER()
 #undef GO
@@ -133,7 +133,7 @@ static void* findMixerCompareFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my32_mixer_compare_fct_##A == (uintptr_t)fct) return my32_elem_##A;
+    #define GO(A) if(my32_mixer_compare_fct_##A == (uintptr_t)fct) return my32_mixer_compare_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my32_mixer_compare_fct_##A == 0) {my32_mixer_compare_fct_##A = (uintptr_t)fct; return my32_mixer_compare_##A; }
@@ -155,7 +155,7 @@ static void* findPrivateFreeFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my32_private_free_fct_##A == (uintptr_t)fct) return my32_elem_##A;
+    #define GO(A) if(my32_private_free_fct_##A == (uintptr_t)fct) return my32_private_free_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my32_private_free_fct_##A == 0) {my32_private_free_fct_##A = (uintptr_t)fct; return my32_private_free_##A; }
@@ -177,7 +177,7 @@ static void* findMixerEventFct(void* fct)
 {
     if(!fct) return fct;
     if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
-    #define GO(A) if(my32_mixer_event_fct_##A == (uintptr_t)fct) return my32_elem_##A;
+    #define GO(A) if(my32_mixer_event_fct_##A == (uintptr_t)fct) return my32_mixer_event_##A;
     SUPER()
     #undef GO
     #define GO(A) if(my32_mixer_event_fct_##A == 0) {my32_mixer_event_fct_##A = (uintptr_t)fct; return my32_mixer_event_##A; }
@@ -351,6 +351,31 @@ EXPORT int my32_snd_device_name_free_hint(x64emu_t* emu, ptr_t* hints)
     for(int i=n; i>=0; --i)
         hints_l[i] = from_ptrv(hints[i]);
     return my->snd_device_name_free_hint(hints_l);
+}
+
+EXPORT ptr_t* my32_snd_pcm_query_chmaps(x64emu_t* emu, void* pcm)
+{
+    void** maps_l = NULL;
+    maps_l = my->snd_pcm_query_chmaps(pcm);
+    if(!maps_l) return NULL;
+    ptr_t* maps = (ptr_t*)maps_l;
+    // inplace shrink
+    int n = 0;
+    while(maps_l[n]) ++n;
+    ++n;
+    for(int i=0; i<n; ++i)
+        ((ptr_t*)maps_l)[i] = to_ptrv(maps_l[i]);
+    return maps;
+}
+
+EXPORT void my32_snd_pcm_free_chmaps(x64emu_t* emu, ptr_t* maps)
+{
+    void** maps_l = (void**)maps;
+    int n=0;
+    while(maps[n]) ++n;
+    for(int i=n; i>=0; --i)
+        maps_l[i] = from_ptrv(maps[i]);
+    my->snd_pcm_free_chmaps(maps_l);
 }
 
 void* my_dlopen(x64emu_t* emu, void *filename, int flag);   // defined in wrappedlibdl.c

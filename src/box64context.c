@@ -6,10 +6,14 @@
 #include <signal.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#include <inttypes.h>
 
 #include "os.h"
 #include "box64context.h"
 #include "debug.h"
+#ifdef DYNAREC
+#include "dynablock.h"
+#endif
 #include "elfloader.h"
 #include "custommem.h"
 #include "threads.h"
@@ -83,14 +87,14 @@ void relockMutex(int locks)
             mutex_trylock(&A);          \
 
     GO(my_context->mutex_trace, 7)
-    #ifdef DYNAREC
     GO(my_context->mutex_dyndump, 8)
-    #else
-    GO(my_context->mutex_lock, 8)
-    #endif
     GO(my_context->mutex_tls, 9)
     GO(my_context->mutex_thread, 10)
     GO(my_context->mutex_bridge, 11)
+    #ifdef DYNAREC
+    #else
+    GO(my_context->mutex_lock, 12)
+    #endif
     #undef GO
 }
 
@@ -105,6 +109,7 @@ void init_mutexes(box64context_t* context)
     pthread_mutex_init(&context->mutex_tls, &attr);
     pthread_mutex_init(&context->mutex_thread, &attr);
     pthread_mutex_init(&context->mutex_bridge, &attr);
+    pthread_mutex_init(&context->mutex_dyndump, &attr);
 
     pthread_mutexattr_destroy(&attr);
 #else
@@ -133,6 +138,11 @@ static void atfork_child_box64context(void)
 {
     // (re)init mutex if it was lock before the fork
     init_mutexes(my_context);
+    #ifdef DYNAREC
+    // Cancel FillBlock if needed
+    void CancelBlock64(int need_lock);
+    CancelBlock64(0);
+    #endif
 }
 
 int box64_cycle_log_initialized = 0;
@@ -179,6 +189,12 @@ box64context_t *NewBox64Context(int argc)
     context->local_maplib = NewLibrarian(context);
     context->versym = NewDictionnary();
     context->system = NewBridge();
+    #ifdef DYNAREC
+    int old_is32bits = box64_is32bits;
+    box64_is32bits = 1;
+    context->alternates = NewBridge();  // this needs to be in 32bits address space
+    box64_is32bits = old_is32bits;
+    #endif
     // Cannot use Bridge name as the map is not initialized yet
     // create vsyscall
     context->vsyscall = AddBridge(context->system, vFEv, box64_is32bits?x86Syscall:x64Syscall, 0, NULL);
@@ -244,6 +260,41 @@ box64context_t *NewBox64Context(int argc)
 
 void freeALProcWrapper(box64context_t* context);
 void freeCUDAProcWrapper(box64context_t* context);
+
+#ifdef DYNAREC
+//#define DYNAREC_HIST    // uncomment to print dynablock size histogram at exit
+#ifdef DYNAREC_HIST
+#define HIST_BUCKETS 12
+static const uintptr_t bucket_limits[HIST_BUCKETS] = {
+    8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, (uintptr_t)-1
+};
+static const char* bucket_labels[HIST_BUCKETS] = {
+    "1-8", "9-16", "17-32", "33-64", "65-128", "129-256",
+    "257-512", "513-1024", "1025-2048", "2049-4096", "4097-8192", "8193+"
+};
+typedef struct {
+    uint64_t count[HIST_BUCKETS];
+    uint64_t total_blocks;
+    uint64_t total_bytes;
+    uintptr_t max_size;
+} hist_data_t;
+static void db_size_walk_cb(uintptr_t start, uintptr_t end, uint64_t data, void* userdata) {
+    (void)end;
+    hist_data_t* h = (hist_data_t*)userdata;
+    uintptr_t size = start;  // key = x64_size
+    uint64_t n = data;       // value = count of blocks
+    for (int i = 0; i < HIST_BUCKETS; i++) {
+        if (size <= bucket_limits[i]) {
+            h->count[i] += n;
+            break;
+        }
+    }
+    h->total_blocks += n;
+    h->total_bytes += size * n;
+    if (size > h->max_size) h->max_size = size;
+}
+#endif
+#endif
 EXPORTDYN
 void FreeBox64Context(box64context_t** context)
 {
@@ -254,6 +305,11 @@ void FreeBox64Context(box64context_t** context)
         return;
 
     box64context_t* ctx = *context;   // local copy to do the cleaning
+
+    if(ctx->video_mem) {
+        munmap(ctx->video_mem, 0x10000);
+        ctx->video_mem = NULL;
+    }
 
     //clean_current_emuthread();    // cleaning main thread seems a bad idea
     if(ctx->local_maplib)
@@ -293,10 +349,16 @@ void FreeBox64Context(box64context_t** context)
         ctx->atfork_sz = ctx->atfork_cap = 0;
     }
 
+    box_free(ctx->quick_cleanups);
+
     for(int i=0; i<MAX_SIGNAL; ++i)
         if(ctx->signals[i]!=0 && ctx->signals[i]!=1) {
             signal(i, SIG_DFL);
         }
+
+    #ifdef DYNAREC
+    FlushZombieDynablocks();  // free all deferred-free dynablocks before my_context goes away
+    #endif
 
     *context = NULL;                // bye bye my_context
 
@@ -310,6 +372,9 @@ void FreeBox64Context(box64context_t** context)
     box_free(ctx->pythonpath);
 
     FreeBridge(&ctx->system);
+    #ifdef DYNAREC
+    FreeBridge(&ctx->alternates);
+    #endif
 
     #ifndef STATICBUILD
     freeGLProcWrapper(ctx);
@@ -336,7 +401,21 @@ void FreeBox64Context(box64context_t** context)
     FreeMapSymbols(&ctx->uniques);
 
 #ifdef DYNAREC
-    //dynarec_log(LOG_INFO, "BOX64 Dynarec at exit: Max DB=%d, rightmost=%d\n", ctx->max_db_size, rb_get_rightmost(ctx->db_sizes));
+#ifdef DYNAREC_HIST
+    {
+        hist_data_t hist = {0};
+        rbtree_walk(ctx->db_sizes, db_size_walk_cb, &hist);
+        if(hist.total_blocks) {
+            printf_log(LOG_INFO, "BOX64 Dynarec block size histogram: %" PRIu64 " blocks, %" PRIu64 " total x86 bytes, max=%" PRIuPTR "\n",
+                hist.total_blocks, hist.total_bytes, hist.max_size);
+            for(int i = 0; i < HIST_BUCKETS; i++) {
+                if(hist.count[i])
+                    printf_log(LOG_INFO, "  %10s: %" PRIu64 " blocks (%.1f%%)\n",
+                        bucket_labels[i], hist.count[i], hist.count[i] * 100.0 / hist.total_blocks);
+            }
+        }
+    }
+#endif
     rbtree_delete(ctx->db_sizes);
 #endif
 
@@ -350,6 +429,7 @@ void FreeBox64Context(box64context_t** context)
     pthread_mutex_destroy(&ctx->mutex_tls);
     pthread_mutex_destroy(&ctx->mutex_thread);
     pthread_mutex_destroy(&ctx->mutex_bridge);
+    pthread_mutex_destroy(&ctx->mutex_dyndump);
 #endif
 
     freeCycleLog(ctx);

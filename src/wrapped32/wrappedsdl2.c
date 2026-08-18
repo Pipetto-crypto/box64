@@ -109,8 +109,8 @@ static void* find_eventfilter_Fct(void* fct)
 static void* reverse_eventfilter_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, iFpp_32, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, iFpp_32, fct);
     #define GO(A) if(my_eventfilter_##A == fct) return (void*)my_eventfilter_fct_##A;
     SUPER()
     #undef GO
@@ -423,6 +423,8 @@ EXPORT void* my32_2_SDL_CreateThread(x64emu_t* emu, void* f, void* n, void* p)
 {
     void* et = NULL;
     void* fnc = my32_prepare_thread(emu, f, p, 0, &et);
+    if(!fnc)
+        return NULL;
     return my->SDL_CreateThread(fnc, n, et);
 }
 
@@ -770,9 +772,9 @@ EXPORT int my32_2_SDL_ShowMessageBox(my_SDL_MessageBoxData_32_t* msgbox, int* bt
     msgbox_l.colorScheme = from_ptrv(msgbox->colorScheme);
     my_SDL_MessageBoxButtonData_32_t* src = from_ptrv(msgbox->buttons);
     for(int i=0; i<msgbox_l.numbuttons; ++i) {
-        btns_l[i].flags = src[i].buttonid;
+        btns_l[i].flags = src[i].flags;
         btns_l[i].buttonid = src[i].buttonid;
-        btns_l[i].text = from_ptrv(src[i].buttonid);
+        btns_l[i].text = from_ptrv(src[i].text);
     }
     return my->SDL_ShowMessageBox(&msgbox_l, btn);
 }

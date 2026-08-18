@@ -55,7 +55,7 @@ uintptr_t RunDD(x64emu_t *emu, rex_t rex, uintptr_t addr)
         case 0xD5:
         case 0xD6:
         case 0xD7:
-            ST(nextop&7).q = ST0.q;
+            fpu_ld80_copy(emu, nextop&7, 0);
             break;
         case 0xD8:  /* FSTP ST0, STx */
         case 0xD9:
@@ -65,7 +65,7 @@ uintptr_t RunDD(x64emu_t *emu, rex_t rex, uintptr_t addr)
         case 0xDD:
         case 0xDE:
         case 0xDF:
-            ST(nextop&7).q = ST0.q;
+            fpu_ld80_copy(emu, nextop&7, 0);
             fpu_do_pop(emu);
             break;
         case 0xE0:  /* FUCOM ST0, STx */
@@ -104,9 +104,10 @@ uintptr_t RunDD(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 if(STll(0).sref==ST(0).sq)
                     ED->sq[0] = STll(0).sq;
                 else {
-                    if(isgreater(ST0.d, (double)0x7fffffffffffffffLL) || isless(ST0.d, -(double)0x8000000000000000LL) || !isfinite(ST0.d))
+                    if(isgreater(ST0.d, (double)0x7fffffffffffffffLL) || isless(ST0.d, -(double)0x8000000000000000LL) || !isfinite(ST0.d)) {
+                        fpu_raise_invalid(emu);
                         *(uint64_t*)ED = 0x8000000000000000LL;
-                    else
+                    } else
                         *(int64_t*)ED = ST0.d;
                 }
                 fpu_do_pop(emu);
@@ -128,7 +129,7 @@ uintptr_t RunDD(x64emu_t *emu, rex_t rex, uintptr_t addr)
                     char* p =(char*)ED;
                     p += 28;
                     for (int i=0; i<8; ++i) {
-                        LD2D(p, &emu->x87[7-i].d);
+                        LD2D(p, &ST(i).d);
                         p+=10;
                     }
                 }
@@ -142,9 +143,9 @@ uintptr_t RunDD(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 // save the STx
                 {
                     char* p =(char*)ED;
-                    p += 14;
+                    p += 28;
                     for (int i=0; i<8; ++i) {
-                        D2LD(&emu->x87[7-i].d, p);
+                        D2LD(&ST(i).d, p);
                         p+=10;
                     }
                 }

@@ -687,18 +687,24 @@ static register_mapping_t register_mappings[] = {
     { "rip", "s6" },
 };
 
+static const char* df_status[] = { "unknown", "set", "none_pending", "none" };
+
 void printf_x64_instruction(dynarec_native_t* dyn, zydis_dec_t* dec, instruction_x64_t* inst, const char* name);
 void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t rex)
 {
+    if (dyn->need_dump == 3) {
+        printf_x64_instruction(dyn, rex.is32bits ? my_context->dec32 : my_context->dec, &dyn->insts[ninst].x64, name);
+        if (!BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
+    }
     if (!dyn->need_dump && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) return;
 
     static char buf[4096];
-    int length = sprintf(buf, "barrier=%d state=%d/%d(%d), %s=%X/%X, use=%X, need=%X/%X, fuse=%d/%d, sm=%d(%d/%d), sew@entry=%d, sew@exit=%d",
+    int length = sprintf(buf, "barrier=%d state=%d/%s(%s->%s), set=%X/%X, use=%X, need=%X/%X, fuse=%d/%d, sm=%d(%d/%d), sew@entry=%d, sew@exit=%d",
         dyn->insts[ninst].x64.barrier,
         dyn->insts[ninst].x64.state_flags,
-        dyn->f.pending,
-        dyn->f.dfnone,
-        dyn->insts[ninst].x64.may_set ? "may" : "set",
+        df_status[dyn->f],
+        df_status[dyn->insts[ninst].f_entry],
+        df_status[dyn->insts[ninst].f_exit],
         dyn->insts[ninst].x64.set_flags,
         dyn->insts[ninst].x64.gen_flags,
         dyn->insts[ninst].x64.use_flags,
@@ -742,16 +748,16 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
     if (dyn->insts[ninst].e.combined1 || dyn->insts[ninst].e.combined2)
         length += sprintf(buf + length, " %s:%d/%d", dyn->insts[ninst].e.swapped ? "SWP" : "CMB", dyn->insts[ninst].e.combined1, dyn->insts[ninst].e.combined2);
 
-    if (dyn->need_dump) {
+    if (dyn->need_dump && dyn->need_dump != 3) {
         printf_x64_instruction(dyn, rex.is32bits ? my_context->dec32 : my_context->dec, &dyn->insts[ninst].x64, name);
         dynarec_log(LOG_NONE, "%s%p: %d emitted opcodes, inst=%d, %s%s\n",
             (dyn->need_dump > 1) ? "\e[32m" : "",
             (void*)(dyn->native_start + dyn->insts[ninst].address), dyn->insts[ninst].size / 4, ninst, buf, (dyn->need_dump > 1) ? "\e[m" : "");
     }
     if (BOX64ENV(dynarec_gdbjit)) {
-        static char buf2[512];
+        static char buf2[4096+64];
         if (BOX64ENV(dynarec_gdbjit) > 1) {
-            sprintf(buf2, "; %d: %d opcodes, %s", ninst, dyn->insts[ninst].size / 4, buf);
+            snprintf(buf2, sizeof(buf2), "; %d: %d opcodes, %s", ninst, dyn->insts[ninst].size / 4, buf);
             dyn->gdbjit_block = GdbJITBlockAddLine(dyn->gdbjit_block, (dyn->native_start + dyn->insts[ninst].address), buf2);
         }
         zydis_dec_t* dec = rex.is32bits ? my_context->dec32 : my_context->dec;
@@ -764,7 +770,7 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
         dyn->gdbjit_block = GdbJITBlockAddLine(dyn->gdbjit_block, (dyn->native_start + dyn->insts[ninst].address), inst_name);
     }
     if (BOX64ENV(dynarec_perf_map) && BOX64ENV(dynarec_perf_map_fd) != -1) {
-        writePerfMap(dyn->insts[ninst].x64.addr, dyn->native_start + dyn->insts[ninst].address, dyn->insts[ninst].size / 4, name);
+        writePerfMap(dyn->insts[ninst].x64.addr, dyn->native_start + dyn->insts[ninst].address, dyn->insts[ninst].size, name);
     }
     if (length > sizeof(buf)) printf_log(LOG_NONE, "Warning: buf to small in inst_name_pass3 (%d vs %zd)\n", length, sizeof(buf));
 }

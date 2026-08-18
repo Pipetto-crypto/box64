@@ -18,7 +18,7 @@
 GOM(pthread_atfork, iEEppp)
 GOM(__pthread_atfork, iEEppp)
 GOM(pthread_attr_destroy, iEEp)
-// pthread_attr_getaffinity_np
+GOM(pthread_attr_getaffinity_np, iEEpup)
 GOM(pthread_attr_getdetachstate, iEEpp)
 GOM(pthread_attr_getguardsize, iEEpp)
 GOM(pthread_attr_getinheritsched, iEEpp)
@@ -126,10 +126,10 @@ GOM(__pthread_register_cancel, vEEp)
 // __pthread_register_cancel_defer
 GO(pthread_rwlockattr_destroy, vEp)
 GO(pthread_rwlockattr_getkind_np, iEpp)
-// pthread_rwlockattr_getpshared
+GO(pthread_rwlockattr_getpshared, iEpp)
 GO(pthread_rwlockattr_init, iEp)
 GO(pthread_rwlockattr_setkind_np, iEpi)
-// pthread_rwlockattr_setpshared
+GO(pthread_rwlockattr_setpshared, iEpi)
 // __pthread_rwlock_destroy
 GOM(pthread_rwlock_destroy, iEp)    //%noE
 GOM(__pthread_rwlock_init, iEpp)    //%noE
@@ -163,7 +163,7 @@ GO(pthread_spin_lock, iEp)
 GO(pthread_spin_trylock, iEp)
 GO(pthread_spin_unlock, iEp)
 GO(pthread_testcancel, vEv)
-GO(pthread_timedjoin_np, iEhpp) // will leak handle
+GO(pthread_timedjoin_np, iEhprLL_) // will leak handle
 GO(pthread_tryjoin_np, iEhp)    // will leak handle
 GOM(__pthread_unregister_cancel, vEEp)
 // __pthread_unregister_cancel_restore

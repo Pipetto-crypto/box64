@@ -154,8 +154,8 @@ static void* find_EvtFilter_Fct(void* fct)
 static void* reverse_EvtFilterFct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, iFp_32, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, iFp_32, fct);
     #define GO(A) if(my32_EvtFilter_##A == fct) return (void*)my32_EvtFilter_fct_##A;
     SUPER()
     #undef GO
@@ -428,6 +428,8 @@ EXPORT void *my32_SDL_CreateThread(x64emu_t* emu, void* cb, void* p)
 {
     void* et = NULL;
     void* fnc = my32_prepare_thread(emu, cb, p, 0, &et);
+    if(!fnc)
+        return NULL;
     return my->SDL_CreateThread(fnc, et);
 }
 

@@ -23,6 +23,7 @@
 #include "x64test.h"
 #include "dynarec/dynarec_next.h"
 #include "bitutils.h"
+#include "random.h"
 
 #ifndef HAVE_TRACE
 void PrintTrace() {}
@@ -32,7 +33,7 @@ uintptr_t getConst(rv64_consts_t which)
 {
     switch(which) {
         case const_none: dynarec_log(LOG_NONE, "Warning, const none used\n");
-            return 0;
+            return (uintptr_t)native_ud;
         case const_daa8: return (uintptr_t)daa8;
         case const_das8: return (uintptr_t)das8;
         case const_aaa16: return (uintptr_t)aaa16;
@@ -136,8 +137,8 @@ uintptr_t getConst(rv64_consts_t which)
         case const_deBruijn64tab: return (uintptr_t)deBruijn64tab;
 
         case const_last: dynarec_log(LOG_NONE, "Warning, const last used\n");
-            return 0;
+            return (uintptr_t)native_ud;
     }
     dynarec_log(LOG_NONE, "Warning, Unknown const %d used\n", which);
-    return 0;
+    return (uintptr_t)native_ud;
 }

@@ -112,6 +112,10 @@ extern box64env_t box64env;
 #define PARITY(x)   (((emu->x64emu_parity_tab[(x) / 32] >> ((x) % 32)) & 1) == 0)
 #define XOR2(x) 	(((x) ^ ((x)>>1)) & 0x1)
 
+static const unsigned __int128 UINT128_MAX =(unsigned __int128)(__int128)-1L;
+static const __int128 INT128_MAX = UINT128_MAX >> 1;
+static const __int128 INT128_MIN = -INT128_MAX - 1;
+
 /*----------------------------- Implementation ----------------------------*/
 
 /****************************************************************************
@@ -169,17 +173,29 @@ Implements the AAD instruction and side effects.
 uint16_t aad16(x64emu_t *emu, uint16_t d, uint8_t base)
 {
 	uint16_t l;
+	uint16_t res;
 	uint8_t hb, lb;
+	uint8_t s;
+	uint32_t cc;
 
 	RESET_FLAGS(emu);
 
 	hb = (uint8_t)((d >> 8) & 0xff);
 	lb = (uint8_t)((d & 0xff));
-	l = (uint16_t)((lb + base * hb) & 0xFF);
+	s = (uint8_t)(base * hb);
+	res = (uint16_t)lb + s;
+	l = (uint16_t)(res & 0xFF);
 
-	CLEAR_FLAG(F_CF);
-	CLEAR_FLAG(F_AF);
-	CLEAR_FLAG(F_OF);
+	if (BOX64ENV(cputype)) {
+		CLEAR_FLAG(F_CF);
+		CLEAR_FLAG(F_AF);
+		CLEAR_FLAG(F_OF);
+	} else {
+		cc = (s & lb) | ((~l) & (s | lb));
+		CONDITIONAL_SET_FLAG(res & 0x100, F_CF);
+		CONDITIONAL_SET_FLAG(cc & 0x8, F_AF);
+		CONDITIONAL_SET_FLAG(XOR2(cc >> 6), F_OF);
+	}
 	CONDITIONAL_SET_FLAG(l & 0x80, F_SF);
 	CONDITIONAL_SET_FLAG((l&0xff) == 0, F_ZF);
 	CONDITIONAL_SET_FLAG(PARITY(l & 0xff), F_PF);
@@ -1399,7 +1415,7 @@ void idiv16(x64emu_t *emu, uint16_t s)
 	}
 
 	dvd = (((int32_t)R_DX) << 16) | R_AX;
-	if (s == 0) {
+	if ((s==0) || ((dvd==INT32_MIN) && ((int16_t)s==-1))) {
 		INTR_RAISE_DIV0(emu);
 		return;
 	}
@@ -1427,7 +1443,7 @@ void idiv32(x64emu_t *emu, uint32_t s)
 	}
 
 	dvd = (((int64_t)R_EDX) << 32) | R_EAX;
-	if (s == 0) {
+	if ((s==0) || ((dvd==INT64_MIN) && ((int32_t)s==-1))) {
 		INTR_RAISE_DIV0(emu);
 		return;
 	}
@@ -1455,7 +1471,7 @@ void idiv64(x64emu_t *emu, uint64_t s)
 	}
 
 	dvd = (((__int128)R_RDX) << 64) | R_RAX;
-	if (s == 0) {
+	if ((s==0) || ((dvd==INT128_MIN) && ((int64_t)s==-1))) {
 		INTR_RAISE_DIV0(emu);
 		return;
 	}

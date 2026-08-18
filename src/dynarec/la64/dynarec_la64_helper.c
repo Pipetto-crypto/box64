@@ -24,8 +24,9 @@
 #include "dynarec_la64_private.h"
 #include "dynarec_la64_functions.h"
 #include "../dynarec_helper.h"
+#include "dynarec_la64_helper.h"
 
-#define SCRATCH 31
+static_assert(offsetof(x64emu_t, mxcsr) == EMU_MXCSR, "EMU_MXCSR out of sync with x64emu_t");
 
 /* setup r2 to address pointed by ED, also fixaddress is an optionnal delta in the range [-absmax, +absmax], with delta&mask==0 to be added to ed for LDR/STR */
 uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, uint8_t* ed, uint8_t hint, uint8_t scratch, int64_t* fixaddress, rex_t rex, int* l, int i12, int delta)
@@ -43,6 +44,14 @@ uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, 
 
     if (rex.is32bits && rex.is67)
         return geted16(dyn, addr, ninst, nextop, ed, hint, scratch, fixaddress, rex, i12);
+
+    if ((nextop & 7) == 4) {
+        uint8_t sib = PK(0);
+        if (((sib & 7) != 5) || ((nextop & 0xC0) != 0)) UP32_READ(TO_NAT((sib & 7) + (rex.b << 3)));
+        if ((((sib >> 3) & 7) + (rex.x << 3)) != 4) UP32_READ(TO_NAT(((sib >> 3) & 7) + (rex.x << 3)));
+    } else if (((nextop & 7) != 5) || ((nextop & 0xC0) != 0)) {
+        UP32_READ(TO_NAT((nextop & 7) + (rex.b << 3)));
+    }
 
     uint8_t ret = x2;
     *fixaddress = 0;
@@ -205,7 +214,14 @@ uintptr_t geted(dynarec_la64_t* dyn, uintptr_t addr, int ninst, uint8_t nextop, 
                 ADDIy(ret, scratch, i64);
                 if (!IS_GPR(ret)) SCRATCH_USAGE(1);
             } else {
-                MOV64y(scratch, i64);
+                int64_t lo12 = ((i64 & 0xFFF) ^ 0x800) - 0x800;
+                int64_t hi20 = i64 - lo12;
+                if (i12 && lo12 <= maxval && hi20 >= -0x80000000LL && hi20 <= 0x7FFFF000LL) {
+                    LU12I_W(scratch, hi20 >> 12);
+                    *fixaddress = lo12;
+                } else {
+                    MOV64y(scratch, i64);
+                }
                 SCRATCH_USAGE(1);
                 if ((nextop & 7) == 4) {
                     if (sib_reg != 4) {
@@ -345,6 +361,7 @@ void jump_to_epilog(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst)
     }
     TABLE64C(x2, const_epilog);
     SMEND();
+    CHECK_DFNONE(0);
     BR(x2);
 }
 
@@ -364,6 +381,7 @@ void jump_to_epilog_fast(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst)
     }
     TABLE64C(x2, const_epilog_fast);
     SMEND();
+    CHECK_DFNONE(0);
     BR(x2);
 }
 
@@ -373,7 +391,7 @@ static int indirect_lookup(dynarec_la64_t* dyn, int ninst, int is32bits, int s1,
     MAYUSE(dyn);
     if (!is32bits) {
         SRLI_D(s1, xRIP, 48);
-        BNEZ_safe(s1, (intptr_t)dyn->jmp_next - (intptr_t)dyn->block);
+        BNEZ_safe_(s1, (intptr_t)dyn->jmp_next - (intptr_t)dyn->block);
         if (dyn->need_reloc) {
             TABLE64C(s2, const_jmptbl48);
         } else {
@@ -403,6 +421,7 @@ void jump_to_next(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
     if (is32bits)
         ip &= 0xffffffffLL;
 
+    CHECK_DFNONE(0);
     int dest;
     if (reg) {
         if (reg != xRIP) {
@@ -425,11 +444,14 @@ void jump_to_next(dynarec_la64_t* dyn, uintptr_t ip, int reg, int ninst, int is3
     }
     CLEARIP();
     SMEND();
-#ifdef HAVE_TRACE
-    JIRL(xRA, dest, 0x0);
-#else
+    // The JIRL(xRA, ...) form is only for gdb backtraces, but it breaks the
+    // return-address-stack prediction on every block-to-block jump, which is
+    // not worth it. Uncomment temporarily when debugging with gdb.
+    // #ifdef HAVE_TRACE
+    //     JIRL(xRA, dest, 0x0);
+    // #else
     JIRL((dyn->insts[ninst].x64.has_callret ? xRA : xZR), dest, 0x0);
-#endif
+    // #endif
 }
 
 void ret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
@@ -437,6 +459,7 @@ void ret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
     MAYUSE(dyn);
     MAYUSE(ninst);
     MESSAGE(LOG_DUMP, "Ret to next\n");
+    CHECK_DFNONE(0);
     MVz(x1, xRIP);
     SMEND();
     if (BOX64DRENV(dynarec_callret)) {
@@ -457,49 +480,88 @@ void ret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, rex_t rex)
 
 void iret_to_next(dynarec_la64_t* dyn, uintptr_t ip, int ninst, int is32bits, int is64bits)
 {
+    int64_t j64;
     MAYUSE(ninst);
+    MAYUSE(j64);
     MESSAGE(LOG_DUMP, "IRet to next\n");
-    if (is64bits) {
-        POP1(xRIP);
-        POP1(x2);
-        POP1(xFlags);
-    } else {
-        POP1_32(xRIP);
-        POP1_32(x2);
-        POP1_32(xFlags);
-    }
-
-    ST_H(x2, xEmu, offsetof(x64emu_t, segs[_CS]));
-    // clean EFLAGS
-    RESTORE_EFLAGS(x1);
-    MOV32w(x1, 0x3E7FD7);   // also mask RF
-    AND(xFlags, xFlags, x1);
-    ORI(xFlags, xFlags, 0x2);
-    SPILL_EFLAGS();
+    SMEND();
     SET_DFNONE();
+    // POP IP
+    NOTEST(x2);
+    if (is64bits) {
+        POP1(x1);
+        POP1(x2);
+        POP1(x3);
+    } else {
+        POP1_32(x1);
+        POP1_32(x2);
+        POP1_32(x3);
+    }
+    // segfault if CS is NULL
+    BEQZ_MARK3(x2);
+    // clean EFLAGS
+    MOV32w(x4, 0x3E7FD7); // also mask RF
+    AND(x3, x3, x4);
+    ORI(x3, x3, 0x2);
+    FORCE_DFNONE();
+    if (is32bits) {
+        ANDI(x4, x2, 0xff);
+        // check if return segment is 64bits, then restore rsp too
+        MOV32w(x5, 0x23);
+        BEQ_MARKSEG(x4, x5);
+    }
     // POP RSP
     if (is64bits) {
-        POP1(x3); // rsp
-        POP1(x2); // ss
+        POP1(x4); // rsp
+        POP1(x5); // ss
     } else {
-        POP1_32(x3); // rsp
-        POP1_32(x2); // ss
+        POP1_32(x4); // rsp
+        POP1_32(x5); // ss
     }
+    // check if SS is NULL
+    BEQZ_MARK(x5);
     // POP SS
-    ST_H(x2, xEmu, offsetof(x64emu_t, segs[_SS]));
+    ST_H(x5, xEmu, offsetof(x64emu_t, segs[_SS]));
     // set new RSP
-    MV(xRSP, x3);
+    MV(xRSP, x4);
+    MARKSEG;
+    // x2 is CS, x1 is IP, x3 is eFlags
+    ST_H(x2, xEmu, offsetof(x64emu_t, segs[_CS]));
+    MV(xRIP, x1);
+    MV(xFlags, x3);
+    SPILL_EFLAGS();
     // Ret....
     rex_t dummy = { 0 };
     dummy.is32bits = is32bits;
     dummy.w = is64bits;
+    ANDI(x1, xFlags, 1 << F_TF);
+    BNEZ_MARK2(x1);
     ret_to_next(dyn, ip, ninst, dummy);
     CLEARIP();
+    MARK;
+    if (is64bits)
+        ADDI_D(xRSP, xRSP, 8 * 2);
+    else
+        ADDI_D(xRSP, xRSP, 4 * 2);
+    MARK3;
+    if (is64bits)
+        ADDI_D(xRSP, xRSP, 8 * 3);
+    else
+        ADDI_D(xRSP, xRSP, 4 * 3);
+    CALL_S(const_native_priv, -1, 0);
+    MARK2;
+    LD_WU(x4, xEmu, offsetof(x64emu_t, flags));
+    ORI(x4, x4, 1 << FLAGS_NO_TF);
+    ST_W(x4, xEmu, offsetof(x64emu_t, flags));
+    jump_to_epilog(dyn, 0, xRIP, ninst);
 }
 
 void call_c(dynarec_la64_t* dyn, int ninst, la64_consts_t fnc, int reg, int ret, int saveflags, int savereg, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6)
 {
     MAYUSE(fnc);
+    dyn->insts[ninst].host_call = 1;
+    UP32_READALL();
+    CHECK_DFNONE(1);
     if (savereg == 0)
         savereg = x87pc;
     if (saveflags) {
@@ -523,14 +585,17 @@ void call_c(dynarec_la64_t* dyn, int ninst, la64_consts_t fnc, int reg, int ret,
         ST_D(xRIP, xEmu, offsetof(x64emu_t, ip));
     }
     TABLE64C(reg, fnc);
-    MV(A0, xEmu);
     if (arg1) MV(A1, arg1);
     if (arg2) MV(A2, arg2);
     if (arg3) MV(A3, arg3);
     if (arg4) MV(A4, arg4);
     if (arg5) MV(A5, arg5);
     if (arg6) MV(A6, arg6);
+    MV(A0, xEmu);
+    if (!dyn->x87round_active) MOVGR2FCSR(FCSR3, xZR);
     JIRL(xRA, reg, 0);
+    LA64_RESTORE_VZERO();
+    if (!dyn->x87round_active) sse_fcsr3_from_mxcsr(dyn, ninst, x2);
     if (ret >= 0) {
         MV(ret, A0);
     }
@@ -568,10 +633,18 @@ void call_c(dynarec_la64_t* dyn, int ninst, la64_consts_t fnc, int reg, int ret,
 void call_n(dynarec_la64_t* dyn, int ninst, void* fnc, int w)
 {
     MAYUSE(fnc);
+    dyn->insts[ninst].host_call = 1;
+    UP32_READALL();
+    CHECK_DFNONE(1);
     fpu_pushcache(dyn, ninst, x3, 1);
     ST_D(xRSP, xEmu, offsetof(x64emu_t, regs[_SP]));
     ST_D(xRBP, xEmu, offsetof(x64emu_t, regs[_BP]));
     ST_D(xRBX, xEmu, offsetof(x64emu_t, regs[_BX]));
+    int nfp = (abs(w) & 15) - 1;
+    if (nfp > 0)
+        for (int i = 0; i < nfp; ++i)
+            sse_get_reg(dyn, ninst, x3, i, w);
+    if (w < 0) sse_get_reg_empty(dyn, ninst, x3, 0);
     // check if additional sextw needed
     int sextw_mask = ((w > 0 ? w : -w) >> 4) & 0b111111;
     for (int i = 0; i < 6; i++) {
@@ -580,14 +653,14 @@ void call_n(dynarec_la64_t* dyn, int ninst, void* fnc, int w)
         }
     }
     // native call
-    if (dyn->need_reloc) {
-        // fnc is indirect, to help with relocation (but PltResolver might be an issue here)
-        TABLE64(x3, (uintptr_t)fnc);
-        LD_D(x3, x3, 0);
-    } else {
-        TABLE64_(x3, *(uintptr_t*)fnc); // using x16 as scratch regs for call address
-    }
+    TABLE64_(x3, *(uintptr_t*)fnc); // using x16 as scratch regs for call address
+    // Note that if need_reloc is active, the TABLE64 will trigger cancel block,
+    // because native function might be very different on a next run: different function address, different brick, different everything basicaly
+    // and we don't have a relocation mecanism here, it's too complex
+    MOVGR2FCSR(FCSR3, xZR);
     JIRL(xRA, x3, 0x0);
+    LA64_RESTORE_VZERO();
+    sse_fcsr3_from_mxcsr(dyn, ninst, x2);
     // put return value in x64 regs
     if (w > 0) {
         MV(xRAX, A0);
@@ -623,11 +696,11 @@ int x87_stackcount(dynarec_la64_t* dyn, int ninst, int scratch)
     int a = dyn->lsx.x87stack;
     // Add x87stack to emu fpu_stack
     LD_W(scratch, xEmu, offsetof(x64emu_t, fpu_stack));
-    ADDI_D(scratch, scratch, a);
+    ADDI_W(scratch, scratch, a);
     ST_W(scratch, xEmu, offsetof(x64emu_t, fpu_stack));
     // Sub x87stack to top, with and 7
     LD_W(scratch, xEmu, offsetof(x64emu_t, top));
-    ADDI_D(scratch, scratch, -a);
+    ADDI_W(scratch, scratch, -a);
     ANDI(scratch, scratch, 7);
     ST_W(scratch, xEmu, offsetof(x64emu_t, top));
     // reset x87stack, but not the stack count of extcache
@@ -742,6 +815,11 @@ void x87_reget_st(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st)
     for (int i = 0; (i < 8) && (ret == -1); ++i)
         if (dyn->lsx.x87cache[i] == -1)
             ret = i;
+    if (ret == -1) {
+        MESSAGE(LOG_DUMP, "Incoherent x87 stack cache, aborting\n");
+        dyn->abort = 1;
+        return;
+    }
     // found, setup and grab the value
     dyn->lsx.x87cache[ret] = st;
     dyn->lsx.x87reg[ret] = fpu_get_reg_x87(dyn, LSX_CACHE_ST_D, st);
@@ -793,15 +871,6 @@ void x87_free(dynarec_la64_t* dyn, int ninst, int s1, int s2, int s3, int st)
         dyn->lsx.lsxcache[reg].v = 0;
         dyn->lsx.x87cache[ret] = -1;
         dyn->lsx.x87reg[ret] = -1;
-    } else {
-        // Get top
-        LD_W(s2, xEmu, offsetof(x64emu_t, top));
-        // Update
-        int ast = st - dyn->lsx.x87stack;
-        if (ast) {
-            ADDI_D(s2, s2, ast);
-            ANDI(s2, s2, 7); // (emu->top + i)&7
-        }
     }
     // add mark in the freed array
     dyn->lsx.tags |= 0b11 << (st * 2);
@@ -836,6 +905,7 @@ int x87_setround(dynarec_la64_t* dyn, int ninst, int s1, int s2)
     MAYUSE(ninst);
     MAYUSE(s1);
     MAYUSE(s2);
+    dyn->x87round_active = 1;
     LD_W(s1, xEmu, offsetof(x64emu_t, cw));
     BSTRPICK_W(s1, s1, 11, 10);
     // MMX/x87 Round mode: 0..3: Nearest, Down, Up, Chop
@@ -850,25 +920,20 @@ int x87_setround(dynarec_la64_t* dyn, int ninst, int s1, int s2)
     return s2;
 }
 
-// Set rounding according to mxcsr flags, return reg to restore flags
-int sse_setround(dynarec_la64_t* dyn, int ninst, int s1, int s2)
+// Sync FCSR3 round mode from emu->mxcsr, destroying s1
+// MMX/x87 Round mode: 0..3: Nearest, Down, Up, Chop
+// LA64: 0..3: Nearest, TowardZero, TowardsPositive, TowardsNegative
+// 0->0, 1->3, 2->2, 3->1
+void sse_fcsr3_from_mxcsr(dynarec_la64_t* dyn, int ninst, int s1)
 {
     MAYUSE(dyn);
     MAYUSE(ninst);
-    MAYUSE(s1);
-    MAYUSE(s2);
     LD_W(s1, xEmu, offsetof(x64emu_t, mxcsr));
     BSTRPICK_W(s1, s1, 14, 13);
-    // MMX/x87 Round mode: 0..3: Nearest, Down, Up, Chop
-    // LA64: 0..3: Nearest, TowardZero, TowardsPositive, TowardsNegative
-    // 0->0, 1->3, 2->2, 3->1
     SUB_W(s1, xZR, s1);
     ANDI(s1, s1, 3);
-    // done
     SLLI_D(s1, s1, 8);
-    MOVFCSR2GR(s2, FCSR3);
-    MOVGR2FCSR(FCSR3, s1); // exchange RM with current
-    return s2;
+    MOVGR2FCSR(FCSR3, s1);
 }
 
 int lsxcache_st_coherency(dynarec_la64_t* dyn, int ninst, int a, int b)
@@ -1017,7 +1082,8 @@ void x87_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1, int s2, in
         if (a > 0) {
             SLLI_D(s1, s1, a * 2);
         } else {
-            BSTRINS_D(s1, xZR, 15, 0);
+            MOV32w(s3, 0xffff0000);
+            OR(s1, s1, s3);
             SRLI_D(s1, s1, -a * 2);
         }
         ST_H(s1, xEmu, offsetof(x64emu_t, fpu_tags));
@@ -1201,7 +1267,6 @@ int x87_get_current_cache(dynarec_la64_t* dyn, int ninst, int st, int t)
 #endif
             return i;
         }
-        assert(dyn->lsx.x87cache[i] < 8);
     }
     return -1;
 }
@@ -1219,6 +1284,11 @@ int x87_get_cache(dynarec_la64_t* dyn, int ninst, int populate, int s1, int s2, 
     for (int i = 0; (i < 8) && (ret == -1); ++i)
         if (dyn->lsx.x87cache[i] == -1)
             ret = i;
+    if (ret == -1) {
+        MESSAGE(LOG_DUMP, "Incoherent x87 stack cache, aborting\n");
+        dyn->abort = 1;
+        return -1;
+    }
     // found, setup and grab the value
     dyn->lsx.x87cache[ret] = st;
     dyn->lsx.x87reg[ret] = fpu_get_reg_x87(dyn, LSX_CACHE_ST_D, st);
@@ -1246,7 +1316,7 @@ int x87_get_lsxcache(dynarec_la64_t* dyn, int ninst, int s1, int s2, int st)
                 || dyn->lsx.lsxcache[ii].t == LSX_CACHE_ST_I64)
             && dyn->lsx.lsxcache[ii].n == st)
             return ii;
-    assert(0);
+    dynarec_log(LOG_NONE, "Warning: x87_get_lsxcache didn't find cache for ninst=%d\n", ninst);
     return -1;
 }
 int x87_get_st(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a, int t)
@@ -1256,7 +1326,7 @@ int x87_get_st(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a, int t)
 }
 int x87_get_st_empty(dynarec_la64_t* dyn, int ninst, int s1, int s2, int a, int t)
 {
-    dyn->insts[ninst].x87_used = 1; 
+    dyn->insts[ninst].x87_used = 1;
     return dyn->lsx.x87reg[x87_get_cache(dyn, ninst, 0, s1, s2, a, t)];
 }
 
@@ -1266,6 +1336,7 @@ void x87_restoreround(dynarec_la64_t* dyn, int ninst, int s1)
     MAYUSE(dyn);
     MAYUSE(ninst);
     MAYUSE(s1);
+    dyn->x87round_active = 0;
     MOVGR2FCSR(FCSR3, s1);
 }
 
@@ -1335,28 +1406,51 @@ static void mmx_reflectcache(dynarec_la64_t* dyn, int ninst, int s1)
 }
 
 // SSE / SSE2 helpers
+void sse_merge_all(dynarec_la64_t* dyn, int ninst)
+{
+    for (int i = 0; i < 16; ++i)
+        xmm_scalar_merge(dyn, ninst, i);
+}
+
 // get lsx register for a SSE reg, create the entry if needed
 int sse_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int a, int forwrite)
 {
     dyn->lsx.xmm_used |= 1 << a;
     if (dyn->lsx.ssecache[a].v != -1) {
+        xmm_scalar_merge(dyn, ninst, a);
         if (forwrite) {
             dyn->lsx.ssecache[a].write = 1; // update only if forwrite
             dyn->lsx.lsxcache[dyn->lsx.ssecache[a].reg].t = LSX_CACHE_XMMW;
         }
         return dyn->lsx.ssecache[a].reg;
     }
-    int need_vld = 1;
-    // migrate from avx to sse
-    if (dyn->lsx.avxcache[a].v != -1) {
-        avx_reflect_reg_upper128(dyn, ninst, a, forwrite);
-        dyn->lsx.avxcache[a].v = -1;
-        need_vld = 0;
-    }
+    avx_forget_reg(dyn, ninst, a);
     dyn->lsx.ssecache[a].reg = fpu_get_reg_xmm(dyn, forwrite ? LSX_CACHE_XMMW : LSX_CACHE_XMMR, a);
     int ret = dyn->lsx.ssecache[a].reg;
     dyn->lsx.ssecache[a].write = forwrite;
-    if(need_vld) VLD(ret, xEmu, offsetof(x64emu_t, xmm[a])); //skip VLD if migrate from avx
+    dyn->lsx.xmm_load |= 1 << a;
+    VLD(ret, xEmu, offsetof(x64emu_t, xmm[a])); // skip VLD if migrate from avx
+    return ret;
+}
+
+int sse_get_reg_scalar(dynarec_la64_t* dyn, int ninst, int s1, int a, int forwrite, int kind)
+{
+    MAYUSE(forwrite);
+    dyn->lsx.xmm_used |= 1 << a;
+    if (dyn->lsx.scalarcache[a] != -1) {
+        int reg = dyn->lsx.scalarcache[a];
+        if (dyn->lsx.lsxcache[reg].t == (kind == XMM_SCALAR_SS ? LSX_CACHE_XMM_S : LSX_CACHE_XMM_D)) return reg;
+        xmm_scalar_merge(dyn, ninst, a);
+    }
+    if (dyn->lsx.ssecache[a].v != -1) {
+        return dyn->lsx.ssecache[a].reg;
+    }
+    avx_forget_reg(dyn, ninst, a);
+    dyn->lsx.ssecache[a].reg = fpu_get_reg_xmm(dyn, LSX_CACHE_XMMR, a);
+    int ret = dyn->lsx.ssecache[a].reg;
+    dyn->lsx.ssecache[a].write = 0;
+    dyn->lsx.xmm_load |= 1 << a;
+    VLD(ret, xEmu, offsetof(x64emu_t, xmm[a]));
     return ret;
 }
 
@@ -1365,6 +1459,7 @@ int sse_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int a)
 {
     dyn->lsx.xmm_used |= 1 << a;
     if (dyn->lsx.ssecache[a].v != -1) {
+        xmm_scalar_discard(dyn, a);
         dyn->lsx.ssecache[a].write = 1;
         dyn->lsx.lsxcache[dyn->lsx.ssecache[a].reg].t = LSX_CACHE_XMMW;
         return dyn->lsx.ssecache[a].reg;
@@ -1384,9 +1479,10 @@ void sse_forget_reg(dynarec_la64_t* dyn, int ninst, int a)
     dyn->lsx.xmm_used |= 1 << a;
     if (dyn->lsx.ssecache[a].v == -1)
         return;
-    if (dyn->lsx.lsxcache[dyn->lsx.ssecache[a].reg].t == LSX_CACHE_XMMW) {
-        VST(dyn->lsx.ssecache[a].reg, xEmu, offsetof(x64emu_t, xmm[a]));
-    }
+    xmm_scalar_merge(dyn, ninst, a);
+    int reg = dyn->lsx.ssecache[a].reg;
+    if (dyn->lsx.lsxcache[reg].t == LSX_CACHE_XMMW)
+        VST(reg, xEmu, offsetof(x64emu_t, xmm[a]));
     fpu_free_reg(dyn, dyn->lsx.ssecache[a].reg);
     dyn->lsx.ssecache[a].v = -1;
     return;
@@ -1397,14 +1493,16 @@ void sse_reflect_reg(dynarec_la64_t* dyn, int ninst, int a)
     dyn->lsx.xmm_used |= 1 << a;
     if (dyn->lsx.ssecache[a].v == -1)
         return;
-    if (dyn->lsx.lsxcache[dyn->lsx.ssecache[a].reg].t == LSX_CACHE_XMMW) {
-        VST(dyn->lsx.ssecache[a].reg, xEmu, offsetof(x64emu_t, xmm[a]));
-    }
+    xmm_scalar_merge(dyn, ninst, a);
+    int reg = dyn->lsx.ssecache[a].reg;
+    if (dyn->lsx.lsxcache[reg].t == LSX_CACHE_XMMW)
+        VST(reg, xEmu, offsetof(x64emu_t, xmm[a]));
 }
 
 // purge the SSE cache for XMM0..XMM7 (to use before function native call)
 void sse_purge07cache(dynarec_la64_t* dyn, int ninst, int s1)
 {
+    sse_merge_all(dyn, ninst);
     int old = -1;
     for (int i = 0; i < 8; ++i)
         if (dyn->lsx.ssecache[i].v != -1 || dyn->lsx.avxcache[i].v != -1) {
@@ -1413,17 +1511,17 @@ void sse_purge07cache(dynarec_la64_t* dyn, int ninst, int s1)
                 ++old;
             }
             dyn->lsx.xmm_used |= 1 << i;
-            if (dyn->lsx.lsxcache[dyn->lsx.avxcache[i].reg].t == LSX_CACHE_YMMW) {
+            if (dyn->lsx.avxcache[i].v != -1 && dyn->lsx.lsxcache[dyn->lsx.avxcache[i].reg].t == LSX_CACHE_YMMW) {
                 VST(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
-                if(dyn->lsx.avxcache[i].zero_upper == 1){
-                    XVXOR_V(SCRATCH, SCRATCH, SCRATCH);
-                }else{
+                if (dyn->lsx.avxcache[i].upper_zero_pending) {
+                    VST(VZERO, xEmu, offsetof(x64emu_t, ymm[i]));
+                } else {
                     XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[i].reg, XVPERMI_IMM_4_0(0, 1));
+                    VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
                 }
-                VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
                 fpu_free_reg(dyn, dyn->lsx.avxcache[i].reg);
                 dyn->lsx.avxcache[i].v = -1;
-            } else if (dyn->lsx.lsxcache[dyn->lsx.ssecache[i].reg].t == LSX_CACHE_XMMW) {
+            } else if (dyn->lsx.ssecache[i].v != -1 && dyn->lsx.lsxcache[dyn->lsx.ssecache[i].reg].t == LSX_CACHE_XMMW) {
                 VST(dyn->lsx.ssecache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
                 fpu_free_reg(dyn, dyn->lsx.ssecache[i].reg);
                 dyn->lsx.ssecache[i].v = -1;
@@ -1437,6 +1535,7 @@ void sse_purge07cache(dynarec_la64_t* dyn, int ninst, int s1)
 // purge the SSE cache only
 static void sse_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1)
 {
+    sse_merge_all(dyn, ninst);
     int old = -1;
     for (int i = 0; i < 16; ++i)
         if (dyn->lsx.ssecache[i].v != -1) {
@@ -1460,6 +1559,7 @@ static void sse_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1)
 
 static void sse_reflectcache(dynarec_la64_t* dyn, int ninst, int s1)
 {
+    sse_merge_all(dyn, ninst);
     for (int i = 0; i < 16; ++i)
         if (dyn->lsx.ssecache[i].v != -1) {
             dyn->lsx.xmm_used |= 1 << i;
@@ -1474,48 +1574,39 @@ static void sse_reflectcache(dynarec_la64_t* dyn, int ninst, int s1)
 int avx_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int a, int forwrite, int width)
 {
     dyn->lsx.ymm_used |= 1 << a;
+    if (width == LSX_AVX_WIDTH_256) {
+        ymm_live_read(dyn, ninst, a);
+        if (forwrite) ymm_live_write(dyn, ninst, a);
+    } else if (forwrite) {
+        ymm_live_zero(dyn, ninst, a);
+    }
     if (dyn->lsx.avxcache[a].v != -1) {
+        if (width == LSX_AVX_WIDTH_256 && dyn->lsx.avxcache[a].upper_zero_pending) {
+            XVPERMI_Q(dyn->lsx.avxcache[a].reg, VZERO, XVPERMI_IMM_4_0(0, 2));
+            dyn->lsx.avxcache[a].upper_zero_pending = 0;
+        }
         if (forwrite) {
-            dyn->lsx.avxcache[a].write = 1; // update only if forwrite
+            if (width == LSX_AVX_WIDTH_128) dyn->lsx.avxcache[a].upper_zero_pending = 1;
             dyn->lsx.lsxcache[dyn->lsx.avxcache[a].reg].t = LSX_CACHE_YMMW;
+            dyn->lsx.avxcache[a].write = 1;
         }
-        if (width == LSX_AVX_WIDTH_128) {
-            dyn->lsx.avxcache[a].width = LSX_AVX_WIDTH_128;
-            if(forwrite) dyn->lsx.avxcache[a].zero_upper = 1;
-        } else {
-            // if width changed to 256, and vzeroup ==1, means need zero-fill upper 128bits now.
-            if (dyn->lsx.avxcache[a].zero_upper == 1) {
-                dyn->lsx.avxcache[a].zero_upper = 0;
-                XVXOR_V(SCRATCH, SCRATCH, SCRATCH);
-                XVPERMI_Q(dyn->lsx.avxcache[a].reg, SCRATCH, 0b00000010);
-            }
-            dyn->lsx.avxcache[a].width = LSX_AVX_WIDTH_256;
-        }
-
         return dyn->lsx.avxcache[a].reg;
     }
+    sse_forget_reg(dyn, ninst, a);
 
-    // migrate from sse to avx
-    if (dyn->lsx.ssecache[a].v != -1) {
-        // release SSE reg cache
-        fpu_free_reg(dyn, dyn->lsx.ssecache[a].reg);
-        dyn->lsx.ssecache[a].v = -1;
-    }
-
-    // new reg
     dyn->lsx.avxcache[a].v = 0;
     dyn->lsx.avxcache[a].reg = fpu_get_reg_ymm(dyn, forwrite ? LSX_CACHE_YMMW : LSX_CACHE_YMMR, a);
     int ret = dyn->lsx.avxcache[a].reg;
-    dyn->lsx.avxcache[a].write = forwrite;
-    dyn->lsx.avxcache[a].width = width;
-    if (width == LSX_AVX_WIDTH_128) {
-        if(forwrite) dyn->lsx.avxcache[a].zero_upper = 1;
+    if (forwrite) dyn->lsx.avxcache[a].write = 1;
+    dyn->lsx.avxcache[a].upper_zero_pending = 0;
+    if (width == LSX_AVX_WIDTH_128 && forwrite) {
         VLD(ret, xEmu, offsetof(x64emu_t, xmm[a]));
+        dyn->lsx.avxcache[a].upper_zero_pending = 1;
     } else {
+        dyn->lsx.ymm_load |= 1 << a;
         VLD(ret, xEmu, offsetof(x64emu_t, xmm[a]));
         VLD(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
         XVPERMI_Q(ret, SCRATCH, XVPERMI_IMM_4_0(0, 2));
-        dyn->lsx.avxcache[a].zero_upper = 0;
     }
     return ret;
 }
@@ -1523,33 +1614,25 @@ int avx_get_reg(dynarec_la64_t* dyn, int ninst, int s1, int a, int forwrite, int
 int avx_get_reg_empty(dynarec_la64_t* dyn, int ninst, int s1, int a, int width)
 {
     dyn->lsx.ymm_used |= 1 << a;
+    if (width == LSX_AVX_WIDTH_128)
+        ymm_live_zero(dyn, ninst, a);
+    else
+        ymm_live_write(dyn, ninst, a);
     if (dyn->lsx.avxcache[a].v != -1) {
         dyn->lsx.avxcache[a].write = 1;
         dyn->lsx.lsxcache[dyn->lsx.avxcache[a].reg].t = LSX_CACHE_YMMW;
-        if (width == LSX_AVX_WIDTH_128) {
-            dyn->lsx.avxcache[a].width = LSX_AVX_WIDTH_128;
-            dyn->lsx.avxcache[a].zero_upper = 1;
-        } else {
-            dyn->lsx.avxcache[a].width = LSX_AVX_WIDTH_256;
-            dyn->lsx.avxcache[a].zero_upper = 0;
-        }
+        dyn->lsx.avxcache[a].upper_zero_pending = width == LSX_AVX_WIDTH_128;
         return dyn->lsx.avxcache[a].reg;
     }
-    // migrate from sse to avx
     if (dyn->lsx.ssecache[a].v != -1) {
-        // Release SSE reg cache
+        xmm_scalar_discard(dyn, a);
         fpu_free_reg(dyn, dyn->lsx.ssecache[a].reg);
         dyn->lsx.ssecache[a].v = -1;
     }
     dyn->lsx.avxcache[a].v = 0;
     dyn->lsx.avxcache[a].reg = fpu_get_reg_ymm(dyn, LSX_CACHE_YMMW, a);
     dyn->lsx.avxcache[a].write = 1;
-    dyn->lsx.avxcache[a].width = width;
-    if (width == LSX_AVX_WIDTH_128){
-        dyn->lsx.avxcache[a].zero_upper = 1;
-    } else {
-        dyn->lsx.avxcache[a].zero_upper = 0;
-    }
+    dyn->lsx.avxcache[a].upper_zero_pending = width == LSX_AVX_WIDTH_128;
     return dyn->lsx.avxcache[a].reg;
 }
 
@@ -1559,12 +1642,12 @@ void avx_reflect_reg_upper128(dynarec_la64_t* dyn, int ninst, int a, int forwrit
     if (dyn->lsx.avxcache[a].v == -1 || forwrite == 0)
         return;
     if (dyn->lsx.lsxcache[dyn->lsx.avxcache[a].reg].t == LSX_CACHE_YMMW) {
-        if (dyn->lsx.avxcache[a].zero_upper == 1) {
-            XVXOR_V(SCRATCH, SCRATCH, SCRATCH);
+        if (dyn->lsx.avxcache[a].upper_zero_pending) {
+            VST(VZERO, xEmu, offsetof(x64emu_t, ymm[a]));
         } else {
             XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[a].reg, XVPERMI_IMM_4_0(0, 1));
+            VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
         }
-        VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
     }
     dyn->lsx.avxcache[a].v = -1;
     return;
@@ -1577,12 +1660,12 @@ void avx_forget_reg(dynarec_la64_t* dyn, int ninst, int a)
         return;
     if (dyn->lsx.lsxcache[dyn->lsx.avxcache[a].reg].t == LSX_CACHE_YMMW) {
         VST(dyn->lsx.avxcache[a].reg, xEmu, offsetof(x64emu_t, xmm[a]));
-        if (dyn->lsx.avxcache[a].zero_upper == 1) {
-            XVXOR_V(SCRATCH, SCRATCH, SCRATCH);
+        if (dyn->lsx.avxcache[a].upper_zero_pending) {
+            VST(VZERO, xEmu, offsetof(x64emu_t, ymm[a]));
         } else {
             XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[a].reg, XVPERMI_IMM_4_0(0, 1));
+            VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
         }
-        VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
     }
     fpu_free_reg(dyn, dyn->lsx.avxcache[a].reg);
     dyn->lsx.avxcache[a].v = -1;
@@ -1596,14 +1679,36 @@ void avx_reflect_reg(dynarec_la64_t* dyn, int ninst, int a)
         return;
     if (dyn->lsx.lsxcache[dyn->lsx.avxcache[a].reg].t == LSX_CACHE_YMMW) {
         VST(dyn->lsx.avxcache[a].reg, xEmu, offsetof(x64emu_t, xmm[a]));
-        if (dyn->lsx.avxcache[a].zero_upper == 1) {
-            XVXOR_V(SCRATCH, SCRATCH, SCRATCH);
-            XVPERMI_Q(dyn->lsx.avxcache[a].reg, SCRATCH, 0b00000010);
+        if (dyn->lsx.avxcache[a].upper_zero_pending) {
+            XVPERMI_Q(dyn->lsx.avxcache[a].reg, VZERO, 0b00000010);
+            VST(VZERO, xEmu, offsetof(x64emu_t, ymm[a]));
         } else {
             XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[a].reg, XVPERMI_IMM_4_0(0, 1));
+            VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
         }
-        VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[a]));
-        dyn->lsx.avxcache[a].zero_upper = 0;
+        dyn->lsx.avxcache[a].upper_zero_pending = 0;
+    }
+}
+
+void avx_cleancache(dynarec_la64_t* dyn, int ninst)
+{
+    int old = -1;
+    for (int i = 0; i < 16; ++i)
+        if (dyn->lsx.avxcache[i].v != -1) {
+            dyn->lsx.ymm_used |= 1 << i;
+            if (dyn->lsx.avxcache[i].upper_zero_pending) {
+                if (old == -1) {
+                    MESSAGE(LOG_DUMP, "\tClean AVX Cache ------\n");
+                    ++old;
+                }
+                if (!ymm_upper_dead(dyn, ninst, i)) {
+                    XVPERMI_Q(dyn->lsx.avxcache[i].reg, VZERO, 0b00000010);
+                    dyn->lsx.avxcache[i].upper_zero_pending = 0;
+                }
+            }
+        }
+    if (old != -1) {
+        MESSAGE(LOG_DUMP, "\t------ Clean AVX Cache\n");
     }
 }
 
@@ -1619,15 +1724,15 @@ static void avx_purgecache(dynarec_la64_t* dyn, int ninst, int next, int s1)
                     MESSAGE(LOG_DUMP, "\tPurge %sAVX Cache ------\n", next ? "locally " : "");
                     ++old;
                 }
-                if (dyn->lsx.lsxcache[dyn->lsx.avxcache[i].reg].t == LSX_CACHE_YMMW) {
-                    VST(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
-                    if (dyn->lsx.avxcache[i].zero_upper == 1) {
-                        XVXOR_V(SCRATCH, SCRATCH, SCRATCH);
-                    } else {
-                        XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[i].reg, XVPERMI_IMM_4_0(0, 1));
-                    }
+                VST(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
+                if (dyn->lsx.avxcache[i].upper_zero_pending) {
+                    VST(VZERO, xEmu, offsetof(x64emu_t, ymm[i]));
+                } else {
+                    XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[i].reg, XVPERMI_IMM_4_0(0, 1));
                     VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
                 }
+            } else {
+                MESSAGE(LOG_DUMP, "\tAVX Cache for YMM%d is not write, no need to store back %d\n", i, dyn->lsx.lsxcache[dyn->lsx.avxcache[i].reg].t);
             }
             if (!next) {
                 fpu_free_reg(dyn, dyn->lsx.avxcache[i].reg);
@@ -1655,6 +1760,7 @@ static void avx_reflectcache(dynarec_la64_t* dyn, int ninst, int s1)
 
 void fpu_pushcache(dynarec_la64_t* dyn, int ninst, int s1, int not07)
 {
+    sse_merge_all(dyn, ninst);
     int start = not07 ? 8 : 0;
     int n = 0;
 
@@ -1672,11 +1778,13 @@ void fpu_pushcache(dynarec_la64_t* dyn, int ninst, int s1, int not07)
                 VST(dyn->lsx.ssecache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
             }
             if ((dyn->lsx.avxcache[i].v != -1) && (dyn->lsx.avxcache[i].write)) {
-                    VST(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
-                    if (dyn->lsx.avxcache[i].zero_upper == 0) {
-                        XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[i].reg, XVPERMI_IMM_4_0(0, 1));
-                        VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
-                    }
+                VST(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
+                if (dyn->lsx.avxcache[i].upper_zero_pending) {
+                    VST(VZERO, xEmu, offsetof(x64emu_t, ymm[i]));
+                } else {
+                    XVPERMI_Q(SCRATCH, dyn->lsx.avxcache[i].reg, XVPERMI_IMM_4_0(0, 1));
+                    VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
+                }
             }
         }
         MESSAGE(LOG_DUMP, "\t------- Pushed XMM/YMM Cache (%d)\n", n);
@@ -1701,9 +1809,11 @@ void fpu_popcache(dynarec_la64_t* dyn, int ninst, int s1, int not07)
             }
             if (dyn->lsx.avxcache[i].v != -1) {
                 VLD(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
-                if (dyn->lsx.avxcache[i].zero_upper == 0) {
+                if (!dyn->lsx.avxcache[i].upper_zero_pending) {
                     VLD(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
                     XVPERMI_Q(dyn->lsx.avxcache[i].reg, SCRATCH, XVPERMI_IMM_4_0(0, 2));
+                } else {
+                    XVPERMI_Q(dyn->lsx.avxcache[i].reg, VZERO, XVPERMI_IMM_4_0(0, 2));
                 }
             }
         }
@@ -1759,17 +1869,21 @@ void fpu_reset_cache(dynarec_la64_t* dyn, int ninst, int reset_n)
 {
     MESSAGE(LOG_DEBUG, "Reset Caches with %d\n", reset_n);
 #if STEP > 1
-    // for STEP 2 & 3, just need to refrest with current, and undo the changes (push & swap)
+    // for STEP 2 & 3, just need to refresh with current, and undo the changes (push & swap)
     dyn->lsx = dyn->insts[ninst].lsx;
+    lsxcacheUnwind(&dyn->lsx);
+    uint16_t ymm_pending = dyn->insts[ninst].vector_liveness.ymm_pending;
+    for (int i = 0; i < 16; ++i)
+        if (dyn->lsx.avxcache[i].v != -1)
+            dyn->lsx.avxcache[i].upper_zero_pending = (ymm_pending >> i) & 1;
 #else
     dyn->lsx = dyn->insts[reset_n].lsx;
 #endif
-    lsxcacheUnwind(&dyn->lsx);
 #if STEP == 0
-    if (dyn->need_dump) dynarec_log(LOG_NONE, "New x87stack=%d\n", dyn->lsx.x87stack);
+    if (dyn->need_dump && dyn->need_dump != 3 && dyn->lsx.x87stack) dynarec_log(LOG_NONE, "New x87stack=%d at ResetCache in inst %d with %d\n", dyn->lsx.x87stack, ninst, reset_n);
 #endif
 #if defined(HAVE_TRACE) && (STEP > 2)
-    if (dyn->need_dump)
+    if (dyn->need_dump && 0) // disable for now
         if (memcmp(&dyn->lsx, &dyn->insts[reset_n].lsx, sizeof(lsx_cache_t))) {
             MESSAGE(LOG_DEBUG, "Warning, difference in lsxcache: reset=");
             for (int i = 0; i < 24; ++i)
@@ -1908,8 +2022,7 @@ static void swapCache(dynarec_la64_t* dyn, int ninst, int i, int j, lsxcache_t* 
     // SWAP
     lsx_cache_t tmp;
     MESSAGE(LOG_DUMP, "\t  - Swapping %d <-> %d\n", i, j);
-    // There is no VSWP in Arm64 NEON to swap 2 register contents!
-    // so use a scratch...
+    // LSX/LASX has no register-swap instruction, so use a scratch...
     switch (quad) {
         case 2:
             XVOR_V(SCRATCH, i, i);
@@ -1948,8 +2061,12 @@ static void loadCache(dynarec_la64_t* dyn, int ninst, int stack_cnt, int s1, int
         if (cache->lsxcache[i].t == LSX_CACHE_YMMR || cache->lsxcache[i].t == LSX_CACHE_YMMW)
             quad = 2;
         int j = i + 1;
-        while (cache->lsxcache[j].v)
+        while (j < 24 && cache->lsxcache[j].v)
             ++j;
+        if (j >= 24) {
+            dyn->abort = 1;
+            j = 23;
+        }
         MESSAGE(LOG_DUMP, "\t  - Moving away %d\n", i);
         switch (quad) {
             case 2:
@@ -2032,9 +2149,14 @@ static void unloadCache(dynarec_la64_t* dyn, int ninst, int stack_cnt, int s1, i
             break;
         case LSX_CACHE_YMMW:
             MESSAGE(LOG_DUMP, "\t  - Unloading %s\n", getCacheName(t, n));
-            XVPERMI_Q(SCRATCH, i, XVPERMI_IMM_4_0(0, 1));
-            VST(i, xEmu, offsetof(x64emu_t, xmm[n]));
-            VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[n]));
+            if (dyn->lsx.avxcache[n].v != -1 && dyn->lsx.avxcache[n].upper_zero_pending) {
+                VST(i, xEmu, offsetof(x64emu_t, xmm[n]));
+                VST(VZERO, xEmu, offsetof(x64emu_t, ymm[n]));
+            } else {
+                XVPERMI_Q(SCRATCH, i, XVPERMI_IMM_4_0(0, 1));
+                VST(i, xEmu, offsetof(x64emu_t, xmm[n]));
+                VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[n]));
+            }
             break;
         case LSX_CACHE_MM:
             MESSAGE(LOG_DUMP, "\t  - Unloading %s\n", getCacheName(t, n));
@@ -2109,13 +2231,12 @@ static void fpuCacheTransform(dynarec_la64_t* dyn, int ninst, int s1, int s2, in
             return;
         }
     }
+
     int stack_cnt = dyn->lsx.stack_next;
     int s3_top = 0xffff;
     lsxcache_t cache = dyn->lsx;
     int s1_val = 0;
     int s2_val = 0;
-    // unload every unneeded cache
-    // check SSE first, than MMX, in order, for optimization issue
     for (int i = 0; i < 16; ++i) {
         int j = findCacheSlot(dyn, ninst, LSX_CACHE_YMMW, i, &cache);
         if (j >= 0 && findCacheSlot(dyn, ninst, LSX_CACHE_YMMW, i, &cache_i2) == -1)
@@ -2165,7 +2286,7 @@ static void fpuCacheTransform(dynarec_la64_t* dyn, int ninst, int s1, int s2, in
                 } else if (cache.lsxcache[i].t == LSX_CACHE_ST_F && cache_i2.lsxcache[i].t == LSX_CACHE_ST_I64) {
                     MESSAGE(LOG_DUMP, "\t  - Convert %s\n", getCacheName(cache.lsxcache[i].t, cache.lsxcache[i].n));
                     VFTINTRZL_L_S(i, i);
-                    cache.lsxcache[i].t = LSX_CACHE_ST_D;
+                    cache.lsxcache[i].t = LSX_CACHE_ST_I64;
                 } else if (cache.lsxcache[i].t == LSX_CACHE_ST_I64 && cache_i2.lsxcache[i].t == LSX_CACHE_ST_F) {
                     MESSAGE(LOG_DUMP, "\t  - Convert %s\n", getCacheName(cache.lsxcache[i].t, cache.lsxcache[i].n));
                     VFFINT_S_L(i, i, i);
@@ -2179,14 +2300,17 @@ static void fpuCacheTransform(dynarec_la64_t* dyn, int ninst, int s1, int s2, in
                 } else if (cache.lsxcache[i].t == LSX_CACHE_YMMR && cache_i2.lsxcache[i].t == LSX_CACHE_YMMW) {
                     cache.lsxcache[i].t = LSX_CACHE_YMMW;
                 } else if (cache.lsxcache[i].t == LSX_CACHE_YMMW && cache_i2.lsxcache[i].t == LSX_CACHE_YMMR) {
-                    // refresh cache...
-                    MESSAGE(LOG_DUMP, "\t  - Refreh %s\n", getCacheName(cache.lsxcache[i].t, cache.lsxcache[i].n));
-                    XVPERMI_Q(SCRATCH, i, XVPERMI_IMM_4_0(0, 1));
-                    VST(i, xEmu, offsetof(x64emu_t, xmm[cache.lsxcache[i].n]));
-                    VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[cache.lsxcache[i].n]));
+                    MESSAGE(LOG_DUMP, "\t  - Refresh %s\n", getCacheName(cache.lsxcache[i].t, cache.lsxcache[i].n));
+                    if (dyn->lsx.avxcache[cache.lsxcache[i].n].v != -1 && dyn->lsx.avxcache[cache.lsxcache[i].n].upper_zero_pending) {
+                        VST(i, xEmu, offsetof(x64emu_t, xmm[cache.lsxcache[i].n]));
+                        VST(VZERO, xEmu, offsetof(x64emu_t, ymm[cache.lsxcache[i].n]));
+                    } else {
+                        XVPERMI_Q(SCRATCH, i, XVPERMI_IMM_4_0(0, 1));
+                        VST(i, xEmu, offsetof(x64emu_t, xmm[cache.lsxcache[i].n]));
+                        VST(SCRATCH, xEmu, offsetof(x64emu_t, ymm[cache.lsxcache[i].n]));
+                    }
                     cache.lsxcache[i].t = LSX_CACHE_YMMR;
                 } else if (cache.lsxcache[i].t == LSX_CACHE_XMMW && cache_i2.lsxcache[i].t == LSX_CACHE_XMMR) {
-                    // refresh cache...
                     MESSAGE(LOG_DUMP, "\t  - Refreh %s\n", getCacheName(cache.lsxcache[i].t, cache.lsxcache[i].n));
                     VST(i, xEmu, offsetof(x64emu_t, xmm[cache.lsxcache[i].n]));
                     cache.lsxcache[i].t = LSX_CACHE_XMMR;
@@ -2198,11 +2322,11 @@ static void fpuCacheTransform(dynarec_la64_t* dyn, int ninst, int s1, int s2, in
         MESSAGE(LOG_DUMP, "\t    - adjust stack count %d -> %d -\n", stack_cnt, cache_i2.stack);
         int a = stack_cnt - cache_i2.stack;
         // Add x87stack to emu fpu_stack
-        LD_WU(s3, xEmu, offsetof(x64emu_t, fpu_stack));
+        LD_W(s3, xEmu, offsetof(x64emu_t, fpu_stack));
         ADDI_D(s3, s3, a);
         ST_W(s3, xEmu, offsetof(x64emu_t, fpu_stack));
         // Sub x87stack to top, with and 7
-        LD_WU(s3, xEmu, offsetof(x64emu_t, top));
+        LD_W(s3, xEmu, offsetof(x64emu_t, top));
         ADDI_D(s3, s3, -a);
         ANDI(s3, s3, 7);
         ST_W(s3, xEmu, offsetof(x64emu_t, top));
@@ -2228,31 +2352,46 @@ static void flagsCacheTransform(dynarec_la64_t* dyn, int ninst, int s1)
     int jmp = dyn->insts[ninst].x64.jmp_insts;
     if (jmp < 0)
         return;
-    if (dyn->f.dfnone || ((dyn->insts[jmp].f_exit.dfnone && !dyn->insts[jmp].f_entry.dfnone) && !dyn->insts[jmp].x64.use_flags)) // flags are fully known, nothing we can do more
+    if (dyn->insts[ninst].f_exit == dyn->insts[jmp].f_entry) // flags will be fully known, nothing we can do more
         return;
     MESSAGE(LOG_DUMP, "\tFlags fetch ---- ninst=%d -> %d\n", ninst, jmp);
-    int go = (dyn->insts[jmp].f_entry.dfnone && !dyn->f.dfnone && !dyn->insts[jmp].df_notneeded) ? 1 : 0;
-    switch (dyn->insts[jmp].f_entry.pending) {
-        case SF_UNKNOWN:
-            go = 0;
-            break;
-        default:
-            if (go && !(dyn->insts[jmp].x64.need_before & X_PEND) && (dyn->f.pending != SF_UNKNOWN)) {
-                // just clear df flags
-                go = 0;
-                ST_W(xZR, xEmu, offsetof(x64emu_t, df));
+    int go_fetch = 0;
+    switch (dyn->insts[jmp].f_entry) {
+        case status_unk:
+            if (dyn->insts[ninst].f_exit == status_none_pending) {
+                FORCE_DFNONE();
             }
             break;
+        case status_set:
+            if (dyn->insts[ninst].f_exit == status_none_pending) {
+                FORCE_DFNONE();
+            }
+            if (dyn->insts[ninst].f_exit == status_unk)
+                go_fetch = 1;
+            break;
+        case status_none_pending:
+            if (dyn->insts[ninst].f_exit != status_none)
+                go_fetch = 1;
+            break;
+        case status_none:
+            if (dyn->insts[ninst].f_exit == status_none_pending) {
+                FORCE_DFNONE();
+            } else
+                go_fetch = 1;
+            break;
     }
-    if (go) {
-        if (dyn->f.pending != SF_PENDING) {
+    if (go_fetch) {
+        if (dyn->f == status_unk) {
             LD_WU(s1, xEmu, offsetof(x64emu_t, df));
             j64 = (GETMARKF2) - (dyn->native_size);
             BEQZ(s1, j64);
         }
-        CALL_(const_updateflags, -1, 0, 0, 0);
+        TABLE64C(s1, const_updateflags_la64);
+        JIRL(xRA, s1, 0);
+        LA64_RESTORE_VZERO();
         MARKF2;
     }
+    MESSAGE(LOG_DUMP, "\t---- Flags fetch\n");
 }
 
 void CacheTransform(dynarec_la64_t* dyn, int ninst, int cacheupd, int s1, int s2, int s3)
@@ -2289,4 +2428,53 @@ void la64_move64(dynarec_la64_t* dyn, int ninst, int reg, int64_t val)
         return;
     }
     LU52I_D(reg, reg, (val >> 52) & 0xfff);
+}
+
+void doPreload(dynarec_la64_t* dyn, int ninst)
+{
+    uint32_t preload = dyn->insts[ninst].preload_xmmymm;
+    if (!preload)
+        return;
+    MESSAGE(LOG_INFO, "Preload XMM/YMM -------- %x\n", preload);
+    for (int i = 0; i < 16; ++i) {
+        if (preload & (1u << i)) {
+            dyn->lsx.avxcache[i].v = -1;
+            dyn->lsx.ssecache[i].reg = fpu_get_reg_xmm(dyn, LSX_CACHE_XMMR, i);
+            dyn->lsx.ssecache[i].write = 0;
+            VLD(dyn->lsx.ssecache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
+        }
+        if (preload & (1u << (16 + i))) {
+            dyn->lsx.ssecache[i].v = -1;
+            dyn->lsx.avxcache[i].v = 0;
+            dyn->lsx.avxcache[i].reg = fpu_get_reg_ymm(dyn, LSX_CACHE_YMMR, i);
+            dyn->lsx.avxcache[i].upper_zero_pending = 0;
+            dyn->lsx.avxcache[i].write = 0;
+            VLD(dyn->lsx.avxcache[i].reg, xEmu, offsetof(x64emu_t, xmm[i]));
+            VLD(SCRATCH, xEmu, offsetof(x64emu_t, ymm[i]));
+            XVPERMI_Q(dyn->lsx.avxcache[i].reg, SCRATCH, XVPERMI_IMM_4_0(0, 2));
+        }
+    }
+    MESSAGE(LOG_INFO, "-------- Preload XMM/YMM\n");
+}
+
+
+void checkCRC(dynarec_la64_t* dyn, int ninst)
+{
+    // la64_crc_autocrc will use x1-x5 instead of A0-A4 to avoind having to move around the regs
+    // grab the dynablock address in x6, as this on will not be erased by crc functions
+    int delta = -(dyn->native_size + sizeof(void*));
+    PCADDU12I(x6, SPLIT20(delta));
+    LD_D(x6, x6, SPLIT12(delta));
+    // prepare and call the crc function
+    TABLE64C(x3, const_la64_crc_autocrc);
+    LD_D(x1, x6, offsetof(dynablock_t, x64_addr));
+    LD_WU(x2, x6, offsetof(dynablock_t, x64_size));
+    JIRL(xRA, x3, 0x0);
+    LA64_RESTORE_VZERO();
+    // done, result in x1, load the stored hash (sign extended, as the crc will also be sign extended)
+    LD_W(x2, x6, offsetof(dynablock_t, hash));
+    // compare computed crc with stored one, jump to continue is equal
+    BEQ(x1, x2, 4+3*4); // TABLE64C generates 2 opcodes...
+    TABLE64C(x3, const_native_next_invalid);
+    JIRL(xRA, x3, 0x0);
 }

@@ -15,6 +15,7 @@ on:
       - "**/*.py"
       - "CMakeLists.txt"
       - "**/*.yml"
+      - "**/*.def"
   pull_request:
     types: [assigned, opened, synchronize, reopened]
     paths:
@@ -24,6 +25,7 @@ on:
       - "**/*.py"
       - "CMakeLists.txt"
       - "**/*.yml"
+      - "**/*.def"
 
 defaults:
   run:
@@ -35,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [X64, RISCV, RK3588, ARM64, ANDROID, TERMUX, LARCH64, ANDROID_GLIBC, WOW64, ARM64-GCC-8]
+        platform: [X64, RISCV, RK3588, ARM64, ANDROID, TERMUX, LARCH64, PPC64LE, ANDROID_GLIBC, WOW64]
         type: [Release, Trace, StaticBuild, Box32]
         exclude:
           - platform: ANDROID
@@ -54,15 +56,13 @@ jobs:
             type: StaticBuild
           - platform: WOW64
             type: Box32
-          - platform: ARM64-GCC-8
-            type: Trace
-          - platform: ARM64-GCC-8
-            type: StaticBuild
           - platform: ANDROID
             type: Trace
           - platform: TERMUX
             type: Trace
           - platform: LARCH64
+            type: Trace
+          - platform: PPC64LE
             type: Trace
         include:
           - platform: X64
@@ -86,31 +86,24 @@ jobs:
           - platform: LARCH64
             os: ubuntu-latest
 
+          - platform: PPC64LE
+            os: ubuntu-latest
+
           - platform: ANDROID_GLIBC
             os: ubuntu-22.04-arm
 
           - platform: WOW64
             os: ubuntu-22.04-arm
 
-          - platform: ARM64-GCC-8
-            os: ubuntu-22.04-arm
-            image: arm64v8/ubuntu:18.04
-
     runs-on: ${{ matrix.os }}
     container:
       image: ${{ matrix.image || '' }}
     steps:
       - name: "Checkout Box64 Repository"
-        if: ${{ matrix.platform != 'ARM64-GCC-8' }}
         uses: actions/checkout@v4
-
-      - name: "Checkout Box64 Repository (No NodeJS)"
-        if: ${{ matrix.platform == 'ARM64-GCC-8' }}
-        uses: taiki-e/checkout-action@v1
 
       - name: Get all the unique changed directory names
         id: changed-files-dir-names
-        if: ${{ matrix.platform != 'ARM64-GCC-8' }}
         uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46
         with:
           dir_names: "true"
@@ -122,7 +115,7 @@ jobs:
         if: steps.changed-files-dir-names.outputs.all_modified_files == 'src/dynarec/arm64'
         continue-on-error: true
         run: |
-          if [[ ${{ matrix.platform }} != 'RISCV' && ${{ matrix.platform }} != 'LARCH64' && ${{ matrix.platform }} != 'X64' ]]; then
+          if [[ ${{ matrix.platform }} != 'RISCV' && ${{ matrix.platform }} != 'LARCH64' && ${{ matrix.platform }} != 'PPC64LE' && ${{ matrix.platform }} != 'X64' ]]; then
             exit 1
           fi
 
@@ -148,18 +141,29 @@ jobs:
             exit 1
           fi
 
+      - name: Early exit other jobs if this is a PPC64LE-only change
+        id: early-exit-ppc64le
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: steps.changed-files-dir-names.outputs.all_modified_files == 'src/dynarec/ppc64le'
+        continue-on-error: true
+        run: |
+          if [[ ${{ matrix.platform }} == 'PPC64LE' ]]; then
+            exit 1
+          fi
+
       - name: Do not early exit otherwise
         id: early-exit-never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DIRS: ${{ steps.changed-files-dir-names.outputs.all_modified_files }}
-        if: env.DIRS != 'src/dynarec/arm64' && env.DIRS != 'src/dynarec/la64' && env.DIRS != 'src/dynarec/rv64'
+        if: env.DIRS != 'src/dynarec/arm64' && env.DIRS != 'src/dynarec/la64' && env.DIRS != 'src/dynarec/rv64' && env.DIRS != 'src/dynarec/ppc64le'
         continue-on-error: true
         run: exit 1
 
       - name: Merge early exit conditions
         id: early-exit
-        if: steps.early-exit-arm64.outcome == 'failure' || steps.early-exit-la64.outcome == 'failure' || steps.early-exit-rv64.outcome == 'failure' || steps.early-exit-never.outcome == 'failure'
+        if: steps.early-exit-arm64.outcome == 'failure' || steps.early-exit-la64.outcome == 'failure' || steps.early-exit-rv64.outcome == 'failure' || steps.early-exit-ppc64le.outcome == 'failure' || steps.early-exit-never.outcome == 'failure'
         continue-on-error: true
         run: exit 1
 
@@ -168,14 +172,9 @@ jobs:
       - name: "Environment preparation"
         if: steps.early-exit.outcome == 'failure'
         run: |
-          if [[ ${{ matrix.platform }} == 'ARM64-GCC-8' ]]; then
-            apt-get update
-            apt install -y sudo
-          else
-            sudo apt-get update
-            zydis_package=libzydis-dev
-          fi
-          if [[ ${{ matrix.platform }} != 'X64' && ${{ matrix.platform }} != 'RISCV' && ${{ matrix.platform }} != 'LARCH64' ]]; then
+          sudo apt-get update
+          zydis_package=libzydis-dev
+          if [[ ${{ matrix.platform }} != 'X64' && ${{ matrix.platform }} != 'RISCV' && ${{ matrix.platform }} != 'LARCH64' && ${{ matrix.platform }} != 'PPC64LE' ]]; then
             sudo apt-get -y install git cmake make python3 patchelf $zydis_package
             if [[ ${{ matrix.platform }} == 'ANDROID' || ${{ matrix.platform }} == 'TERMUX' ]]; then
               sudo apt-get -y install p7zip
@@ -184,6 +183,9 @@ jobs:
               echo "BOX64_COMPILER=$PWD/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang" >> $GITHUB_ENV
               echo "BOX64_PLATFORM_MARCRO=-DANDROID=1 -DARM_DYNAREC=1 -DBAD_SIGNAL=1" >> $GITHUB_ENV
               git clone https://github.com/termux/termux-docker.git
+              cd termux-docker
+              git checkout 148b93d989cbc572719e050135b3e13f115f2a8e~1
+              cd ..
               sudo cp -rf termux-docker/system/arm /system
               sudo chown -R $(whoami):$(whoami) /system
               sudo chmod 755 -R /system
@@ -195,22 +197,10 @@ jobs:
               sudo apt-get -y install git gcc-aarch64-linux-gnu
               echo "BOX64_PLATFORM_MARCRO=-DWOW64=1 -DARM_DYNAREC=1" >> $GITHUB_ENV
               echo "BOX64_COMPILER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-              export LLVM_MINGW_VERSION=20250430
+              export LLVM_MINGW_VERSION=20260311
               wget -q https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz
               tar -xf llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz
               echo "MINGW_COMPILER_PATH=$PWD/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64/bin" >> $GITHUB_ENV
-            elif [[ ${{ matrix.platform }} == 'ARM64-GCC-8' ]]; then
-              # some of these dependencies may be unnecessary to explicitly install depending on the image
-              sudo apt-get -y install git software-properties-common lsb-release \
-              wget curl build-essential autoconf automake \
-              pkg-config ca-certificates \
-              python3 make gettext zstd \
-              gcc-8 g++-8
-              sudo add-apt-repository ppa:theofficialgman/cmake-bionic -y
-              sudo apt update
-              sudo apt install -y cmake
-              echo "BOX64_PLATFORM_MARCRO=-DARM64=1" >> $GITHUB_ENV
-              echo "BOX64_COMPILER=aarch64-linux-gnu-gcc-8" >> $GITHUB_ENV
             else
               sudo apt-get -y install git gcc-aarch64-linux-gnu
               echo "BOX64_PLATFORM_MARCRO=-D${{ matrix.platform }}=1" >> $GITHUB_ENV
@@ -253,6 +243,10 @@ jobs:
               echo BOX64_PLATFORM_MARCRO="-DLARCH64=ON" >> $GITHUB_ENV
               echo "BOX64_COMPILER=loongarch64-linux-gnu-gcc" >> $GITHUB_ENV
               sudo apt-get -y install git cmake make python3 libzydis-dev
+            elif [[ ${{ matrix.platform }} == 'PPC64LE' ]]; then
+              echo BOX64_PLATFORM_MARCRO="-DPPC64LE=ON" >> $GITHUB_ENV
+              echo "BOX64_COMPILER=powerpc64le-linux-gnu-gcc" >> $GITHUB_ENV
+              sudo apt-get -y install git gcc-powerpc64le-linux-gnu cmake make python3 libzydis-dev
             else
               echo BOX64_PLATFORM_MARCRO="-DARM_DYNAREC=ON" >> $GITHUB_ENV
               echo "BOX64_COMPILER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
@@ -386,11 +380,19 @@ jobs:
               export BOX32_PERSONA32BITS=1 # hack to disable personality setting
             fi
             ctest $CTEST_OPTIONS -E nocosim
-            BOX64_DYNAREC_LA64NOEXT=1 ctest $CTEST_OPTIONS -E nocosim
+            BOX64_DYNAREC_NOHOSTEXT=1 ctest $CTEST_OPTIONS -E nocosim
             BOX64_DYNAREC=0 ctest $CTEST_OPTIONS -E nocosim
 
             BOX64_DYNAREC_TEST=1 ctest $CTEST_OPTIONS -E nocosim
-            BOX64_DYNAREC_TEST=1 BOX64_DYNAREC_LA64NOEXT=1 ctest $CTEST_OPTIONS -E nocosim
+            BOX64_DYNAREC_TEST=1 BOX64_DYNAREC_NOHOSTEXT=1 ctest $CTEST_OPTIONS -E nocosim
+          elif [[ ${{ matrix.platform }} == 'PPC64LE' ]]; then
+            export INTERPRETER=qemu-ppc64le-static
+            export QEMU_LD_PREFIX=/usr/powerpc64le-linux-gnu/
+
+            ctest $CTEST_OPTIONS -E nocosim
+            BOX64_DYNAREC=0 ctest $CTEST_OPTIONS -E nocosim
+
+            BOX64_DYNAREC_TEST=1 ctest $CTEST_OPTIONS -E nocosim
           elif [[ ${{ matrix.platform }} == 'ANDROID' ]]; then
             export INTERPRETER=qemu-aarch64-static
             export QEMU_LD_PREFIX=/system/lib64

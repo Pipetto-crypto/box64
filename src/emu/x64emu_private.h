@@ -4,6 +4,7 @@
 #include "regs.h"
 #include "os.h"
 #include "box64context.h"
+#include <signal.h>
 
 typedef struct x64_ucontext_s x64_ucontext_t;
 #ifdef BOX32
@@ -74,7 +75,7 @@ typedef struct x64emu_s {
     x87control_t cw;
     uint16_t    dummy_cw;   // align...
     mmxcontrol_t mxcsr;
-    #ifdef RV64         // it would be better to use a dedicated register for this like arm64 xSavedSP, but we're running out of free registers.
+    #if defined(RV64) || defined(PPC64LE)   // no spare callee-saved register for xSavedSP, store in emu struct instead
     uintptr_t xSPSave;  // sp base value of current dynarec frame, used by call/ret optimization to reset stack when unmatch.
     #endif
     fpu_ld_t    fpu_ld[8]; // for long double emulation / 80bits fld fst
@@ -122,7 +123,7 @@ typedef struct x64emu_s {
     void*       init_stack; // initial stack (owned or not)
     uint32_t    size_stack; // stack size (owned or not)
     JUMPBUFF*   jmpbuf;
-    #ifdef RV64
+    #if defined(RV64) || defined(PPC64LE)
     uintptr_t   old_savedsp;
     #endif
 
@@ -135,6 +136,17 @@ typedef struct x64emu_s {
     tlsdatasize_t  *tlsdata;
     // other informations
     int         type;       // EMUTYPE_xxx define
+    uint8_t     sud_enabled;  // syscall_user_dispatch enabled for this thread?
+    uint8_t*    sud_selector; // Wine selector
+    uintptr_t   sud_offset;   // always allowed range start
+    uintptr_t   sud_len;      // always allowed range len
+    #ifndef _WIN32
+    volatile sig_atomic_t critical_section;
+    volatile sig_atomic_t deferred_signal_processing;
+    volatile sig_atomic_t deferred_signal_count;
+    volatile sig_atomic_t deferred_signal_pending[MAX_SIGNAL+1];
+    siginfo_t   deferred_siginfo[MAX_SIGNAL+1];
+    #endif
     #ifdef BOX32
     int         libc_err;   // copy of errno from libc
     int         libc_herr;  // copy of h_errno from libc

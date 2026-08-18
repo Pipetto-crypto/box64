@@ -19,6 +19,7 @@
 #include "dynarec_la64_private.h"
 #include "dynarec_la64_functions.h"
 #include "../dynarec_helper.h"
+#include "dynarec_la64_aes.h"
 
 uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, vex_t vex, int* ok, int* need_epilog)
 {
@@ -62,12 +63,10 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             nextop = F8;
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
             q0 = fpu_get_scratch(dyn);
-            q1 = fpu_get_scratch(dyn);
             VLDIxy(q0, 0b0000010001111); // broadcast 0b10001111 as byte
             VAND_Vxy(q0, q0, v2);
             VMINIxy(BU, q0, q0, 0x1f);
-            VXOR_Vxy(q1, q1, q1);
-            VSHUF_Bxy(v0, q1, v1, q0);
+            VSHUF_Bxy(v0, VZERO, v1, q0);
             break;
         case 0x01:
             INST_NAME("VPHADDW Gx, Vx, Ex");
@@ -262,11 +261,6 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
                 GETEYx(v1, 0, 0);
                 GETGYy_empty(v0);
                 d0 = fpu_get_scratch(dyn);
-                /*  
-                    xvffintl.s.h  convert [h0..h3,h4..h7,h8..h11,h12..h15] to [h0..h3,h8..h11]
-                    xvffinth.s.h  convert [h0..h3,h4..h7,h8..h11,h12..h15] to [h4..h7,h12..h15]
-                    so user xvpermi.d to reorder input [h0..h3,h4..h7,h8..h11,h12..h15] to [h0..h3,h8..h11,h4..h7,h12..h15]
-                */
                 XVPERMI_D(d0, v1, 0b11011000);
                 XVFCVTL_S_H(v0, d0);
             } else {
@@ -278,6 +272,10 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
         case 0x16:
             INST_NAME("VPERMPS Gx, Vx, Ex");
             nextop = F8;
+            if (!vex.l) {
+                UDF();
+                break;
+            }
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
             XVPERM_W(v0, v2, v1);
             break;
@@ -292,7 +290,6 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             } else IFX (X_ALL) {
                 X64_SET_EFLAGS(xZR, X_ALL);
             }
-            SET_DFNONE();
             v0 = fpu_get_scratch(dyn);
             IFX (X_ZF) {
                 VAND_Vxy(v0, q1, q0);
@@ -344,25 +341,19 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             INST_NAME("VPABSB Gx, Ex");
             nextop = F8;
             GETGY_empty_EY_xy(v0, v1, 0);
-            q0 = fpu_get_scratch(dyn);
-            XVXOR_V(q0, q0, q0);
-            VABSDxy(B, v0, v1, q0);
+            VABSDxy(B, v0, v1, VZERO);
             break;
         case 0x1D:
             INST_NAME("VPABSW Gx, Ex");
             nextop = F8;
             GETGY_empty_EY_xy(v0, v1, 0);
-            q0 = fpu_get_scratch(dyn);
-            XVXOR_V(q0, q0, q0);
-            VABSDxy(H, v0, v1, q0);
+            VABSDxy(H, v0, v1, VZERO);
             break;
         case 0x1E:
             INST_NAME("VPABSD Gx, Ex");
             nextop = F8;
             GETGY_empty_EY_xy(v0, v1, 0);
-            q0 = fpu_get_scratch(dyn);
-            XVXOR_V(q0, q0, q0);
-            VABSDxy(W, v0, v1, q0);
+            VABSDxy(W, v0, v1, VZERO);
             break;
         case 0x20:
             INST_NAME("VPMOVSXBW Gx, Ex");
@@ -496,32 +487,26 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             INST_NAME("VMASKMOVPS Gx, Vx, Ex");
             nextop = F8;
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
-            d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
             if (vex.l) {
-                XVXOR_V(d0, d0, d0);
                 XVSLTI_W(d1, v1, 0); // create all-one mask for negetive element.
-                XVBITSEL_V(v0, d0, v2, d1);
+                XVBITSEL_V(v0, VZERO, v2, d1);
             } else {
-                VXOR_V(d0, d0, d0);
                 VSLTI_W(d1, v1, 0); // create all-one mask for negetive element.
-                VBITSEL_V(v0, d0, v2, d1);
+                VBITSEL_V(v0, VZERO, v2, d1);
             }
             break;
         case 0x2D:
             INST_NAME("VMASKMOVPD Gx, Vx, Ex");
             nextop = F8;
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
-            d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
             if (vex.l) {
-                XVXOR_V(d0, d0, d0);
                 XVSLTI_D(d1, v1, 0); // create all-one mask for negetive element.
-                XVBITSEL_V(v0, d0, v2, d1);
+                XVBITSEL_V(v0, VZERO, v2, d1);
             } else {
-                VXOR_V(d0, d0, d0);
                 VSLTI_D(d1, v1, 0); // create all-one mask for negetive element.
-                VBITSEL_V(v0, d0, v2, d1);
+                VBITSEL_V(v0, VZERO, v2, d1);
             }
             break;
         case 0x2E:
@@ -637,6 +622,10 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
         case 0x36:
             INST_NAME("VPERMD Gx, Vx, Ex");
             nextop = F8;
+            if (!vex.l) {
+                UDF();
+                break;
+            }
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
             XVPERM_W(v0, v2, v1);
             break;
@@ -695,7 +684,7 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             VMAXxy(WU, v0, v1, v2);
             break;
         case 0x40:
-            INST_NAME("VPMULLD Gx, Ex");
+            INST_NAME("VPMULLD Gx, Vx, Ex");
             nextop = F8;
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
             VMULxy(W, v0, v1, v2);
@@ -719,7 +708,6 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             VSEQ_H(q0, q2, v1);            // get mask(0xffff)
             VFRSTPI_H(q2, q0, 1);          // find first neg(0xffff),insert index to q2
             XVPICKVE_W(v0, q2, 0);
-            YMM_UNMARK_UPPER_ZERO(v0);
             break;
         case 0x45:
             INST_NAME("VPSRLVD/Q Gx, Vx, Ex");
@@ -741,6 +729,10 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
         case 0x46:
             INST_NAME("VPSRAVD Gx, Vx, Ex");
             nextop = F8;
+            if (rex.w) {
+                DEFAULT;
+                return addr;
+            }
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
             d0 = fpu_get_scratch(dyn);
             VMINIxy(WU, d0, v2, 31);
@@ -830,30 +822,27 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             INST_NAME("VPMASKMOVD/Q Gx, Vx, Ex");
             nextop = F8;
             GETGY_empty_VYEY_xy(v0, v1, v2, 0);
-            d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
             if (vex.l) {
-                XVXOR_V(d0, d0, d0);
                 if (rex.w) {
                     XVSLTI_D(d1, v1, 0);
                 } else {
                     XVSLTI_W(d1, v1, 0);
                 }
-                XVBITSEL_V(v0, d0, v2, d1);
+                XVBITSEL_V(v0, VZERO, v2, d1);
             } else {
-                VXOR_V(d0, d0, d0);
                 if (rex.w) {
                     VSLTI_D(d1, v1, 0);
                 } else {
                     VSLTI_W(d1, v1, 0);
                 }
-                VBITSEL_V(v0, d0, v2, d1);
+                VBITSEL_V(v0, VZERO, v2, d1);
             }
             break;
         case 0x8E:
             INST_NAME("VPMASKMOVD/Q Ex, Vx, Gx");
             nextop = F8;
-            GETEY_VYGY_xy(v0, v2, v1, 0);
+            GETEY_VYGY_xy(v0, v1, v2, 0);
             d0 = fpu_get_scratch(dyn);
             if (vex.l) {
                 if (rex.w) {
@@ -888,8 +877,10 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
                 int64_t i64 = F32S64;
                 MOV64x(x5, i64);
                 eb1 = x5;
-            } else
+            } else {
                 eb1 = TO_NAT((u8 & 0x7) + (rex.b << 3)); // base
+                UP32_READ(eb1);
+            }
             eb2 = ((u8 >> 3) & 7) + (rex.x << 3);        // index
             if (nextop & 0x40)
                 i32 = F8S;
@@ -912,7 +903,6 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             wb1 = u8 >> 6; // scale
             GETVYxy(v2, 1);
             GETGYxy(v0, 1);
-            d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
 
             if (vex.l) {
@@ -968,8 +958,10 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
                 int64_t i64 = F32S64;
                 MOV64x(x5, i64);
                 eb1 = x5;
-            } else
+            } else {
                 eb1 = TO_NAT((u8 & 0x7) + (rex.b << 3)); // base
+                UP32_READ(eb1);
+            }
             eb2 = ((u8 >> 3) & 7) + (rex.x << 3);        // index
             if (nextop & 0x40)
                 i32 = F8S;
@@ -997,7 +989,6 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
                 GETVYx(v2, 1);
                 GETGYx(v0, 1);
             }
-            d0 = fpu_get_scratch(dyn);
             d1 = fpu_get_scratch(dyn);
 
             if (vex.l) {
@@ -1294,36 +1285,30 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
         case 0xDB:
             INST_NAME("VAESIMC Gx, Ex");
             nextop = F8;
-            GETEYx(q1, 0, 0);
+            GETEYx_AES(q1, 0, 0);
             GETGYx_empty(q0);
             if (q0 != q1) {
                 VOR_V(q0, q1, q1);
             }
-            avx_forget_reg(dyn, ninst, gd);
-            MOV32w(x1, gd);
-            CALL(const_native_aesimc, -1, x1, 0);
-            GETGYx(q0, 1);  // reget writable for mark zeroup hi-128bits.
+            la64_aesimc_lsx(dyn, ninst, q0);
             break;
         case 0xDC:
             INST_NAME("VAESENC Gx, Vx, Ex");
             nextop = F8;
-            GETGY_empty_VYEY_xy(q0, q1, q2, 0);
+            GETGY_empty_VYEYxy_AES(q0, q1, q2, 0);
             if (MODREG && (gd == (nextop & 7) + (rex.b << 3))) {
-                d0 = fpu_get_scratch(dyn);
+                d0 = SCRATCH;
                 VOR_Vxy(d0, q2, q2);
             } else
                 d0 = -1;
             if (gd != vex.v) {
                 VOR_Vxy(q0, q1, q1);
             }
-            avx_forget_reg(dyn, ninst, gd);
-            MOV32w(x1, gd);
-            CALL(const_native_aese, -1, x1, 0);
             if (vex.l) {
-                MOV32w(x1, gd);
-                CALL(const_native_aese_y, -1, x1, 0);
+                la64_aese_lasx(dyn, ninst, q0);
+            } else {
+                la64_aese_lsx(dyn, ninst, q0);
             }
-            GETGYxy(q0, 1);
             VXOR_Vxy(q0, q0, (d0 != -1) ? d0 : q2);
             break;
         case 0xDD:
@@ -1331,73 +1316,64 @@ uintptr_t dynarec64_AVX_66_0F38(dynarec_la64_t* dyn, uintptr_t addr, uintptr_t i
             nextop = F8;
             GETGY_empty_VYEY_xy(q0, q1, q2, 0);
             if (MODREG && (gd == (nextop & 7) + (rex.b << 3))) {
-                d0 = fpu_get_scratch(dyn);
+                d0 = SCRATCH;
                 VOR_Vxy(d0, q2, q2);
             } else
                 d0 = -1;
             if (gd != vex.v) {
                 VOR_Vxy(q0, q1, q1);
             }
-            avx_forget_reg(dyn, ninst, gd);
-            MOV32w(x1, gd);
-            CALL(const_native_aeselast, -1, x1, 0);
             if (vex.l) {
-                MOV32w(x1, gd);
-                CALL(const_native_aeselast_y, -1, x1, 0);
+                la64_aeselast_lasx(dyn, ninst, q0);
+            } else {
+                la64_aeselast_lsx(dyn, ninst, q0);
             }
-            GETGYxy(q0, 1);
             VXOR_Vxy(q0, q0, (d0 != -1) ? d0 : q2);
             break;
         case 0xDE:
             INST_NAME("VAESDEC Gx, Vx, Ex"); // AES-NI
             nextop = F8;
-            GETGY_empty_VYEY_xy(q0, q1, q2, 0);
+            GETGY_empty_VYEYxy_AES(q0, q1, q2, 0);
             if (MODREG && (gd == (nextop & 7) + (rex.b << 3))) {
-                d0 = fpu_get_scratch(dyn);
+                d0 = SCRATCH;
                 VOR_Vxy(d0, q2, q2);
             } else
                 d0 = -1;
             if (gd != vex.v) {
                 VOR_Vxy(q0, q1, q1);
             }
-            avx_forget_reg(dyn, ninst, gd);
-            MOV32w(x1, gd);
-            CALL(const_native_aesd, -1, x1, 0);
             if (vex.l) {
-                MOV32w(x1, gd);
-                CALL(const_native_aesd_y, -1, x1, 0);
+                la64_aesd_lasx(dyn, ninst, q0);
+            } else {
+                la64_aesd_lsx(dyn, ninst, q0);
             }
-            GETGYxy(q0, 1);
             VXOR_Vxy(q0, q0, (d0 != -1) ? d0 : q2);
             break;
         case 0xDF:
             INST_NAME("VAESDECLAST Gx, Vx, Ex"); // AES-NI
             nextop = F8;
-            GETGY_empty_VYEY_xy(q0, q1, q2, 0);
+            GETGY_empty_VYEYxy_AES(q0, q1, q2, 0);
             if (MODREG && (gd == (nextop & 7) + (rex.b << 3))) {
-                d0 = fpu_get_scratch(dyn);
+                d0 = SCRATCH;
                 VOR_Vxy(d0, q2, q2);
             } else
                 d0 = -1;
             if (gd != vex.v) {
                 VOR_Vxy(q0, q1, q1);
             }
-            avx_forget_reg(dyn, ninst, gd);
-            MOV32w(x1, gd);
-            CALL(const_native_aesdlast, -1, x1, 0);
             if (vex.l) {
-                MOV32w(x1, gd);
-                CALL(const_native_aesdlast_y, -1, x1, 0);
+                la64_aesdlast_lasx(dyn, ninst, q0);
+            } else {
+                la64_aesdlast_lsx(dyn, ninst, q0);
             }
-            GETGYxy(q0, 1);
             VXOR_Vxy(q0, q0, (d0 != -1) ? d0 : q2);
             break;
         case 0xF7:
             INST_NAME("SHLX Gd, Ed, Vd");
             nextop = F8;
-            GETGD;
+            GETGDd;
             GETED(0);
-            GETVD;
+            GETVDs;
             ANDI(x5, vd, rex.w ? 0x3f : 0x1f);
             SLLxw(gd, ed, x5);
             break;

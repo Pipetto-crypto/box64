@@ -200,9 +200,9 @@ GO(nettle_pkcs1_rsa_sha512_encode_digest, iFpLp)
 //GO(_nettle_pkcs1_sec_decrypt, 
 //GO(_nettle_pkcs1_sec_decrypt_variable, 
 //GO(_nettle_pkcs1_signature_prefix, 
-//GOM(nettle_pss_encode_mgf1, iFEpLpLpp)
-//GOM(nettle_pss_mgf1, vFEppLp)
-//GOM(nettle_pss_verify_mgf1, iFEpLpLp)
+GO(nettle_pss_encode_mgf1, iFpLpLpp)
+GO(nettle_pss_mgf1, vFppLp)
+GO(nettle_pss_verify_mgf1, iFpLpLp)
 //GOM(nettle_random_prime, vFEpuipppp)
 //GO(_nettle_rsa_blind, 
 //GO(_nettle_rsa_check_size, 
@@ -225,12 +225,12 @@ GO(nettle_rsa_md5_verify, iFppp)
 GO(nettle_rsa_md5_verify_digest, iFppp)
 //GO(_nettle_rsa_oaep_decrypt, 
 //GO(_nettle_rsa_oaep_encrypt, 
-//GOM(nettle_rsa_oaep_sha256_decrypt, iFEppppLpppp)
-//GOM(nettle_rsa_oaep_sha256_encrypt, iFEpppLpLpp)
-//GOM(nettle_rsa_oaep_sha384_decrypt, iFEppppLpppp)
-//GOM(nettle_rsa_oaep_sha384_encrypt, iFEpppLpLpp)
-//GOM(nettle_rsa_oaep_sha512_decrypt, iFEppppLpppp)
-//GOM(nettle_rsa_oaep_sha512_encrypt, iFEpppLpLpp)
+GOM(nettle_rsa_oaep_sha256_decrypt, iFEppppLpppp)
+GOM(nettle_rsa_oaep_sha256_encrypt, iFEpppLpLpp)
+GOM(nettle_rsa_oaep_sha384_decrypt, iFEppppLpppp)
+GOM(nettle_rsa_oaep_sha384_encrypt, iFEpppLpLpp)
+GOM(nettle_rsa_oaep_sha512_decrypt, iFEppppLpppp)
+GOM(nettle_rsa_oaep_sha512_encrypt, iFEpppLpLpp)
 GO(nettle_rsa_pkcs1_sign, iFpLpp)
 GOM(nettle_rsa_pkcs1_sign_tr, iFEppppLpp)
 GO(nettle_rsa_pkcs1_verify, iFpLpp)

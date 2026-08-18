@@ -22,6 +22,7 @@
 #include "emu/x64compstrings.h"
 #include "x64test.h"
 #include "dynarec/dynarec_next.h"
+#include "random.h"
 
 static const int8_t mask_shift8[] = { -7, -6, -5, -4, -3, -2, -1, 0 };
 static const int8_t mask_string8[] = { 7, 6, 5, 4, 3, 2, 1, 0 };
@@ -75,6 +76,8 @@ uintptr_t getConst(arm64_consts_t which)
         case const_native_fxtract: return (uintptr_t)native_fxtract;
         case const_direct_ftan: return (uintptr_t)direct_ftan;
         case const_direct_fpatan: return (uintptr_t)direct_fpatan;
+        case const_native_fprem: return (uintptr_t)native_fprem;
+        case const_native_fprem1: return (uintptr_t)native_fprem1;
         case const_direct_fcos: return (uintptr_t)direct_fcos;
         case const_direct_fsin: return (uintptr_t)direct_fsin;
         case const_native_fsincos: return (uintptr_t)native_fsincos;
@@ -83,6 +86,9 @@ uintptr_t getConst(arm64_consts_t which)
         case const_native_fstp: return (uintptr_t)native_fstp;
         case const_native_frstor: return (uintptr_t)native_frstor;
         case const_native_next: return (uintptr_t)native_next;
+        case const_native_next_invalidate: return (uintptr_t)arm64_next_invalid;
+        case const_native_crc32: return (uintptr_t)arm64_crc;
+        case const_native_x31: return (uintptr_t)arm64_x31_hash;
         case const_int3: return (uintptr_t)EmuInt3;
         case const_x86syscall: return (uintptr_t)EmuX86Syscall;
         case const_x64syscall: return (uintptr_t)EmuX64Syscall;

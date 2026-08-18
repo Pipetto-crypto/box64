@@ -9,6 +9,11 @@
 #include <asm/hwcap.h>
 #endif
 
+#ifdef PPC64LE
+#include <linux/auxvec.h>
+#include <asm/cputable.h>
+#endif
+
 #ifdef RV64
 #include <setjmp.h>
 #include <signal.h>
@@ -104,6 +109,28 @@ void rv64Detect(void)
         cpuext.zbs = Check(my_block);
     }
 
+    // Test Zicbom with CBO.FLUSH
+    block = (uint32_t*)my_block;
+    // a2 is the pointer of buf in Check.
+    CBO_FLUSH(A2);
+    ADDI(A0, xZR, 42);
+    BR(xRA);
+    cpuext.zicbom = Check(my_block);
+
+    // Test Zicbop with PREFETCH.R
+    block = (uint32_t*)my_block;
+    CBO_PREFETCH_R(A2, 0);
+    ADDI(A0, xZR, 42);
+    BR(xRA);
+    cpuext.zicbop = Check(my_block);
+
+    // Test Zicond with CZERO.EQZ
+    block = (uint32_t*)my_block;
+    CZERO_EQZ(A0, A0, A1);
+    ADDI(A0, xZR, 42);
+    BR(xRA);
+    cpuext.zicond = Check(my_block);
+
     block = (uint32_t*)my_block;
     CSRRS(xZR, xZR, 0xc22 /* vlenb */);
     ADDI(A0, xZR, 42);
@@ -137,55 +164,76 @@ void rv64Detect(void)
 #ifdef DYNAREC
 int DetectHostCpuFeatures(void)
 {
-#ifdef ARM64
+    memset(&cpuext, 0, sizeof(cpu_ext_t));
+    char* p = BOX64ENV(dynarec_nohostext);
+#ifdef ARM64 
     unsigned long hwcap = real_getauxval(AT_HWCAP);
     if(!hwcap)
         hwcap = HWCAP_ASIMD;
     // first, check all needed extensions, lif half, edsp and fastmult
     if ((hwcap & HWCAP_ASIMD) == 0) return 0;
-    if(hwcap&HWCAP_CRC32)
-        cpuext.crc32 = 1;
-    if(hwcap&HWCAP_PMULL)
-        cpuext.pmull = 1;
-    if(hwcap&HWCAP_AES)
-        cpuext.aes = 1;
-    if(hwcap&HWCAP_ATOMICS)
-        cpuext.atomics = 1;
-    #ifdef HWCAP_SHA1
-    if(hwcap&HWCAP_SHA1)
-        cpuext.sha1 = 1;
-    #endif
-    #ifdef HWCAP_SHA2
-    if(hwcap&HWCAP_SHA2)
-        cpuext.sha2 = 1;
-    #endif
-    #ifdef HWCAP_USCAT
-    if(hwcap&HWCAP_USCAT)
-        cpuext.uscat = 1;
-    #endif
-    #ifdef HWCAP_FLAGM
-    if(hwcap&HWCAP_FLAGM)
-        cpuext.flagm = 1;
-    #endif
-    unsigned long hwcap2 = real_getauxval(AT_HWCAP2);
-    #ifdef HWCAP2_FLAGM2
-    if(hwcap2&HWCAP2_FLAGM2)
-        cpuext.flagm2 = 1;
-    #endif
-    #ifdef HWCAP2_FRINT
-    if(hwcap2&HWCAP2_FRINT)
-        cpuext.frintts = 1;
-    #endif
-    #ifdef HWCAP2_AFP
-    if(hwcap2&HWCAP2_AFP)
-        cpuext.afp = 1;
-    #endif
-    #ifdef HWCAP2_RNG
-    if(hwcap2&HWCAP2_RNG)
-        cpuext.rndr = 1;
-    #endif
+    if (p == NULL || p[0] != '1') {
+        if(hwcap&HWCAP_CRC32)
+            cpuext.crc32 = 1;
+        if(hwcap&HWCAP_PMULL)
+            cpuext.pmull = 1;
+        if(hwcap&HWCAP_AES)
+            cpuext.aes = 1;
+        if(hwcap&HWCAP_ATOMICS)
+            cpuext.atomics = 1;
+        #ifdef HWCAP_SHA1
+        if(hwcap&HWCAP_SHA1)
+            cpuext.sha1 = 1;
+        #endif
+        #ifdef HWCAP_SHA2
+        if(hwcap&HWCAP_SHA2)
+            cpuext.sha2 = 1;
+        #endif
+        #ifdef HWCAP_USCAT
+        if(hwcap&HWCAP_USCAT)
+            cpuext.uscat = 1;
+        #endif
+        #ifdef HWCAP_FLAGM
+        if(hwcap&HWCAP_FLAGM)
+            cpuext.flagm = 1;
+        #endif
+        unsigned long hwcap2 = real_getauxval(AT_HWCAP2);
+        #ifdef HWCAP2_FLAGM2
+        if(hwcap2&HWCAP2_FLAGM2)
+            cpuext.flagm2 = 1;
+        #endif
+        #ifdef HWCAP2_FRINT
+        if(hwcap2&HWCAP2_FRINT)
+            cpuext.frintts = 1;
+        #endif
+        #ifdef HWCAP2_AFP
+        if(hwcap2&HWCAP2_AFP)
+            cpuext.afp = 1;
+        #endif
+        #ifdef HWCAP2_RNG
+        if(hwcap2&HWCAP2_RNG)
+            cpuext.rndr = 1;
+        #endif
+        if (p) {
+            p = strtok(p, ",");
+            while (p) {
+                if (!strcasecmp(p, "crc32")) cpuext.crc32 = 0;
+                if (!strcasecmp(p, "pmull")) cpuext.pmull = 0;
+                if (!strcasecmp(p, "aes")) cpuext.aes = 0;
+                if (!strcasecmp(p, "atomics")) cpuext.atomics = 0;
+                if (!strcasecmp(p, "sha1")) cpuext.sha1 = 0;
+                if (!strcasecmp(p, "sha2")) cpuext.sha2 = 0;
+                if (!strcasecmp(p, "uscat")) cpuext.uscat = 0;
+                if (!strcasecmp(p, "flagm")) cpuext.flagm = 0;
+                if (!strcasecmp(p, "flagm2")) cpuext.flagm2 = 0;
+                if (!strcasecmp(p, "frintts")) cpuext.frintts = 0;
+                if (!strcasecmp(p, "afp")) cpuext.afp = 0;
+                if (!strcasecmp(p, "rndr")) cpuext.rndr = 0;
+                p = strtok(NULL, ",");
+            }
+        }
+    }
 #elif defined(LA64)
-    char* p = GetEnv("BOX64_DYNAREC_LA64NOEXT");
     if (p == NULL || p[0] != '1') {
         uint32_t cpucfg2 = 0, idx = 2;
         asm volatile("cpucfg %0, %1" : "=r"(cpucfg2) : "r"(idx));
@@ -211,9 +259,7 @@ int DetectHostCpuFeatures(void)
         }
     }
 #elif defined(RV64)
-    // private env. variable for the developer ;)
-    char *p = GetEnv("BOX64_DYNAREC_RV64NOEXT");
-    if(p == NULL || strcasecmp(p, "1")) {
+    if (p == NULL || p[0] != '1') {
         rv64Detect();
         if (p) {
             p = strtok(p, ",");
@@ -230,11 +276,38 @@ int DetectHostCpuFeatures(void)
                 if (!strcasecmp(p, "xtheadbb")) cpuext.xtheadbb = 0;
                 if (!strcasecmp(p, "xtheadbs")) cpuext.xtheadbs = 0;
                 if (!strcasecmp(p, "xtheadmemidx")) cpuext.xtheadmemidx = 0;
-                // if (!strcasecmp(p, "xtheadfmemidx")) cpuext.xtheadfmemidx = 0;
-                // if (!strcasecmp(p, "xtheadmac")) cpuext.xtheadmac = 0;
-                // if (!strcasecmp(p, "xtheadfmv")) cpuext.xtheadfmv = 0;
                 if (!strcasecmp(p, "xtheadmempair")) cpuext.xtheadmempair = 0;
                 if (!strcasecmp(p, "xtheadcondmov")) cpuext.xtheadcondmov = 0;
+                if (!strcasecmp(p, "zicbom")) cpuext.zicbom = 0;
+                if (!strcasecmp(p, "zicbop")) cpuext.zicbop = 0;
+                if (!strcasecmp(p, "zicond")) cpuext.zicond = 0;
+                p = strtok(NULL, ",");
+            }
+        }
+    }
+#elif defined(PPC64LE)
+    unsigned long hwcap = real_getauxval(AT_HWCAP);
+    unsigned long hwcap2 = real_getauxval(AT_HWCAP2);
+    // Minimum: ALTIVEC + VSX + ISA 3.0 (POWER9)
+    if (!(hwcap & PPC_FEATURE_HAS_ALTIVEC)) return 0;
+    if (!(hwcap & PPC_FEATURE_HAS_VSX)) return 0;
+    if (!(hwcap2 & PPC_FEATURE2_ARCH_3_00)) return 0;
+    if (p == NULL || p[0] != '1') {
+        if (hwcap2 & PPC_FEATURE2_VEC_CRYPTO)
+            cpuext.crypto = 1;
+        if (hwcap2 & PPC_FEATURE2_DARN)
+            cpuext.darn = 1;
+        if (hwcap2 & PPC_FEATURE2_ARCH_3_1)
+            cpuext.isa31 = 1;
+        if (hwcap2 & PPC_FEATURE2_MMA)
+            cpuext.mma = 1;
+        if (p) {
+            p = strtok(p, ",");
+            while (p) {
+                if (!strcasecmp(p, "crypto")) cpuext.crypto = 0;
+                if (!strcasecmp(p, "darn")) cpuext.darn = 0;
+                if (!strcasecmp(p, "isa31")) cpuext.isa31 = 0;
+                if (!strcasecmp(p, "mma")) cpuext.mma = 0;
                 p = strtok(NULL, ",");
             }
         }

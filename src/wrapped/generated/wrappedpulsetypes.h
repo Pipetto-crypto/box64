@@ -31,6 +31,7 @@ typedef void* (*pFpuupp_t)(void*, uint32_t, uint32_t, void*, void*);
 typedef void* (*pFpuppp_t)(void*, uint32_t, void*, void*, void*);
 typedef void* (*pFppppp_t)(void*, void*, void*, void*, void*);
 typedef int32_t (*iFppLpIu_t)(void*, void*, uintptr_t, void*, int64_t, uint32_t);
+typedef void* (*pFpppppp_t)(void*, void*, void*, void*, void*, void*);
 typedef void* (*pFpiuCppp_t)(void*, int32_t, uint32_t, uint8_t, void*, void*, void*);
 
 #define SUPER() ADDED_FUNCTIONS() \
@@ -118,6 +119,7 @@ typedef void* (*pFpiuCppp_t)(void*, int32_t, uint32_t, uint8_t, void*, void*, vo
 	GO(pa_context_set_sink_port_by_name, pFppppp_t) \
 	GO(pa_context_set_source_volume_by_name, pFppppp_t) \
 	GO(pa_stream_write, iFppLpIu_t) \
+	GO(pa_context_send_message_to_object, pFpppppp_t) \
 	GO(pa_ext_device_restore_save_formats, pFpiuCppp_t)
 
 #endif // __wrappedpulseTYPES_H_

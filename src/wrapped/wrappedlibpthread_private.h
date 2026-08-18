@@ -1,25 +1,30 @@
 #if !(defined(GO) && defined(GOM) && defined(GO2) && defined(DATA))
-#error meh!
+#error Meh...
 #endif
 // General note: pthread_t is unsigned long int
 // cpu_set_t is a struct with an array, default size is fixed for all architecture
 // pthread_t is like unsigned long
 
 //GO(__errno_location, 
-//GO(fork, 
+GOWM(fork, iFEv)
 //GO(__fork, 
 //GO(__h_errno_location, 
 //GO(_IO_flockfile, 
 //GO(_IO_ftrylockfile, 
 //GO(_IO_funlockfile, 
 //GO(__libc_allocate_rtsig, 
-//GO(__libc_current_sigrtmax, 
-//GO(__libc_current_sigrtmin, 
+#ifndef STATICBUILD
+GO(__libc_current_sigrtmax, iFv)
+GO(__libc_current_sigrtmin, iFv)
+#else
+//GO(__libc_current_sigrtmax, iFv)
+//GO(__libc_current_sigrtmin, iFv)
+#endif
 GOM(pthread_atfork, iFEppp)
 GOM(__pthread_atfork, iFEppp)
 GOM(pthread_attr_destroy, iFEp)
-//GO(pthread_attr_getaffinity_np, 
 #ifdef NOALIGN
+GO(pthread_attr_getaffinity_np, iFpLp)
 GO(pthread_attr_getdetachstate, iFpp)
 GO(pthread_attr_getguardsize, iFpp)
 GO(pthread_attr_getinheritsched, iFpp)
@@ -27,6 +32,7 @@ GO(pthread_attr_getschedparam, iFpp)
 GO(pthread_attr_getschedpolicy, iFpp)
 GO(pthread_attr_getscope, iFpp)
 #else
+GOM(pthread_attr_getaffinity_np, iFEpLp)
 GOM(pthread_attr_getdetachstate, iFEpp)
 GOM(pthread_attr_getguardsize, iFEpp)
 GOM(pthread_attr_getinheritsched, iFEpp)
@@ -82,6 +88,7 @@ GOM(pthread_barrier_init, iFEppu)
 #endif
 GO(pthread_barrier_wait, iFp)
 GO(pthread_cancel, iFL)
+GO(pthread_clockjoin_np, iFppip)
 GOM(_pthread_cleanup_pop, vFEpi)
 GOM(_pthread_cleanup_pop_restore, vFEpi)
 GOM(_pthread_cleanup_push, vFEppp)
@@ -129,21 +136,21 @@ GO(pthread_getattr_np, iFLp)
 GO(pthread_getattr_default_np, iFp)
 GO(pthread_setattr_default_np, iFp)
 #else
-GOM(pthread_getattr_np, iFELp)
+GOM(pthread_getattr_np, iFEpp)
 GOM(pthread_getattr_default_np, iFEp)
 GOM(pthread_setattr_default_np, iFEp)
 #endif
-//GO(pthread_getconcurrency, iFv)
+GO(pthread_getconcurrency, iFv)
 GO(pthread_getcpuclockid, iFLp)
 GO(pthread_getschedparam, iFLpp)
 GO(__pthread_getspecific, pFL)
-GO(pthread_getspecific, pFL)
+GO(pthread_getspecific, pFu)
 GO(pthread_getname_np, iFppL)
 //GO(__pthread_initialize_minimal, 
 GO(pthread_join, iFLp)
 GOM(__pthread_key_create, iFEpp)
 GOM(pthread_key_create, iFEpp)
-GOM(pthread_key_delete, iFEL)
+GOM(pthread_key_delete, iFEu)
 GO2(pthread_kill@GLIBC_2.2.5, iFEpi, my_pthread_kill_old)
 GOM(pthread_kill, iFEpi)
 #ifndef STATICBUILD
@@ -175,9 +182,9 @@ GO(pthread_mutexattr_settype, iFpi)
 GOM(__pthread_mutexattr_destroy, iFEp)
 GOM(pthread_mutexattr_destroy, iFEp)
 GOM(pthread_mutexattr_getkind_np, iFEpp)
-//GO(pthread_mutexattr_getprioceiling, 
+GO(pthread_mutexattr_getprioceiling, iFpp)
 GOM(pthread_mutexattr_getprotocol, iFEpp)
-//GO(pthread_mutexattr_getpshared, 
+GO(pthread_mutexattr_getpshared, iFpp)
 GOM(pthread_mutexattr_getrobust, iFEpp)
 //GO(pthread_mutexattr_getrobust_np, 
 GOM(pthread_mutexattr_gettype, iFEpp)
@@ -193,10 +200,11 @@ GOM(__pthread_mutexattr_settype, iFEpi)
 GOM(pthread_mutexattr_settype, iFEpi)
 #endif
 //GO(pthread_mutex_consistent_np, 
+GO(pthread_mutex_clocklock, iFpip)
 GO(pthread_mutex_consistent, iFp)
 GO(__pthread_mutex_destroy, iFp)
 GO(pthread_mutex_destroy, iFp)
-//GO(pthread_mutex_getprioceiling, 
+GO(pthread_mutex_getprioceiling, iFpp)
 #ifdef NOALIGN
 GO(__pthread_mutex_init, iFpp)
 GO(pthread_mutex_init, iFpp)
@@ -207,7 +215,7 @@ GOM(pthread_mutex_init, iFpp)
 #endif
 GO(__pthread_mutex_lock, iFp)
 GO(pthread_mutex_lock, iFp)
-//GO(pthread_mutex_setprioceiling, 
+GO(pthread_mutex_setprioceiling, iFpip)
 GO(pthread_mutex_timedlock, iFpp)
 GO(__pthread_mutex_trylock, iFp)
 GO(pthread_mutex_trylock, iFp)
@@ -216,10 +224,10 @@ GO(pthread_mutex_unlock, iFp)
 GOM(pthread_once, iFEpp)
 GOM(__pthread_once, iFEpp)
 GOM(__pthread_register_cancel, vFEp)
-//GO(__pthread_register_cancel_defer, 
-GO(pthread_rwlockattr_destroy, vFp)
+GO(__pthread_register_cancel_defer, vFp)
+GO(pthread_rwlockattr_destroy, iFp)
 GO(pthread_rwlockattr_getkind_np, iFpp)
-GO(pthread_rwlockattr_getpshared, iFpi)
+GO(pthread_rwlockattr_getpshared, iFpp)
 GO(pthread_rwlockattr_init, iFp)
 GO(pthread_rwlockattr_setkind_np, iFpi)
 GO(pthread_rwlockattr_setpshared, iFpi)
@@ -229,8 +237,8 @@ GO(__pthread_rwlock_init, iFpp)
 GO(pthread_rwlock_init, iFpp)
 GO(__pthread_rwlock_rdlock, iFp)
 GO(pthread_rwlock_rdlock, iFp)
-//GO(pthread_rwlock_timedrdlock, 
-//GO(pthread_rwlock_timedwrlock, 
+GO(pthread_rwlock_timedrdlock, iFpp)
+GO(pthread_rwlock_timedwrlock, iFpp)
 //GO(__pthread_rwlock_tryrdlock, 
 GO(pthread_rwlock_tryrdlock, iFp)
 //GO(__pthread_rwlock_trywrlock, 
@@ -247,9 +255,9 @@ GO(pthread_setcanceltype, iFip)
 GO(pthread_setconcurrency, iFi)
 GO(pthread_setname_np, iFpp)
 GO(pthread_setschedparam, iFLip)
-GO(pthread_setschedprio, iFpi)
+GO(pthread_setschedprio, iFLi)
 GO(__pthread_setspecific, iFLp)
-GO(pthread_setspecific, iFLp)
+GO(pthread_setspecific, iFup)
 GO(pthread_sigmask, iFipp)
 GO(pthread_spin_destroy, iFp)
 GO(pthread_spin_init, iFpi)
@@ -260,14 +268,14 @@ GO(pthread_testcancel, vFv)
 GO(pthread_timedjoin_np, iFppp)
 GO(pthread_tryjoin_np, iFpp)
 GOM(__pthread_unregister_cancel, vFEp)
-//GO(__pthread_unregister_cancel_restore, 
+//GO(__pthread_unregister_cancel_restore, vFp)
 //GO(__pthread_unwind, 
 GOM(__pthread_unwind_next, vFEp)
 GO2(pthread_yield, iFv, sched_yield)
-//GO(raise, 
+GO(raise, iFi)
 //GO(__res_state, 
 GO(sem_close, iFp)
-GO(sem_clockwait, iFppp)
+GO(sem_clockwait, iFpip)
 GO(sem_destroy, iFp)
 GO(sem_getvalue, iFpp)
 GO(sem_init, iFpiu)

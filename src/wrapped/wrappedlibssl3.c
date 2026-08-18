@@ -58,8 +58,8 @@ static void* find_pem_passwd_cb_Fct(void* fct)
 static void* reverse_pem_passwd_cb_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, pFp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, pFp, fct);
     #define GO(A) if(my3_pem_passwd_cb_##A == fct) return (void*)my3_pem_passwd_cb_fct_##A;
     SUPER()
     #undef GO
@@ -117,8 +117,8 @@ static void* find_verify_Fct(void* fct)
 static void* reverse_verify_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, iFip, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, iFip, fct);
     #define GO(A) if(my3_verify_##A == fct) return (void*)my3_verify_fct_##A;
     SUPER()
     #undef GO
@@ -266,6 +266,30 @@ static void* find_client_cert_Fct(void* fct)
     SUPER()
     #undef GO
     printf_log(LOG_NONE, "Warning, no more slot for libSSL client_cert callback\n");
+    return NULL;
+}
+
+// cert_cb
+#define GO(A)   \
+static uintptr_t my3_cert_cb_fct_##A = 0;                        \
+static int my3_cert_cb_##A(void* ssl, void* arg)                 \
+{                                                                \
+    return (int)RunFunctionFmt(my3_cert_cb_fct_##A, "pp", ssl, arg); \
+}
+SUPER()
+#undef GO
+static void* find_cert_cb_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my3_cert_cb_fct_##A == (uintptr_t)fct) return my3_cert_cb_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my3_cert_cb_fct_##A == 0) {my3_cert_cb_fct_##A = (uintptr_t)fct; return my3_cert_cb_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for libSSL cert_cb callback\n");
     return NULL;
 }
 
@@ -476,6 +500,29 @@ static void* find_psk_server_cb_Fct(void* fct)
     printf_log(LOG_NONE, "Warning, no more slot for ssl3 psk_server_cb callback\n");
     return NULL;
 }
+// psk_server_callback
+#define GO(A)   \
+static uintptr_t my_psk_server_callback_fct_##A = 0;                                        \
+static uint32_t my_psk_server_callback_##A(void* a, void* b, void* c, int d)                \
+{                                                                                           \
+    return (uint32_t)RunFunctionFmt(my_psk_server_callback_fct_##A, "pppi", a, b, c, d);    \
+}
+SUPER()
+#undef GO
+static void* find_psk_server_callback_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my_psk_server_callback_fct_##A == (uintptr_t)fct) return my_psk_server_callback_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my_psk_server_callback_fct_##A == 0) {my_psk_server_callback_fct_##A = (uintptr_t)fct; return my_psk_server_callback_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for ssl3 psk_server_callback callback\n");
+    return NULL;
+}
 // read_write
 #define GO(A)   \
 static uintptr_t my_read_write_fct_##A = 0;                             \
@@ -568,6 +615,29 @@ static void* find_create_destroy_Fct(void* fct)
     printf_log(LOG_NONE, "Warning, no more slot for ssl3 create_destroy callback\n");
     return NULL;
 }
+// remove_session
+#define GO(A)   \
+static uintptr_t my_remove_session_fct_##A = 0;             \
+static void my_remove_session_##A(void* a, void* b)         \
+{                                                           \
+    RunFunctionFmt(my_remove_session_fct_##A, "pp", a, b);  \
+}
+SUPER()
+#undef GO
+static void* find_remove_session_Fct(void* fct)
+{
+    if(!fct) return NULL;
+    void* p;
+    if((p = GetNativeFnc((uintptr_t)fct))) return p;
+    #define GO(A) if(my_remove_session_fct_##A == (uintptr_t)fct) return my_remove_session_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my_remove_session_fct_##A == 0) {my_remove_session_fct_##A = (uintptr_t)fct; return my_remove_session_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for ssl3 remove_session callback\n");
+    return NULL;
+}
 
 #undef SUPER
 
@@ -631,6 +701,12 @@ EXPORT void my3_SSL_CTX_set_cert_verify_callback(x64emu_t* emu, void* ctx, void*
     my->SSL_CTX_set_cert_verify_callback(ctx, find_verify_Fct(cb), arg);
 }
 
+EXPORT void my3_SSL_CTX_set_cert_cb(x64emu_t* emu, void* ctx, void* cb, void* arg)
+{
+    (void)emu;
+    my->SSL_CTX_set_cert_cb(ctx, find_cert_cb_Fct(cb), arg);
+}
+
 EXPORT void my3_SSL_CTX_set_client_cert_cb(x64emu_t* emu, void* ctx, void* cb)
 {
     (void)emu;
@@ -675,6 +751,12 @@ EXPORT void my3_SSL_CTX_sess_set_new_cb(x64emu_t* emu, void *ctx, void* f)
 EXPORT void my3_SSL_set_info_callback(x64emu_t* emmu, void* ctx, void* f)
 {
     my->SSL_set_info_callback(ctx, find_info_cb_Fct(f));
+}
+
+EXPORT void my3_SSL_CTX_set_info_callback(x64emu_t* emu, void* ctx, void* f)
+{
+    (void)emu;
+    my->SSL_CTX_set_info_callback(ctx, find_info_cb_Fct(f));
 }
 
 EXPORT void my3_SSL_set_psk_use_session_callback(x64emu_t* emu, void* ctx, void* f)
@@ -725,6 +807,26 @@ EXPORT int my3_BIO_meth_set_create(x64emu_t* emu, void* biom, void* f)
 EXPORT int my3_BIO_meth_set_destroy(x64emu_t* emu, void* biom, void* f)
 {
     return my->BIO_meth_set_destroy(biom, find_create_destroy_Fct(f));
+}
+
+EXPORT void my3_SSL_CTX_set_psk_server_callback(x64emu_t* emu, void* ssl, void* cb)
+{
+    my->SSL_CTX_set_psk_server_callback(ssl, find_psk_server_callback_Fct(cb));
+}
+
+EXPORT void my3_SSL_CTX_set_psk_client_callback(x64emu_t* emu, void* ssl, void* cb)
+{
+    my->SSL_CTX_set_psk_client_callback(ssl, find_client_cb_Fct(cb));
+}
+
+EXPORT void my3_SSL_CTX_sess_set_remove_cb(x64emu_t* emu, void* ctx, void* f)
+{
+    my->SSL_CTX_sess_set_remove_cb(ctx, find_remove_session_Fct(f));
+}
+
+EXPORT void my3_SSL_set_cert_cb(x64emu_t* emu, void* s, void* f, void* arg)
+{
+    my->SSL_set_cert_cb(s, find_cert_cb_Fct(f), arg);
 }
 
 #define ALTMY my3_

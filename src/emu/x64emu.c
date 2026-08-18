@@ -41,6 +41,17 @@ static uint32_t x86emu_parity_tab[8] =
     0x69969669,
 };
 
+static void reset_deferred_signal(x64emu_t* emu)
+{
+    #ifndef _WIN32
+    emu->critical_section = 0;
+    emu->deferred_signal_processing = 0;
+    emu->deferred_signal_count = 0;
+    memset((void*)emu->deferred_signal_pending, 0, sizeof(emu->deferred_signal_pending));
+    memset(emu->deferred_siginfo, 0, sizeof(emu->deferred_siginfo));
+    #endif
+}
+
 static void internalX64Setup(x64emu_t* emu, box64context_t *context, uintptr_t start, uintptr_t stack, int stacksize, int ownstack)
 {
     emu->context = context;
@@ -60,7 +71,7 @@ static void internalX64Setup(x64emu_t* emu, box64context_t *context, uintptr_t s
     #ifdef BOX32
     if(box64_is32bits) {
         if(stack>=0x100000000LL) {
-            printf_log(LOG_NONE, "BOX32: Stack pointer too high (%p), aborting\n", (void*)stack);
+            printf_log(LOG_NONE, "Stack pointer too high (%p), aborting\n", (void*)stack);
             abort();
         }
         if(R_RSP>=0x100000000LL) {    // special case, stack is just a bit too high
@@ -88,6 +99,9 @@ static void internalX64Setup(x64emu_t* emu, box64context_t *context, uintptr_t s
     // setup fpu regs
     reset_fpu(emu);
     emu->mxcsr.x32 = 0x1f80;
+    // want some new jmpbuf for error recovery
+    emu->flags.need_jmpbuf = 1;
+    reset_deferred_signal(emu);
 }
 
 EXPORTDYN
@@ -129,6 +143,12 @@ void SetupX64Emu(x64emu_t *emu, x64emu_t *ref)
 #ifdef HAVE_TRACE
 void SetTraceEmu(uintptr_t start, uintptr_t end)
 {
+    if (trace_addrs) {
+        box_free(trace_addrs);
+        trace_addrs = NULL;
+    }
+    trace_addrs_count = 0;
+
     if(my_context->zydis) {
         if (end == 0) {
             printf_log(LOG_INFO, "Setting trace\n");
@@ -140,6 +160,22 @@ void SetTraceEmu(uintptr_t start, uintptr_t end)
     }
     trace_start = start;
     trace_end = end;
+}
+
+void SetTraceAddrs(uintptr_t* addrs, int count)
+{
+    trace_start = 0;
+    trace_end = 1;
+
+    if (trace_addrs)
+        box_free(trace_addrs);
+
+    trace_addrs = (uintptr_t*)box_malloc(count * sizeof(uintptr_t));
+    memcpy(trace_addrs, addrs, count * sizeof(uintptr_t));
+    trace_addrs_count = count;
+
+    if(my_context->zydis)
+        printf_log(LOG_INFO, "Setting trace on %d specific address(es)\n", count);
 }
 #endif
 
@@ -217,6 +253,7 @@ void CloneEmu(x64emu_t *newemu, const x64emu_t* emu)
     newemu->quit = emu->quit;
     newemu->error = emu->error;
     newemu->x64emu_parity_tab = emu->x64emu_parity_tab;
+    reset_deferred_signal(newemu);
 }
 
 void CopyEmu(x64emu_t *newemu, const x64emu_t* emu)
@@ -245,6 +282,7 @@ void CopyEmu(x64emu_t *newemu, const x64emu_t* emu)
     newemu->mxcsr = emu->mxcsr;
     newemu->quit = emu->quit;
     newemu->error = emu->error;
+    reset_deferred_signal(newemu);
 }
 
 box64context_t* GetEmuContext(x64emu_t* emu)
@@ -410,7 +448,7 @@ const char* DumpCPURegs(x64emu_t* emu, uintptr_t ip, int is32bits)
         int stack = emu->fpu_stack;
         if(stack>8) stack = 8;
         for (int i=0; i<stack; i++) {
-            sprintf(tmp, "ST%d=%f(0x%" PRIx64 ")", i, ST(i).d, ST(i).q);
+            sprintf(tmp, "ST%d=%f(0x%" PRIx64 "%s)", i, ST(i).d, ST(i).q, fpu_ld80_raw_valid(emu, i)?PrintLD(&STld(i).ld, " / "):"");
             strcat(buff, tmp);
             int c = 20-strlen(tmp);
             if(c<1) c=1;
@@ -543,13 +581,12 @@ void StopEmu(x64emu_t* emu, const char* reason, int is32bits)
 void UnimpOpcode(x64emu_t* emu, int is32bits)
 {
     int tid = GetTID();
-    printf_log(LOG_INFO, "%04d|%p: Unimplemented %sOpcode (%02X %02X %02X %02X) %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
-        tid, (void*)emu->old_ip, is32bits?"32bits ":"",
-        Peek(emu, -4), Peek(emu, -3), Peek(emu, -2), Peek(emu, -1),
-        Peek(emu, 0), Peek(emu, 1), Peek(emu, 2), Peek(emu, 3),
-        Peek(emu, 4), Peek(emu, 5), Peek(emu, 6), Peek(emu, 7),
-        Peek(emu, 8), Peek(emu, 9), Peek(emu,10), Peek(emu,11),
-        Peek(emu,12), Peek(emu,13), Peek(emu,14));
+    char prev[4 * 3];
+    char opcode[15 * 3];
+    FormatPeekBytes(emu, -4, 4, prev, sizeof(prev));
+    FormatPeekBytes(emu, 0, 15, opcode, sizeof(opcode));
+    printf_log(LOG_INFO, "%04d|%p: Unimplemented %sOpcode (%s) %s\n",
+        tid, (void*)emu->old_ip, is32bits?"32bits ":"", prev, opcode);
 }
 
 void EmuCall(x64emu_t* emu, uintptr_t addr)
@@ -578,8 +615,9 @@ void EmuCall(x64emu_t* emu, uintptr_t addr)
         PushExit(emu);
     R_RIP = addr;
     emu->df = d_none;
-    emu->flags.need_jmpbuf = 1;
-    EmuRun(emu, 0);
+    if(emu->flags.quitonlongjmp)
+        emu->flags.need_jmpbuf = 1;
+    EmuRun(emu, 0, 0);
     emu->quit = 0;  // reset Quit flags...
     emu->df = d_none;
     if(emu->flags.quitonlongjmp && emu->flags.longjmp) {
@@ -1414,6 +1452,7 @@ void UpdateFlags(x64emu_t* emu)
             break;
         case d_tst8:
             CLEAR_FLAG(F_OF);
+            CLEAR_FLAG(F_AF);
             CONDITIONAL_SET_FLAG(emu->res.u8 & 0x80, F_SF);
             CONDITIONAL_SET_FLAG(!emu->res.u8, F_ZF);
             CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);
@@ -1421,6 +1460,7 @@ void UpdateFlags(x64emu_t* emu)
             break;
         case d_tst16:
             CLEAR_FLAG(F_OF);
+            CLEAR_FLAG(F_AF);
             CONDITIONAL_SET_FLAG(emu->res.u16 & 0x8000, F_SF);
             CONDITIONAL_SET_FLAG(!emu->res.u16, F_ZF);
             CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);
@@ -1428,6 +1468,7 @@ void UpdateFlags(x64emu_t* emu)
             break;
         case d_tst32:
             CLEAR_FLAG(F_OF);
+            CLEAR_FLAG(F_AF);
             CONDITIONAL_SET_FLAG(emu->res.u32 & 0x80000000, F_SF);
             CONDITIONAL_SET_FLAG(!emu->res.u32, F_ZF);
             CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);
@@ -1435,6 +1476,7 @@ void UpdateFlags(x64emu_t* emu)
             break;
         case d_tst64:
             CLEAR_FLAG(F_OF);
+            CLEAR_FLAG(F_AF);
             CONDITIONAL_SET_FLAG(emu->res.u64 & 0x8000000000000000LL, F_SF);
             CONDITIONAL_SET_FLAG(!emu->res.u64, F_ZF);
             CONDITIONAL_SET_FLAG(PARITY(emu->res.u8), F_PF);

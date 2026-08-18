@@ -233,10 +233,10 @@ static void* findValueTransformFct(void* fct)
 
 // GDestroyFunc ...
 #define GO(A)   \
-static uintptr_t my_destroyfunc_fct_##A = 0;                               \
-static int my_destroyfunc_##A(void* a, void* b)                            \
-{                                                                          \
-    return RunFunctionFmt(my_destroyfunc_fct_##A, "pp", a, b); \
+static uintptr_t my_destroyfunc_fct_##A = 0;        \
+static void my_destroyfunc_##A(void* a)             \
+{                                                   \
+    RunFunctionFmt(my_destroyfunc_fct_##A, "p", a); \
 }
 SUPER()
 #undef GO
@@ -487,12 +487,12 @@ static void* findUnloadFct(void* fct)
 
 #include "super100.h"
 
-// GCallback  (generic function with 6 arguments, hopefully it's enough)
+// GCallback  (generic function with 10 arguments, hopefully it's enough)
 #define GO(A)   \
 static uintptr_t my_GCallback_fct_##A = 0;                                                      \
-static void* my_GCallback_##A(void* a, void* b, void* c, void* d, void* e, void* f)             \
+static void* my_GCallback_##A(void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h, void* i, void* j) \
 {                                                                                               \
-    return (void*)RunFunctionFmt(my_GCallback_fct_##A, "pppppp", a, b, c, d, e, f); \
+    return (void*)RunFunctionFmt(my_GCallback_fct_##A, "pppppppppp", a, b, c, d, e, f, g, h, i, j); \
 }
 SUPER()
 #undef GO
@@ -512,9 +512,9 @@ static void* findGCallbackFct(void* fct)
 // EmissionHook
 #define GO(A)   \
 static uintptr_t my_EmissionHook_fct_##A = 0;                           \
-static void my_EmissionHook_##A(void* a, uint32_t b, void* c, void* d)  \
+static int my_EmissionHook_##A(void* a, uint32_t b, void* c, void* d)  \
 {                                                                       \
-    RunFunctionFmt(my_EmissionHook_fct_##A, "pupp", a, b, c, d);        \
+    return (int)RunFunctionFmt(my_EmissionHook_fct_##A, "pupp", a, b, c, d);        \
 }
 SUPER()
 #undef GO
@@ -938,10 +938,7 @@ EXPORT void my_g_type_module_add_interface(x64emu_t* emu, my_GTypeModule_t* modu
 
 EXPORT size_t my_g_type_module_register_type(x64emu_t* emu, my_GTypeModule_t* module, size_t parent_type, char* type_name, my_GTypeInfo_t* type_info, uint32_t flags)
 {
-    if (type_info) {
-        type_info->class_init = find_class_init_Fct(type_info->class_init, parent_type);
-    }
-    return my->g_type_module_register_type(module, parent_type, type_name, type_info, flags);
+    return my->g_type_module_register_type(module, parent_type, type_name, findFreeGTypeInfo(type_info, parent_type), flags);
 }
 
 #define PRE_INIT \

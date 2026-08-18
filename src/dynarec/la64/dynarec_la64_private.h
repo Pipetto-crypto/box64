@@ -20,6 +20,8 @@ typedef struct box64env_s box64env_t;
 #define LSX_CACHE_YMMW   7
 #define LSX_CACHE_YMMR   8
 #define LSX_CACHE_SCR    9
+#define LSX_CACHE_XMM_S  10
+#define LSX_CACHE_XMM_D  11
 
 #define LSX_AVX_WIDTH_128 0
 #define LSX_AVX_WIDTH_256 1
@@ -43,9 +45,8 @@ typedef union sse_cache_s {
 typedef union avx_cache_s {
     int8_t v;
     struct {
-        uint8_t reg : 5;
-        uint8_t width : 1;
-        uint8_t zero_upper : 1;        
+        uint8_t reg : 6;
+        uint8_t upper_zero_pending : 1;
         uint8_t write : 1;
     };
 } avx_cache_t;
@@ -70,28 +71,60 @@ typedef struct lsxcache_s {
     int16_t         tags;           // similar to fpu_tags
     int8_t          mmxcache[8];    // cache status for the 8 MMX registers
     sse_cache_t     ssecache[16];   // cache status for the 16 SSE(2) registers
-    avx_cache_t     avxcache[16];   // cache status for the 16 SSE(2) registers
+    avx_cache_t     avxcache[16];   // cache status for the 16 YMM registers
+    int8_t          scalarcache[16]; // pending "scalar" register for each XMM
     int8_t          fpuused[24];    // all 0..24 double reg from fpu, used by x87, sse and mmx
     int8_t          x87stack;       // cache stack counter
     int8_t          mmxcount;       // number of mmx register used (not both mmx and x87 at the same time)
     int8_t          fpu_scratch;    // scratch counter
     uint16_t        xmm_used;       // mask of the xmm regs used in this opcode
     uint16_t        ymm_used;       // mask of the ymm regs used in this opcode
+    uint16_t        xmm_load;       // mask of cache-miss XMM loads emitted by this opcode
+    uint16_t        ymm_load;       // mask of cache-miss YMM loads emitted by this opcode
 } lsxcache_t;
 
-typedef struct flagcache_s {
-    int                 pending;    // is there a pending flags here, or to check?
-    uint8_t             dfnone;     // if deferred flags is already set to df_none
+typedef enum flagcache_s {
+    status_unk = 0,      // unknown deferred flags status
+    status_set,          // deferred flags set to something (not 0)
+    status_none_pending, // deferred flags set to 0, but still pending the write to x64emu_t
+    status_none,         // deferred flags set to 0, written to x64emu_t
 } flagcache_t;
 
 typedef struct callret_s callret_t;
+typedef struct sep_s sep_t;
+
+#define RSP_CLASS_BARRIER 0
+#define RSP_CLASS_PUSH    1
+#define RSP_CLASS_POP     2
+
+typedef union vector_upper_s {
+    uint64_t raw;
+    struct {
+        uint64_t xmm_lane1:16;   // XMM[63:32]
+        uint64_t xmm_lanes23:16; // XMM[127:64]
+        uint64_t ymm_upper:16;   // YMM[255:128]
+        uint64_t :16;
+    };
+} vector_upper_t;
+
+typedef struct vector_liveness_s {
+    vector_upper_t use;
+    vector_upper_t def;
+    vector_upper_t live;
+    uint16_t xmm_tracked;
+    uint16_t ymm_zero;
+    uint16_t ymm_pending;
+    uint8_t xmm_copy_src;
+    uint8_t xmm_copy_dst;
+} vector_liveness_t;
 
 typedef struct instruction_la64_s {
     instruction_x64_t   x64;
-    uintptr_t           address;    // (start) address of the arm emitted instruction
+    uintptr_t           address;        // start of native bytes attributed to this instruction
+    uintptr_t           branch_address; // internal branch target after any preload
     uintptr_t           epilog;     // epilog of current instruction (can be start of next, or barrier stuff)
-    int                 size;       // size of the arm emitted instruction
-    int                 size2;      // size of the arm emitted instrucion after pass2
+    int                 size;       // size of the native emitted instruction
+    int                 size2;      // size of the native emitted instrucion after pass2
     int                 pred_sz;    // size of predecessor list
     int                 *pred;      // predecessor array
     uintptr_t           mark[3];
@@ -103,27 +136,47 @@ typedef struct instruction_la64_s {
     uintptr_t           natcall;
     uint16_t            retn;
     uint16_t            ymm0_pass2, ymm0_pass3;
+    uint32_t            preload_xmmymm;
+    int                 preload_from;
     uint8_t             barrier_maybe;
     uint8_t             will_write:2;    // [strongmem] will write to memory
     uint8_t             will_read:1;     // [strongmem] will read from memory
     uint8_t             last_write:1;    // [strongmem] the last write in a SEQ
     uint8_t             lock:1;          // [strongmem] lock semantic
-    uint8_t             df_notneeded;
+    uint8_t             df_needed:1;
+    uint8_t             df_notneeded:1;
+    uint8_t             sep:1;           // opcode is a secondary entry point
     uint8_t             nat_flags_fusion:1;
     uint8_t             nat_flags_nofusion:1;
     uint8_t             nat_flags_carry:1;
     uint8_t             nat_flags_sign:1;
     uint8_t             nat_flags_sf:1;
     uint8_t             nat_flags_needsign:1;
+    uint8_t             nat_flags_needunsigned:1;
     uint8_t             no_scratch_usage : 1; // this opcode does not use scratch register
     uint8_t             nat_flags_op1;
     uint8_t             nat_flags_op2;
     uint8_t             x87precision:1; // this opcode can handle x87pc
+    uint8_t             unaligned:1; // this opcode can be re-generated for unaligned special case
     unsigned            mmx_used:1; // no fine tracking, just a global "any reg used"
     unsigned            x87_used:1; // no fine tracking, just a global "any reg used"
     unsigned            fpu_used:1; // any xmm/ymm/x87/mmx reg used
     unsigned            fpupurge:1;   // this opcode will purge all fpu regs
-    uint16_t            nat_next_inst;
+    uint16_t            nat_next_inst;  // for producer: first consumer; for consumer: next consumer
+    uint16_t            up32_read;       // bitmask of GPRs whose upper 32 bits are read by this instruction
+    uint16_t            up32_write64;    // bitmask of GPRs written as 64-bit by this instruction (upper 32 become defined)
+    uint16_t            up32_write32;    // bitmask of GPRs written as 32-bit by this instruction
+    uint16_t            up32_zero;       // bitmask of GPRs guaranteed to be zero-extended at instruction exit
+    uint16_t            up32_skip;       // bitmask of GPRs where the implicit zero-up after a 32-bit write can be skipped
+    uint16_t            up32_pending;    // bitmask of GPRs whose upper 32 bits are stale at entry to this instruction
+    vector_liveness_t   vector_liveness;
+    int8_t              comis_fusion;
+    uint8_t             comis_mark:1;
+    uint8_t             host_call:1;
+    int16_t             rsp_entry;       // pending rsp offset at entry
+    int16_t             rsp_flush;       // rsp offset to emit right after this push/pop
+    uint8_t             rsp_merge : 1;   // this push/pop is emitted with merged rsp offset
+    uint8_t             rsp_class : 2;   // RSP_* of this opcode (marked by the opcode handler)
     flagcache_t         f_exit;     // flags status at end of instruction
     lsxcache_t          lsx;        // lsxcache at end of instruction (but before poping)
     flagcache_t         f_entry;    // flags status before the instruction begin
@@ -159,7 +212,9 @@ typedef struct dynarec_la64_s {
     instsize_t*          instsize;
     size_t               insts_size; // size of the instruction size array (calculated)
     int                  callret_size;   // size of the array
-    callret_t*           callrets;   // arrey of callret return, with NOP / UDF depending if the block is clean or dirty
+    int                  sep_size;   // size of the array
+    callret_t*           callrets;   // array of callret return, with NOP / UDF depending if the block is clean or dirty
+    sep_t*               sep;        // array of secondary entry point
     uintptr_t            forward;    // address of the last end of code while testing forward
     uintptr_t            forward_to; // address of the next jump to (to check if everything is ok)
     int32_t              forward_size;   // size at the forward point
@@ -172,8 +227,10 @@ typedef struct dynarec_la64_s {
     uint8_t              use_mmx:1;
     uint8_t              use_xmm:1;
     uint8_t              use_ymm:1;
+    uint8_t              is_file_mapped:1;
     void*                gdbjit_block;
     uint32_t             need_x87check; // x87 low precision check
+    int                  x87round_active; // we are in the middle of x87_setround and x87_restoreround
     uint32_t             need_dump;     // need to dump the block
     int                  need_reloc; // does the dynablock need relocations
     int                  reloc_size;
@@ -193,7 +250,37 @@ int Table64(dynarec_la64_t *dyn, uint64_t val, int pass);  // add a value to tab
 
 void CreateJmpNext(void* addr, void* next);
 
+// While we could theoretically traverse forward to find the flags-consuming x86
+// instruction and get the exact scratch registers to save, this is too complicated.
+// So we went with the simpler approach of saving all scratch registers, this won't
+// add noticeable performance overhead in trace mode.
+#define SPILL_NF_REGISTERS         \
+    do {                           \
+       ADDI_D(xSP, xSP, -64);      \
+       ST_D(x1, xSP, 0 * 8);       \
+       ST_D(x2, xSP, 1 * 8);       \
+       ST_D(x3, xSP, 2 * 8);       \
+       ST_D(x4, xSP, 3 * 8);       \
+       ST_D(x5, xSP, 4 * 8);       \
+       ST_D(x6, xSP, 5 * 8);       \
+       ST_D(x7, xSP, 6 * 8);       \
+    } while(0);
+
+#define RESTORE_NF_REGISTERS       \
+    do {                           \
+       LD_D(x1, xSP, 0 * 8);       \
+       LD_D(x2, xSP, 1 * 8);       \
+       LD_D(x3, xSP, 2 * 8);       \
+       LD_D(x4, xSP, 3 * 8);       \
+       LD_D(x5, xSP, 4 * 8);       \
+       LD_D(x6, xSP, 5 * 8);       \
+       LD_D(x7, xSP, 6 * 8);       \
+       ADDI_D(xSP, xSP, 64);       \
+    } while(0);
+
 #define GO_TRACE(A, B, s0)         \
+    if(cpuext.lbt)                 \
+        RESTORE_EFLAGS(s0);        \
     GETIP(addr, s0);               \
     MV(x1, xRIP);                  \
     STORE_XEMU_CALL();             \
@@ -201,4 +288,4 @@ void CreateJmpNext(void* addr, void* next);
     CALL(const_##A, -1, x1, x2);   \
     LOAD_XEMU_CALL()
 
-#endif //__DYNAREC_ARM_PRIVATE_H_
+#endif //__DYNAREC_LA64_PRIVATE_H_

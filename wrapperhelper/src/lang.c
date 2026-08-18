@@ -43,6 +43,7 @@ preproc_token_t preproc_token_dup(preproc_token_t tok) {
 	case PPTOK_NEWLINE:
 	case PPTOK_BLANK:
 	case PPTOK_START_LINE_COMMENT:
+	case PPTOK_AT_SYM:
 	case PPTOK_EOF:
 		ret.tokv.c = tok.tokv.c;
 		break;
@@ -66,6 +67,7 @@ void preproc_token_del(preproc_token_t *tok) {
 	case PPTOK_NEWLINE:
 	case PPTOK_BLANK:
 	case PPTOK_START_LINE_COMMENT:
+	case PPTOK_AT_SYM:
 	case PPTOK_EOF:
 		break;
 	}
@@ -87,6 +89,7 @@ void proc_token_del(proc_token_t *tok) {
 		case PRAGMA_SIMPLE_SU:
 		case PRAGMA_EXPLICIT_CONV:
 		case PRAGMA_EXPLICIT_CONV_STRICT:
+		case PRAGMA_PRERESERVE:
 			string_del(tok->tokv.pragma.val);
 			break;
 		case PRAGMA_ALLOW_INTS:
@@ -191,6 +194,9 @@ void preproc_token_print(const preproc_token_t *tok) {
 	case PPTOK_START_LINE_COMMENT:
 		printf("%7s\n", "\e[2;31m( // ) \e[m");
 		break;
+	case PPTOK_AT_SYM:
+		printf("%7s\n", "\e[2;31m( @ )  \e[m");
+		break;
 	case PPTOK_EOF:
 		printf("%7s\n", "EOF");
 		break;
@@ -210,6 +216,7 @@ int preproc_token_isend(const preproc_token_t *tok) {
 	case PPTOK_NEWLINE:
 	case PPTOK_BLANK:
 	case PPTOK_START_LINE_COMMENT:
+	case PPTOK_AT_SYM:
 		return 0;
 	case PPTOK_INVALID:
 	case PPTOK_EOF:
@@ -303,6 +310,9 @@ void proc_token_print(const proc_token_t *tok) {
 			break;
 		case PRAGMA_EXPLICIT_CONV_STRICT:
 			printf("%7s Strict explicit conversion: destination is %s\n", "PRAGMA", string_content(tok->tokv.pragma.val));
+			break;
+		case PRAGMA_PRERESERVE:
+			printf("%7s Prereserve: destination is %s\n", "PRAGMA", string_content(tok->tokv.pragma.val));
 			break;
 		default:
 			printf("%7s ??? %u\n", "PRAGMA", tok->tokv.pragma.typ);
@@ -747,6 +757,8 @@ void type_del(type_t *typ) {
 	if (--typ->nrefs) return;
 	if (typ->converted) string_del(typ->converted);
 	switch (typ->typ) {
+	case TYPE_PRERESERVED:
+		break;
 	case TYPE_BUILTIN:
 		break;
 	case TYPE_ARRAY:
@@ -882,7 +894,16 @@ int type_copy_into(type_t *dest, const type_t *ref) {
 	_Bool is_restrict = dest->is_restrict;
 	_Bool is_volatile = dest->is_volatile;
 	memcpy(dest, ref, sizeof *dest);
+	if (dest->converted) {
+		dest->converted = string_dup(dest->converted);
+		if (!dest->converted) {
+			log_memory("failed to duplicate conversion string\n");
+			return 0;
+		}
+	}
 	switch (ref->typ) {
+	case TYPE_PRERESERVED:
+		break;
 	case TYPE_BUILTIN:
 		break;
 	case TYPE_ARRAY:
@@ -939,6 +960,7 @@ struct_t *struct_new(int is_struct, string_t *tag) {
 
 khint_t type_t_hash(type_t *typ) {
 	switch (typ->typ) {
+	case TYPE_PRERESERVED: return kh_str_hash_func(string_content(typ->converted));
 	case TYPE_BUILTIN: return kh_int_hash_func(typ->val.builtin);
 	case TYPE_ARRAY: return kh_int_hash_func((typ->val.array.array_sz << 12) + type_t_hash(typ->val.array.typ));
 	case TYPE_STRUCT_UNION:
@@ -966,6 +988,7 @@ khint_t type_t_hash(type_t *typ) {
 	}
 }
 int type_t_equal_aux(type_t *typ1, type_t *typ2, int is_strict) {
+	if (typ1 == typ2) return 1;
 	if (is_strict && (
 	    (typ1->is_atomic != typ2->is_atomic) || (typ1->is_const != typ2->is_const)
 	 || (typ1->is_restrict != typ2->is_restrict) || (typ1->is_volatile != typ2->is_volatile))) {
@@ -973,6 +996,9 @@ int type_t_equal_aux(type_t *typ1, type_t *typ2, int is_strict) {
 	}
 	if (typ1->typ != typ2->typ) return 0;
 	switch (typ1->typ) {
+	case TYPE_PRERESERVED:
+		return (typ1->val.preres.is_simple == typ2->val.preres.is_simple) &&
+		       !strcmp(string_content(typ1->converted), string_content(typ2->converted));
 	case TYPE_BUILTIN: return typ1->val.builtin == typ2->val.builtin;
 	case TYPE_ARRAY: return (typ1->val.array.array_sz == typ2->val.array.array_sz) && type_t_equal_aux(typ1->val.array.typ, typ2->val.array.typ, is_strict);
 	case TYPE_STRUCT_UNION:
@@ -1022,6 +1048,7 @@ type_t *type_try_merge(type_t *typ, khash_t(type_set) *set) {
 	khiter_t it = kh_put(type_set, set, typ, &iret);
 	if (iret < 0) {
 		log_memory("Error: failed to add type to type_set\n");
+		type_del(typ);
 		return NULL;
 	} else if (iret == 0) {
 		if (typ == kh_key(set, it)) return typ;
@@ -1034,6 +1061,8 @@ type_t *type_try_merge(type_t *typ, khash_t(type_set) *set) {
 	}
 	type_t *typ2;
 	switch (typ->typ) {
+	case TYPE_PRERESERVED:
+		return typ;
 	case TYPE_BUILTIN:
 		return typ;
 	case TYPE_ARRAY:
@@ -1133,6 +1162,9 @@ void type_print(type_t *typ) {
 	if (typ->is_volatile) printf("volatile ");
 	if (typ->is_atomic) printf("_Atomic ");
 	switch (typ->typ) {
+	case TYPE_PRERESERVED:
+		printf("<%s prereserved>", typ->val.preres.is_simple ? "simple" : "complex");
+		break;
 	case TYPE_BUILTIN:
 		printf("<builtin %s (%u)>", builtin2str[typ->val.builtin], typ->val.builtin);
 		break;

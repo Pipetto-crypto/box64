@@ -30,6 +30,7 @@ typedef struct arch_flags_s
     uint8_t vf:1;
     uint8_t cf:1;
     uint8_t inv_cf:1;
+    uint8_t pf_v:1;
 } arch_flags_t;
 
 #define X87_ST_D 0
@@ -96,64 +97,67 @@ static int arch_build(dynarec_arm_t* dyn, int ninst, arch_build_t* arch, int noa
         arch->flags_.cf = flags&NF_CF;
         if(arch->flags_.cf)
             arch->flags_.inv_cf = !dyn->insts[ninst].normal_carry;
+        arch->flags_.pf_v = flags&NF_PF_V;
     }
     // opcode can handle unaligned
     arch->unaligned = dyn->insts[ninst].unaligned;
     if(!noarch) {
         // got through all naoncache to gather regs assignments
-        int idx;
-        for(int i=0; i<32; ++i)
-            if(dyn->insts[ninst].n.neoncache[i].v)
-                switch(dyn->insts[ninst].n.neoncache[i].t) {
-                    case NEON_CACHE_XMMW:
-                        arch->sse = 1;
-                        arch->sse_.sse |= 1<<dyn->insts[ninst].n.neoncache[i].n;
-                        break;
-                    case NEON_CACHE_MM:
-                        arch->mmx = 1;
-                        arch->mmx_.mmx |= 1<<dyn->insts[ninst].n.neoncache[i].n;
-                        break;
-                    case NEON_CACHE_YMMW:
-                        arch->ymm = 1;
-                        arch->ymm_.ymm |= 1<<dyn->insts[ninst].n.neoncache[i].n;
-                        idx = i;
-                        if(idx>=EMM0 && idx<=EMM0+8)
-                            idx-=EMM0;
-                        else
-                            idx-=SCRATCH0-8;
-                        arch->ymm_.ymm_pos |= idx<<(dyn->insts[ninst].n.neoncache[i].n*4);
-                        break;
-                    case NEON_CACHE_ST_D:
-                        arch->x87 = 1;
-                        arch->x87_.x87 |= 1<<dyn->insts[ninst].n.neoncache[i].n;
-                        arch->x87_.x87_pos = (i-EMM0)<<(dyn->insts[ninst].n.neoncache[i].n*4);
-                        arch->x87_.x87_type = (X87_ST_D)<<(dyn->insts[ninst].n.neoncache[i].n*2);
-                        break;
-                    case NEON_CACHE_ST_F:
-                        arch->x87 = 1;
-                        arch->x87_.x87 |= 1<<dyn->insts[ninst].n.neoncache[i].n;
-                        arch->x87_.x87_pos = (i-EMM0)<<(dyn->insts[ninst].n.neoncache[i].n*4);
-                        arch->x87_.x87_type = (X87_ST_F)<<(dyn->insts[ninst].n.neoncache[i].n*2);
-                        break;
-                    case NEON_CACHE_ST_I64:
-                        arch->x87 = 1;
-                        arch->x87_.x87 |= 1<<dyn->insts[ninst].n.neoncache[i].n;
-                        arch->x87_.x87_pos = (i-EMM0)<<(dyn->insts[ninst].n.neoncache[i].n*4);
-                        arch->x87_.x87_type = (X87_ST_I64)<<(dyn->insts[ninst].n.neoncache[i].n*2);
-                        break;
-                    case NEON_CACHE_XMMR:
-                    case NEON_CACHE_YMMR:
-                    default:
-                        // doing nothing, it's just a value read in memory
-                        break;
-                }
+        if(dyn->use_x87 || dyn->use_mmx || dyn->use_xmm || dyn->use_ymm) {
+            int idx;
+            for(int i=0; i<32; ++i)
+                if(dyn->insts[ninst].n.neoncache[i].v)
+                    switch(dyn->insts[ninst].n.neoncache[i].t) {
+                        case NEON_CACHE_XMMW:
+                            arch->sse = 1;
+                            arch->sse_.sse |= 1<<dyn->insts[ninst].n.neoncache[i].n;
+                            break;
+                        case NEON_CACHE_MM:
+                            arch->mmx = 1;
+                            arch->mmx_.mmx |= 1<<dyn->insts[ninst].n.neoncache[i].n;
+                            break;
+                        case NEON_CACHE_YMMW:
+                            arch->ymm = 1;
+                            arch->ymm_.ymm |= 1<<dyn->insts[ninst].n.neoncache[i].n;
+                            idx = i;
+                            if(idx>=EMM0 && idx<=EMM0+8)
+                                idx-=EMM0;
+                            else
+                                idx-=SCRATCH0-8;
+                            arch->ymm_.ymm_pos |= idx<<(dyn->insts[ninst].n.neoncache[i].n*4);
+                            break;
+                        case NEON_CACHE_ST_D:
+                            arch->x87 = 1;
+                            arch->x87_.x87 |= 1<<dyn->insts[ninst].n.neoncache[i].n;
+                            arch->x87_.x87_pos |= (i-EMM0)<<(dyn->insts[ninst].n.neoncache[i].n*4);
+                            arch->x87_.x87_type |= (X87_ST_D)<<(dyn->insts[ninst].n.neoncache[i].n*2);
+                            break;
+                        case NEON_CACHE_ST_F:
+                            arch->x87 = 1;
+                            arch->x87_.x87 |= 1<<dyn->insts[ninst].n.neoncache[i].n;
+                            arch->x87_.x87_pos |= (i-EMM0)<<(dyn->insts[ninst].n.neoncache[i].n*4);
+                            arch->x87_.x87_type |= (X87_ST_F)<<(dyn->insts[ninst].n.neoncache[i].n*2);
+                            break;
+                        case NEON_CACHE_ST_I64:
+                            arch->x87 = 1;
+                            arch->x87_.x87 |= 1<<dyn->insts[ninst].n.neoncache[i].n;
+                            arch->x87_.x87_pos |= (i-EMM0)<<(dyn->insts[ninst].n.neoncache[i].n*4);
+                            arch->x87_.x87_type |= (X87_ST_I64)<<(dyn->insts[ninst].n.neoncache[i].n*2);
+                            break;
+                        case NEON_CACHE_XMMR:
+                        case NEON_CACHE_YMMR:
+                        default:
+                            // doing nothing, it's just a value read in memory
+                            break;
+                    }
+        }
         // ymm0
-        if(dyn->insts[ninst].ymm0_out) {
+        if(dyn->use_ymm && dyn->insts[ninst].ymm0_out) {
             arch->ymm = 1;
             arch->ymm_.ymm0 = dyn->insts[ninst].ymm0_out;
         }
         // x87 top
-        if(dyn->insts[ninst].n.x87stack) {
+        if((dyn->use_x87 || dyn->insts[ninst].x87_used) && dyn->insts[ninst].n.x87stack) {
             arch->x87 = 1;
             arch->x87_.delta = dyn->insts[ninst].n.x87stack;
         }
@@ -286,10 +290,10 @@ void adjust_arch(dynablock_t* db, x64emu_t* emu, ucontext_t* p, uintptr_t x64pc)
     SUPER()
     #undef GO
     int i = 0;
-    while(i<ninst-1) {
+    while(i<(ninst)) {  // this will look for ninst-1 state
         arch = next;
+        dynarec_log_prefix(0, (i<(ninst-1))?LOG_DEBUG:LOG_INFO, "[ seq=%d%s%s%s%s%s ] ", arch->seq, arch->flags?" Flags":"", arch->x87?" x87":"", arch->mmx?" MMX":"", arch->sse?" SSE":"", arch->ymm?" YMM":"");
         i += 1+arch->seq;
-        dynarec_log_prefix(0, (i<ninst-1)?LOG_DEBUG:LOG_INFO, "[ seq=%d%s%s%s%s%s ] ", arch->seq, arch->flags?" Flags":"", arch->x87?" x87":"", arch->mmx?" MMX":"", arch->sse?" SSE":"", arch->ymm?" YMM":"");
         next = (arch_arch_t*)((uintptr_t)next + sizeof_arch(arch));
     }
     int sz = sizeof(arch_arch_t);
@@ -322,6 +326,9 @@ void adjust_arch(dynablock_t* db, x64emu_t* emu, ucontext_t* p, uintptr_t x64pc)
                 CONDITIONAL_SET_FLAG(p->uc_mcontext.pstate&(1<<NZCV_C), F_CF);
             }
         }
+        if(flags->pf_v) {
+            CONDITIONAL_SET_FLAG(p->uc_mcontext.pstate&(1<<NZCV_V), F_PF);
+        }
     }
     struct fpsimd_context *fpsimd = NULL;
     // find fpsimd struct
@@ -351,12 +358,8 @@ void adjust_arch(dynablock_t* db, x64emu_t* emu, ucontext_t* p, uintptr_t x64pc)
         dynarec_log_prefix(0, LOG_INFO, " ymm[%x, pos=%x, 0=%x (fpsimd=%p)] ", ymm->ymm, ymm->ymm_pos, ymm->ymm0, fpsimd);
         for(int i=0; i<16; ++i) {
             if(fpsimd && (ymm->ymm>>i)&1) {
-                int idx = (ymm->ymm_pos>>(i*4))&0xf;
-                if(i>7) {
-                    idx = SCRATCH0 + i - 8;
-                } else {
-                    idx = EMM0 + i;
-                }
+                int pos = (ymm->ymm_pos>>(i*4))&0xf;
+                int idx = (pos>7) ? (SCRATCH0 + pos - 8) : (EMM0 + pos);
                 emu->ymm[i].u128 = fpsimd->vregs[idx];
             }
             if(ymm->ymm0&(1<<i))
@@ -376,7 +379,7 @@ void adjust_arch(dynablock_t* db, x64emu_t* emu, ucontext_t* p, uintptr_t x64pc)
         emu->top -= x87->delta;
         for(int i=0; i<8; ++i) {
             if(x87->x87&(1<<i)) {
-                int idx = EMM0 + (x87->x87_pos>>(i*4))&0x0f;
+                int idx = EMM0 + ((x87->x87_pos>>(i*4))&0x0f);
                 int t = (x87->x87_type>>(i*2))&0x3;
                 switch (t) {
                     case X87_ST_F:

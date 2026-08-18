@@ -59,7 +59,7 @@ x64emu_t* x64emu_fork(x64emu_t* emu, int forktype)
         // error...
     } else if(v!=0) {  
         // execute atforks parent functions
-        for (int i=0; i<my_context->atfork_sz; --i)
+        for (int i=0; i<my_context->atfork_sz; ++i)
             if(my_context->atforks[i].parent)
                 EmuCall(emu, my_context->atforks[i].parent);
         if(forktype==3) {
@@ -68,7 +68,7 @@ x64emu_t* x64emu_fork(x64emu_t* emu, int forktype)
         }
     } else if(v==0) {
         // execute atforks child functions
-        for (int i=0; i<my_context->atfork_sz; --i)
+        for (int i=0; i<my_context->atfork_sz; ++i)
             if(my_context->atforks[i].child)
                 EmuCall(emu, my_context->atforks[i].child);
     }
@@ -83,7 +83,7 @@ void print_wrapper_name(int level, x64emu_t* emu)
     if (IsBridgeSignature(bridge->S, bridge->C)) {
         const char* name = NULL;
         if(bridge->func)
-            name = GetNativeName(bridge->name_or_func);
+            name = GetNativeName(bridge->name_or_func, 0);
         else
             name = bridge->name_or_func;
         printf_log(level, "calling %s\n", name?name:"????");
@@ -154,9 +154,9 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 uint64_t *pu64 = NULL;
                 uint32_t *pu32 = NULL;
                 uint8_t *pu8 = NULL;
-                const char *s = (bridge->func)?GetNativeName(bridge->name_or_func):bridge->name_or_func;
+                const char *s = (bridge->func)?GetNativeName(bridge->name_or_func, 0):bridge->name_or_func;
                 if(!s)
-                    s = GetNativeName((void*)a);
+                    s = GetNativeName((void*)a, 0);
                 if(a==(uintptr_t)PltResolver64) {
                     post = 100;
                     if(BOX64ENV(rolling_log)) {
@@ -194,7 +194,7 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     tmp = (char*)(R_RDI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\", %p)", tid, *(void**)(R_RSP), s, (tmp)?tmp:"(nil)", (void*)(R_RSI));
                     perr = 1;
-                } else if (strstr(s, "mkdir")==s) {
+                } else if (!strcmp(s, "mkdir")) {
                     tmp = (char*)(R_RDI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\", %d)", tid, *(void**)(R_RSP), s, (tmp)?tmp:"(nil)", (int)(R_ESI));
                     perr = 1;
@@ -202,6 +202,11 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     tmp = (char*)(R_RDI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\")", tid, *(void**)(R_RSP), s, (tmp)?tmp:"(nil)");
                     perr = 2;
+                } else if (strstr(s, "popen")==s) {
+                    tmp = (char*)(R_RDI);
+                    char* tmp2 = (char*)(R_RSI);
+                    snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\", \"%s\")", tid, *(void**)(R_RSP), s, (tmp)?tmp:"(nil)", (tmp2)?tmp2:"nil");
+                    perr = 5;
                 } else if (!strcmp(s, "read") || !strcmp(s, "my_read")) {
                     snprintf(buff, 256, "%04d|%p: Calling %s(%d, %p, %zu)", tid, *(void**)(R_RSP), s, R_EDI, (void*)R_RSI, R_RDX);
                     pu8 = (uint8_t*)R_RSI;
@@ -267,11 +272,16 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     snprintf(buff, 256, "%04d|%p: Calling %s(\"%s\")", tid, *(void**)(R_RSP), s, (char*)R_RDI);
                 } else if (!strcmp(s, "poll")) {
                     struct pollfd* pfd = (struct pollfd*)(R_RDI);
-                    snprintf(buff, 256, "%04d|%p: Calling %s(%p[%d/%d/%d, ...], %d, %d)", tid, *(void**)(R_RSP), s, pfd, pfd->fd, pfd->events, pfd->revents, R_ESI, R_EDX);
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%p[%d/%d/%d, ...], %d, %d)", tid, *(void**)(R_RSP), s, pfd, pfd?pfd->fd:-1, pfd?pfd->events:0, pfd?pfd->revents:0, R_ESI, R_EDX);
                 } else if (!strcmp(s, "__printf_chk") || !strcmp(s, "my___printf_chk")) {
                     tmp = (char*)(R_RSI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\" (,%p))", tid, *(void**)(R_RSP), s, R_EDI, (tmp)?tmp:"(nil)", (void*)(R_RDX));
                 } else if (!strcmp(s, "__snprintf_chk") || !strcmp(s, "my___snprintf_chk")) {
+                    tmp = (char*)(R_R8);
+                    pu64 = (uint64_t*)R_RDI;
+                    post = 3;
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%p, %zu, %d, %zu, \"%s\" (,%p))", tid, *(void**)(R_RSP), s, (void*)R_RDI, R_RSI, R_EDX, R_RCX, (tmp)?tmp:"(nil)", (void*)(R_R9));
+                } else if (!strcmp(s, "__vsnprintf_chk") || !strcmp(s, "my___vsnprintf_chk")) {
                     tmp = (char*)(R_R8);
                     pu64 = (uint64_t*)R_RDI;
                     post = 3;
@@ -308,6 +318,8 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     concatString(buff, 256, (void*)R_RSI, ", ");
                     concatString(buff, 256, (void*)R_RDX, ", ");
                     concatString(buff, 256, (void*)R_RCX,")");
+                } else if (!strcmp(s, "g_dbus_method_invocation_return_error")) {
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%p, %u, %d, %s, ...)", tid, *(void**)(R_RSP), s, (void*)R_RDI, R_ESI, S_EDX, (char*)R_RCX);
                 } else if (!strcmp(s, "xcb_wait_for_event") || !strcmp(s, "xcb_poll_for_queued_event") || !strcmp(s, "xcb_poll_for_event")) {
                     post = 9;
                     snprintf(buff, 256, "%04d|%p: Calling %s(%p)", tid, *(void**)(R_RSP), s, (void*)R_RDI);
@@ -351,6 +363,10 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                     snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\" , 0x%x)", tid, *(void**)(R_RSP), s, R_EDI, (tmp)?tmp:"(nil)", R_EDX);
                     perr = 1;
                 } else if (!strcmp(s, "__xstat64")) {
+                    tmp = (char*)(R_RSI);
+                    snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\" , %p)", tid, *(void**)(R_RSP), s, R_EDI, (tmp)?tmp:"(nil)", (void*)R_RDX);
+                    perr = 1;
+                } else if (strstr(s, "__lxstat")==s) {
                     tmp = (char*)(R_RSI);
                     snprintf(buff, 256, "%04d|%p: Calling %s(%d, \"%s\" , %p)", tid, *(void**)(R_RSP), s, R_EDI, (tmp)?tmp:"(nil)", (void*)R_RDX);
                     perr = 1;
@@ -428,6 +444,8 @@ void x64Int3(x64emu_t* emu, uintptr_t* addr)
                 else if(perr==3 && (S_RAX)==-1)
                     snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
                 else if(perr==4)
+                    snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
+                else if(perr==5 && R_RAX==0)
                     snprintf(buff3, 64, " (errno=%d:\"%s\")", e, strerror(e));
 
                 if(BOX64ENV(rolling_log))

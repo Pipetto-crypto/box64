@@ -57,8 +57,8 @@ static void* find_destroy_Fct(void* fct)
 static void* reverse_destroy_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, pFpii, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, pFpii, fct);
     #define GO(A) if(my_destroy_##A == fct) return (void*)my_destroy_fct_##A;
     SUPER()
     #undef GO
@@ -94,17 +94,32 @@ EXPORT void* my_cairo_xcb_device_get_connection(x64emu_t* emu, void* a)
     return add_xcb_connection(my->cairo_xcb_device_get_connection(a));
 }
 
-EXPORT int my_cairo_surface_set_user_data(x64emu_t* emu, void* surf, void* key, void* data, void* d)
+EXPORT uint32_t my_cairo_surface_set_user_data(x64emu_t* emu, void* surf, void* key, void* data, void* d)
 {
     return my->cairo_surface_set_user_data(surf, key, data, find_destroy_Fct(d));
 }
 
-EXPORT int my_cairo_set_user_data(x64emu_t* emu, void* cr, void* key, void* data, void* d)
+EXPORT uint32_t my_cairo_set_user_data(x64emu_t* emu, void* cr, void* key, void* data, void* d)
 {
     return my->cairo_set_user_data(cr, key, data, find_destroy_Fct(d));
 }
 
-EXPORT int my_cairo_surface_set_mime_data(x64emu_t* emu, void* surf, void* mime_type, void* data, size_t len, void* destroy, void* closure)
+EXPORT uint32_t my_cairo_device_set_user_data(x64emu_t* emu, void* device, void* key, void* data, void* d)
+{
+    return my->cairo_device_set_user_data(device, key, data, find_destroy_Fct(d));
+}
+
+EXPORT int my_cairo_font_face_set_user_data(x64emu_t* emu, void* font_face, void* key, void* data, void* d)
+{
+    return my->cairo_font_face_set_user_data(font_face, key, data, find_destroy_Fct(d));
+}
+
+EXPORT uint32_t my_cairo_scaled_font_set_user_data(x64emu_t* emu, void* scaled_font, void* key, void* data, void* d)
+{
+    return my->cairo_scaled_font_set_user_data(scaled_font, key, data, find_destroy_Fct(d));
+}
+
+EXPORT uint32_t my_cairo_surface_set_mime_data(x64emu_t* emu, void* surf, void* mime_type, void* data, size_t len, void* destroy, void* closure)
 {
     return my->cairo_surface_set_mime_data(surf, mime_type, data, len, find_destroy_Fct(destroy), closure);
 }
@@ -117,6 +132,11 @@ EXPORT void* my_cairo_pdf_surface_create_for_stream(x64emu_t* emu, void* f, void
 EXPORT uint32_t my_cairo_surface_write_to_png_stream(x64emu_t* emu, void* surf, void* f, void* c)
 {
     return my->cairo_surface_write_to_png_stream(surf, find_cairo_write_Fct(f), c);
+}
+
+EXPORT uint32_t my_cairo_pattern_set_user_data(x64emu_t* emu, void* pat, void* key, void* data, void* d)
+{
+    return my->cairo_pattern_set_user_data(pat, key, data, find_destroy_Fct(d));
 }
 
 #include "wrappedlib_init.h"

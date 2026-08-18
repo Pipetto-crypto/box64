@@ -14,7 +14,7 @@
 
 #define MESSAGE(A, ...)                                                   \
     do {                                                                  \
-        if (dyn->need_dump) dynarec_log(LOG_NONE, __VA_ARGS__); \
+        if (dyn->need_dump && dyn->need_dump != 3) dynarec_log(LOG_NONE, __VA_ARGS__); \
     } while (0)
 #define NEW_INST                                                                                                  \
     dyn->vector_sew = dyn->insts[ninst].vector_sew_entry;                                                         \
@@ -24,8 +24,13 @@
     if (ninst) {                                                                                                  \
         addInst(dyn->instsize, &dyn->insts_size, dyn->insts[ninst - 1].x64.size, dyn->insts[ninst - 1].size / 4); \
         dyn->insts[ninst].ymm0_pass3 = dyn->ymm_zero;                                                             \
-    }
-#define INST_EPILOG
+    }                                                                                                             \
+    AREFLAGSNEEDED()
+#define INST_EPILOG                                      \
+    dyn->vector_sew = dyn->insts[ninst].vector_sew_exit; \
+    dyn->inst_sew = dyn->vector_sew;                     \
+    dyn->inst_vlmul = VECTOR_LMUL1;                      \
+    dyn->inst_vl = 0;
 #define INST_NAME(name) inst_name_pass3(dyn, ninst, name, rex)
 
 #define TABLE64(A, V)                                 \
@@ -63,7 +68,7 @@
     } while (0)
 
 #define DEFAULT_VECTOR                                                                                                                  \
-    if (BOX64ENV(dynarec_log) >= LOG_INFO || dyn->need_dump || BOX64ENV(dynarec_missing) == 2) {                                        \
+    if (BOX64ENV(dynarec_log) >= LOG_INFO || (dyn->need_dump && dyn->need_dump != 3) || BOX64ENV(dynarec_missing) == 2) {                \
         dynarec_log(LOG_NONE, "%p: Dynarec fallback to scalar version because of %s Opcode ", (void*)ip, rex.is32bits ? "x86" : "x64"); \
         zydis_dec_t* dec = rex.is32bits ? my_context->dec32 : my_context->dec;                                                          \
         if (dec) {                                                                                                                      \
@@ -77,3 +82,21 @@
         dynarec_log_prefix(0, LOG_NONE, "\n");                                                                                          \
     }                                                                                                                                   \
     return 0
+#define CALLRET_RET(A)                                                          \
+    do {                                                                        \
+        if((A) && ISSEP() && BOX64DRENV(dynarec_callret)) {\
+            MESSAGE(LOG_DUMP, "   Dynablock*\n");                               \
+            dyn->block += sizeof(void*);                                        \
+            dyn->native_size+=sizeof(void*);                                    \
+            dyn->insts[ninst].size2 += sizeof(void*);                           \
+            dyn->sep[dyn->sep_size].x64_offs = addr - dyn->start;               \
+            dyn->sep[dyn->sep_size].nat_offs =  dyn->native_size;               \
+            ++dyn->sep_size;                                                    \
+        }                                                                       \
+        if((A) && (BOX64DRENV(dynarec_callret)>1) && !dyn->always_test) {                            \
+            dyn->callrets[dyn->callret_size].type = 0;                          \
+            dyn->callrets[dyn->callret_size++].offs = dyn->native_size;         \
+            EMIT(ARCH_NOP);                                                     \
+        }                                                                       \
+    } while(0)
+#define CALLRET_LOOP()   do {dyn->callrets[dyn->callret_size].type = 1; dyn->callrets[dyn->callret_size++].offs = dyn->native_size; EMIT(ARCH_NOP); } while(0)

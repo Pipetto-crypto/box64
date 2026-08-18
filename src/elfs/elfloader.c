@@ -10,6 +10,7 @@
 #include <link.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fnmatch.h>
 #ifndef _DLFCN_H
 #include <dlfcn.h>
 #endif
@@ -38,6 +39,7 @@
 #include "symbols.h"
 #include "cleanup.h"
 #include "globalsymbols.h"
+#include "elfhacks.h"
 #ifdef DYNAREC
 #include "dynablock.h"
 #endif
@@ -45,6 +47,12 @@
 #include "../emu/x64run_private.h"
 #include "../tools/bridge_private.h"
 #include "x64tls.h"
+
+#ifndef STATICBUILD
+void startMallocHook();
+#else
+void startMallocHook() {}
+#endif
 
 void* my__IO_2_1_stderr_ = (void*)1;
 void* my__IO_2_1_stdin_  = (void*)2;
@@ -105,6 +113,21 @@ void FreeElfHeader(elfheader_t** head)
     actual_free(h);
 
     *head = NULL;
+}
+
+int hasElfInterp(elfheader_t* head)
+{
+    if(!head) return 0;
+    if(box64_is32bits) {
+        for (size_t i=0; i<head->numPHEntries; ++i)
+            if(head->PHEntries._32[i].p_type == PT_INTERP)
+                return 1;
+    } else {
+        for (size_t i=0; i<head->numPHEntries; ++i)
+            if(head->PHEntries._64[i].p_type == PT_INTERP)
+                return 1;
+    }
+    return 0;
 }
 
 int CalcLoadAddr(elfheader_t* head)
@@ -266,9 +289,9 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
     if(image==MAP_FAILED || image!=(void*)(head->vaddr?head->vaddr:offs)) {
         printf_log(LOG_NONE, "%s cannot create memory map (@%p 0x%zx) for elf \"%s\"", (image==MAP_FAILED)?"Error:":"Warning:", (void*)(head->vaddr?head->vaddr:offs), head->memsz, head->name);
         if(image==MAP_FAILED) {
-            printf_log(LOG_NONE, " error=%d/%s\n", errno, strerror(errno));
+            printf_log_prefix(0, LOG_NONE, " error=%d/%s\n", errno, strerror(errno));
         } else {
-            printf_log(LOG_NONE, " got %p\n", image);
+            printf_log_prefix(0, LOG_NONE, " got %p\n", image);
         }
         if(image==MAP_FAILED)
             return 1;
@@ -299,12 +322,9 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
             head->multiblocks[n].align = e->p_align;
             // HACK: Mark all the code pages writable in unittest mode because some tests mix code and (writable) data...
             uint8_t prot = ((e->p_flags & PF_R)?PROT_READ:0)|(((e->p_flags & PF_W) || box64_unittest_mode)?PROT_WRITE:0)|((e->p_flags & PF_X)?PROT_EXEC:0);
-            // check if alignment is correct
-            uintptr_t balign = head->multiblocks[n].align-1;
-            if (balign < (box64_pagesize - 1)) balign = box64_pagesize - 1;
-            head->multiblocks[n].asize = (e->p_memsz + (e->p_paddr & balign) + (box64_pagesize - 1)) & ~(box64_pagesize - 1);
+            head->multiblocks[n].asize = (e->p_memsz + (e->p_paddr & (box64_pagesize - 1)) + (box64_pagesize - 1)) & ~(box64_pagesize - 1);
             int try_mmap = 1;
-            if(e->p_paddr&balign)
+            if(e->p_paddr&(box64_pagesize - 1))
                 try_mmap = 0;
             if(e->p_offset&(box64_pagesize-1))
                 try_mmap = 0;
@@ -336,20 +356,40 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                 }
             }
             if(!try_mmap) {
-                uintptr_t paddr = head->multiblocks[n].paddr&~balign;
-                size_t asize = head->multiblocks[n].asize+(head->multiblocks[n].paddr-paddr);
+                uintptr_t paddr = head->multiblocks[n].paddr&~(box64_pagesize - 1);
+                size_t asize = ALIGN(e->p_memsz + (head->multiblocks[n].paddr - paddr));
                 void* p = MAP_FAILED;
-                if(paddr==(paddr&~(box64_pagesize-1)) && (asize==ALIGN(asize))) {
+                int mapped_file = 0;
+                size_t file_read_size = e->p_filesz;
+                // unaligned segments can still be file-backed mapped when their address and file offsets have the same page offset
+                uintptr_t file_delta = head->multiblocks[n].paddr - paddr;
+                size_t file_size = ALIGN(e->p_filesz + file_delta);
+                off_t file_offset = e->p_offset & ~(box64_pagesize - 1);
+                if (e->p_filesz &&                                                              // there is file data to map
+                    e->p_filesz == e->p_memsz &&                                                // no BSS
+                    ((head->multiblocks[n].paddr ^ e->p_offset) & (box64_pagesize - 1)) == 0 && // the virtual address and the file offset have the same page offset
+                    file_size <= asize) {
+                    uintptr_t file_map_addr = paddr;
+                    while(file_map_addr < head->multiblocks[n].paddr + e->p_filesz && getProtection(file_map_addr))
+                        file_map_addr += box64_pagesize;
+                    if(file_map_addr < head->multiblocks[n].paddr + e->p_filesz) {
+                        size_t file_map_delta = file_map_addr - paddr;
+                        void* file_map = InternalMmap((void*)file_map_addr, file_size - file_map_delta, prot | PROT_WRITE, MAP_PRIVATE | MAP_FIXED, head->fileno, file_offset + file_map_delta);
+                        mapped_file = file_map == (void*)file_map_addr;
+                        if(mapped_file) {
+                            p = (void*)paddr;
+                            file_read_size = file_map_addr > head->multiblocks[n].paddr
+                                ? file_map_addr - head->multiblocks[n].paddr
+                                : 0;
+                            if(file_read_size > e->p_filesz)
+                                file_read_size = e->p_filesz;
+                        }
+                    }
+                }
+                if (!mapped_file && !file_delta) {
                     printf_dump(log_level, "Allocating 0x%zx (0x%zx) bytes @%p, will read 0x%zx @%p for Elf \"%s\"\n", asize, e->p_memsz, (void*)paddr, e->p_filesz, (void*)head->multiblocks[n].paddr, head->name);
-                    p = InternalMmap(
-                        (void*)paddr,
-                        asize,
-                        prot|PROT_WRITE,
-                        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,
-                        -1,
-                        0
-                    );
-                } else {
+                    p = InternalMmap((void*)paddr, asize, prot | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+                } else if (!mapped_file) {
                     // difference in pagesize, so need to mmap only what needed to be...
                     //check startint point
                     uintptr_t new_addr = paddr&~(box64_pagesize-1); // new_addr might be smaller than paddr
@@ -380,7 +420,7 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                     }
                 }
                 if(p==MAP_FAILED || p!=(void*)paddr) {
-                    printf_log(LOG_NONE, "Cannot create memory map (@%p 0x%zx/0x%zx) for elf \"%s\"", (void*)paddr, asize, balign, head->name);
+                    printf_log(LOG_NONE, "Cannot create memory map (@%p 0x%zx/0x%zx) for elf \"%s\"", (void*)paddr, asize, (box64_pagesize - 1), head->name);
                     if(p==MAP_FAILED) {
                         printf_log(LOG_NONE, " error=%d/%s\n", errno, strerror(errno));
                     } else {
@@ -390,22 +430,22 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                 }
                 setProtection_elf((uintptr_t)p, asize, prot);
                 head->multiblocks[n].p = p;
-                if(e->p_filesz) {
+                if (file_read_size) {
                     fseeko64(head->file, head->multiblocks[n].offs, SEEK_SET);
-                    if(fread((void*)head->multiblocks[n].paddr, head->multiblocks[n].size, 1, head->file)!=1) {
-                        printf_log(LOG_NONE, "Cannot read elf block (@%p 0x%zx/0x%zx) for elf \"%s\"\n", (void*)head->multiblocks[n].offs, head->multiblocks[n].asize, balign, head->name);
+                    if(fread((void*)head->multiblocks[n].paddr, file_read_size, 1, head->file)!=1) {
+                        printf_log(LOG_NONE, "Cannot read elf block (@%p 0x%zx/0x%zx) for elf \"%s\"\n", (void*)head->multiblocks[n].offs, head->multiblocks[n].asize, (box64_pagesize - 1), head->name);
                         return 1;
                     }
                 }
-                if(!(prot&PROT_WRITE) && (paddr==(paddr&(box64_pagesize-1)) && (asize==ALIGN(asize))))
-                    mprotect((void*)paddr, asize, prot);
+                if(e->p_memsz > e->p_filesz && (prot & PROT_WRITE))
+                    memset((void*)(head->multiblocks[n].paddr + e->p_filesz), 0, e->p_memsz - e->p_filesz);
             }
-#ifdef DYNAREC
+            #ifdef DYNAREC
             if(BOX64ENV(dynarec) && (e->p_flags & PF_X)) {
                 dynarec_log(LOG_DEBUG, "Add ELF eXecutable Memory %p:%p\n", head->multiblocks[n].p, (void*)head->multiblocks[n].asize);
                 addDBFromAddressRange((uintptr_t)head->multiblocks[n].p, head->multiblocks[n].asize);
             }
-#endif
+            #endif
             if((uintptr_t)head->memory>(uintptr_t)head->multiblocks[n].p)
                 head->memory = (char*)head->multiblocks[n].p;
             ++n;
@@ -426,14 +466,26 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                 memset(dest+e->p_filesz, 0, e->p_memsz - e->p_filesz);
         }
     }
+    // deferred mprotect: apply final protections after all segments are loaded
+    // this avoids the case where mprotect on a shared host page (e.g. 64KB) strips
+    // PROT_WRITE before a later segment that shares the same page has been read into memory
+    for (int j = 0; j < n; j++) {
+        if(!(head->multiblocks[j].flags & PF_W)) {
+            uintptr_t start = head->multiblocks[j].paddr & ~(box64_pagesize-1);
+            uintptr_t end = ALIGN(head->multiblocks[j].paddr + head->multiblocks[j].asize);
+            for(uintptr_t page = start; page < end; page += box64_pagesize) {
+                uint32_t prot = getProtection(page);
+                if(prot && !(prot & PROT_WRITE))
+                    mprotect((void*)page, box64_pagesize, prot & ~PROT_CUSTOM);
+            }
+        }
+    }
     // record map
     RecordEnvMappings((uintptr_t)head->image, head->memsz, head->fileno);
     // can close the elf file now!
     fclose(head->file);
     head->file = NULL;
     head->fileno = -1;
-
-    PatchLoadedDynamicSection(head);
 
     return 0;
 }
@@ -721,6 +773,7 @@ static int RelocateElfRELA(lib_t *maplib, lib_t *local_maplib, int bindnow, int 
                   || !((tmp>=head->plt && tmp<head->plt_end) || (tmp>=head->gotplt && tmp<head->gotplt_end))
                   || !need_resolv
                   || bindnow
+                  || (!sym_elf && isInlinableNativeCall(offs))
                   ) {
                     if (!offs) {
                         if(bind==STB_WEAK) {
@@ -831,6 +884,13 @@ static int RelocateElfRELA(lib_t *maplib, lib_t *local_maplib, int bindnow, int 
                         tlsdescUndefweak = AddBridge(my_context->system, pFE, my__dl_tlsdesc_undefweak, 0, "_dl_tlsdesc_undefweak");
                     td->entry = tlsdescUndefweak;
                     td->arg = (uintptr_t)(head->tlsbase + rela[i].r_addend);
+                } if(symname && sym_elf && elfsym) {
+                    printf_dump(LOG_NEVER, "Apply %s R_X86_64_TLSDESC @%p for %s with addend=%zu\n", BindSym(bind), p, symname, rela[i].r_addend);
+                    struct tlsdesc volatile *td = (struct tlsdesc volatile *)p;
+                    if(!tlsdescUndefweak)
+                        tlsdescUndefweak = AddBridge(my_context->system, pFE, my__dl_tlsdesc_undefweak, 0, "_dl_tlsdesc_undefweak");
+                    td->entry = tlsdescUndefweak;
+                    td->arg = (uintptr_t)(sym_elf->tlsbase + offs + rela[i].r_addend);
                 } else {
                     printf_log(LOG_INFO, "Warning, R_X86_64_TLSDESC used with Symbol %s(%p) not supported for now \n", symname, sym);
                 }
@@ -946,9 +1006,55 @@ int RelocateElfPlt64(lib_t *maplib, lib_t *local_maplib, int bindnow, int deepbi
 
     return 0;
 }
+
+static uint32_t getElfPageProtection64(const elfheader_t* head, uintptr_t page)
+{
+    uint32_t prot = 0;
+    uintptr_t page_end = page + box64_pagesize;
+    for (size_t i = 0; i < head->numPHEntries; ++i) {
+        const Elf64_Phdr* ph = &head->PHEntries._64[i];
+        if (ph->p_type != PT_LOAD || !ph->p_memsz) continue;
+        uintptr_t start = (ph->p_vaddr + head->delta) & ~(box64_pagesize - 1);
+        uintptr_t end = ALIGN(ph->p_vaddr + head->delta + ph->p_memsz);
+        if (start >= page_end || end <= page) continue;
+        prot |= ((ph->p_flags & PF_R) ? PROT_READ : 0) | ((ph->p_flags & PF_W) ? PROT_WRITE : 0) | ((ph->p_flags & PF_X) ? PROT_EXEC : 0);
+    }
+    return prot;
+}
+
+static void applyElfRelro64(elfheader_t* head)
+{
+    for (size_t i = 0; i < head->numPHEntries; ++i) {
+        const Elf64_Phdr* ph = &head->PHEntries._64[i];
+        if (ph->p_type != PT_GNU_RELRO || !ph->p_memsz) continue;
+
+        uintptr_t relro = ph->p_vaddr + head->delta;
+        uintptr_t relro_end = relro + ph->p_memsz;
+        if (relro_end < relro) continue;
+        uintptr_t start = relro & ~(box64_pagesize - 1);
+        uintptr_t end = relro_end & ~(box64_pagesize - 1);
+        for (uintptr_t page = start; page < end; page += box64_pagesize) {
+            uint32_t old_prot = getProtection(page);
+            if (old_prot & PROT_NOPROT) continue;
+            uint32_t prot = getElfPageProtection64(head, page) & ~PROT_WRITE;
+            if (!prot) continue;
+            if (old_prot & (PROT_DYNAREC | PROT_DYNAREC_R))
+                prot |= PROT_DYNAREC_R;
+            if (mprotect((void*)page, box64_pagesize, prot & ~PROT_CUSTOM)) {
+                printf_log(LOG_INFO, "Warning: cannot apply GNU RELRO to %s at %p: %s\n", head->name, (void*)page, strerror(errno));
+                continue;
+            }
+            setProtection_elf(page, box64_pagesize, prot);
+            printf_dump(LOG_DEBUG, "Applied GNU RELRO to %s at %p with protection 0x%x\n", head->name, (void*)page, prot & ~PROT_CUSTOM);
+        }
+    }
+}
+
 int RelocateElfPlt(lib_t *maplib, lib_t *local_maplib, int bindnow, int deepbind, elfheader_t* head)
 {
-    return box64_is32bits?RelocateElfPlt32(maplib, local_maplib, bindnow, deepbind, head):RelocateElfPlt64(maplib, local_maplib, bindnow, deepbind, head);
+    int ret = box64_is32bits ? RelocateElfPlt32(maplib, local_maplib, bindnow, deepbind, head) : RelocateElfPlt64(maplib, local_maplib, bindnow, deepbind, head);
+    if (!ret && !box64_is32bits && head->numDynamic && (head->lib || hasElfInterp(head))) applyElfRelro64(head);
+    return ret;
 }
 
 void CalcStack(elfheader_t* elf, uint64_t* stacksz, size_t* stackalign)
@@ -1026,12 +1132,27 @@ int LoadNeededLibs(elfheader_t* h, lib_t *maplib, int local, int bindnow, int de
     if(h->needed)   // already done
         return 0;
     DumpDynamicRPath(h);
+    path_collection_t* rpathlist = NULL;
     // update RPATH first
     for (size_t i=0; i<h->numDynamic; ++i) {
         int tag = box64_is32bits?h->Dynamic._32[i].d_tag:h->Dynamic._64[i].d_tag;
         if(tag==DT_RPATH || tag==DT_RUNPATH) {
             char *rpathref = h->DynStrTab+h->delta+(box64_is32bits?h->Dynamic._32[i].d_un.d_val:h->Dynamic._64[i].d_un.d_val);
             char* rpath = rpathref;
+            while(strstr(rpath, "$$ORIGIN")) {
+                char* origin = box_strdup(h->path);
+                char* p = strrchr(origin, '/');
+                if(p) *p = '\0';    // remove file name to have only full path, without last '/'
+                char* tmp = (char*)box_calloc(1, strlen(rpath)-strlen("$$ORIGIN")+strlen(origin)+1);
+                p = strstr(rpath, "$$ORIGIN");
+                memcpy(tmp, rpath, p-rpath);
+                strcat(tmp, origin);
+                strcat(tmp, p+strlen("$$ORIGIN"));
+                if(rpath!=rpathref)
+                    box_free(rpath);
+                rpath = tmp;
+                box_free(origin);
+            }
             while(strstr(rpath, "$ORIGIN")) {
                 char* origin = box_strdup(h->path);
                 char* p = strrchr(origin, '/');
@@ -1059,6 +1180,19 @@ int LoadNeededLibs(elfheader_t* h, lib_t *maplib, int local, int bindnow, int de
                     box_free(rpath);
                 rpath = tmp;
                 box_free(origin);
+                if(!FileExist(rpath, 0) && strstr(rpath, "/../../")) {
+                    tmp = (char*)box_calloc(1, strlen(rpath)+1);
+                    strcpy(tmp, rpath);
+                    // check if one "/.." could be removed for the folder to exist
+                    char* p = strstr(tmp, "/../../");
+                    memmove(p, p+3, strlen(p+3)+1);
+                    if(FileExist(tmp, 0)) {
+                        if(rpath!=rpathref)
+                            box_free(rpath);
+                        rpath = tmp;
+                    } else
+                        box_free(tmp);
+                }
             }
             while(strstr(rpath, "${PLATFORM}")) {
                 char* platform = box_strdup("x86_64");
@@ -1078,7 +1212,13 @@ int LoadNeededLibs(elfheader_t* h, lib_t *maplib, int local, int bindnow, int de
                 printf_log(LOG_INFO, "Warning, RPATH with $ variable not supported yet (%s)\n", rpath);
             } else {
                 printf_log(LOG_DEBUG, "Prepending path \"%s\" to BOX64_LD_LIBRARY_PATH\n", rpath);
-                PrependList(&box64->box64_ld_lib, rpath, 1);
+                if(h == box64->elfs[0])
+                    PrependList(&box64->box64_ld_lib, rpath, 1);
+                else {
+                    if(!rpathlist)
+                        rpathlist = box_calloc(1, sizeof(path_collection_t));
+                    PrependList(rpathlist, rpath, 1);
+                }
             }
             if(rpath!=rpathref)
                 box_free(rpath);
@@ -1099,6 +1239,7 @@ int LoadNeededLibs(elfheader_t* h, lib_t *maplib, int local, int bindnow, int de
         ++cnt;
     #endif
     h->needed = new_neededlib(cnt);
+    h->needed->rpath = rpathlist;
     if(h == my_context->elfs[0])
         my_context->neededlibs = h->needed;
     int j=0;
@@ -1162,20 +1303,28 @@ void RefreshElfTLS(elfheader_t* h, x64emu_t* emu)
         }
     }
 }
+
+void MallocHookRun(elfheader_t* h)
+{
+    if (!h)
+        return;
+    if(h->malloc_hook_2)
+        startMallocHook();
+}
+
 void MarkElfInitDone(elfheader_t* h)
 {
     if(h)
         h->init_done = 1;
 }
-#ifndef STATICBUILD
-void startMallocHook();
-#else
-void startMallocHook() {}
-#endif
+
 void RunElfInit(elfheader_t* h, x64emu_t *emu)
 {
     if(!h || h->init_done)
         return;
+    // adjust elf Dynamic section header with the delta of the load address if needed
+    // but do not adjust if there is no libs loaded as it will use it's own loader to do similar stuffs
+    if(!box64_nolibs) PatchLoadedDynamicSection(h);
     // reset Segs Cache
     uintptr_t p = h->initentry + h->delta;
     // Refresh no-file part of TLS in case default value changed
@@ -1518,7 +1667,7 @@ void* GetLoadedDynamicSection(elfheader_t* h)
     return NULL;
 }
 
-static int isDynamicTagPointer(int tag)
+int isDynamicTagPointer(int tag)
 {
     switch(tag) {
         case DT_PLTGOT:
@@ -1940,29 +2089,32 @@ int NeededLibs(elfheader_t* h)
 
 typedef struct search_symbol_s{
     const char* name;
-    void*       addr;
-    void*       lib;
+    void* addr;
 } search_symbol_t;
-int dl_iterate_phdr_findsymbol(struct dl_phdr_info* info, size_t size, void* data)
-{
-    search_symbol_t* s = (search_symbol_t*)data;
 
-    for(int j = 0; j<info->dlpi_phnum; ++j) {
-        if (info->dlpi_phdr[j].p_type == PT_DYNAMIC) {
-            ElfW(Sym)* sym = NULL;
-            ElfW(Word) sym_cnt = 0;
+int dl_iterate_phdr_findsymbol(eh_obj_t* obj, search_symbol_t* s)
+{
+    // special case for dlsym -- it's not a versionned symbol in libMangoHud_shim.so.
+    if (!fnmatch("*libMangoHud_shim.so*", obj->name, 0) && !strcmp(s->name, "dlsym")) {
+        eh_find_sym(obj, "dlsym", &s->addr);
+        eh_destroy_obj(obj);
+        return !!s->addr;
+    }
+
+    for (int j = 0; j < obj->phnum; ++j) {
+        if (obj->phdr[j].p_type == PT_DYNAMIC) {
             ElfW(Verdef)* verdef = NULL;
             ElfW(Word) verdef_cnt = 0;
-            char *strtab = NULL;
-            ElfW(Dyn)* dyn = (ElfW(Dyn)*)(info->dlpi_addr +  info->dlpi_phdr[j].p_vaddr); //Dynamic Section
+            char* strtab = NULL;
+            ElfW(Dyn)* dyn = (ElfW(Dyn)*)(obj->addr + obj->phdr[j].p_vaddr);
             // grab the needed info
-            while(dyn->d_tag != DT_NULL) {
-                switch(dyn->d_tag) {
+            while (dyn->d_tag != DT_NULL) {
+                switch (dyn->d_tag) {
                     case DT_STRTAB:
-                        strtab = (char *)(dyn->d_un.d_ptr);
+                        strtab = (char*)(dyn->d_un.d_ptr);
                         break;
                     case DT_VERDEF:
-                        verdef = (ElfW(Verdef)*)(info->dlpi_addr +  dyn->d_un.d_ptr);
+                        verdef = (ElfW(Verdef)*)(obj->addr + dyn->d_un.d_ptr);
                         break;
                     case DT_VERDEFNUM:
                         verdef_cnt = dyn->d_un.d_val;
@@ -1970,42 +2122,27 @@ int dl_iterate_phdr_findsymbol(struct dl_phdr_info* info, size_t size, void* dat
                 }
                 ++dyn;
             }
-            if(strtab && verdef && verdef_cnt) {
-                if((uintptr_t)strtab < (uintptr_t)info->dlpi_addr) // this test is need for linux-vdso on PI and some other OS (looks like a bug to me)
-                    strtab=(char*)((uintptr_t)strtab + info->dlpi_addr);
-                // Look fr all defined versions now
-                ElfW(Verdef)* v = verdef;
-                while(v) {
-                    ElfW(Verdaux)* vda = (ElfW(Verdaux)*)(((uintptr_t)v) + v->vd_aux);
-                    if(v->vd_version>0 && !v->vd_flags)
-                        for(int i=0; i<v->vd_cnt; ++i) {
-                            const char* vername = (strtab+vda->vda_name);
-                            if(vername && vername[0] && (s->addr = dlvsym(s->lib, s->name, vername))) {
-                                printf_log(/*LOG_DEBUG*/LOG_INFO, "Found symbol with version %s, value = %p\n", vername, s->addr);
-                                return 1;   // stop searching
-                            }
-                            vda = (ElfW(Verdaux)*)(((uintptr_t)vda) + vda->vda_next);
-                        }
-                    v = v->vd_next?(ElfW(Verdef)*)((uintptr_t)v + v->vd_next):NULL;
+
+            if (strtab && verdef && verdef_cnt) {
+                eh_find_sym(obj, s->name, &s->addr);
+                if (s->addr) {
+                    eh_destroy_obj(obj);
+                    return 1;
                 }
             }
         }
     }
+
+    eh_destroy_obj(obj);
     return 0;
 }
 
 void* GetNativeSymbolUnversioned(void* lib, const char* name)
 {
-    // try to find "name" in loaded elf, whithout checking for the symbol version (like dlsym, but no version check)
     search_symbol_t s;
     s.name = name;
     s.addr = NULL;
-    if(lib)
-        s.lib = lib;
-    else
-        s.lib = my_context->box64lib;
-    printf_log(LOG_INFO, "Look for %s in loaded elfs\n", name);
-    dl_iterate_phdr(dl_iterate_phdr_findsymbol, &s);
+    eh_iterate_obj((eh_iterate_obj_callback_func)dl_iterate_phdr_findsymbol, &s);
     return s.addr;
 }
 
@@ -2062,7 +2199,7 @@ EXPORT void PltResolver64(x64emu_t* emu)
             GetGlobalSymbolStartEnd(local_maplib, symname, &offs, &end, h, version, vername, veropt, (void**)&elfsym);
     }
     if (!offs) {
-        printf_log(LOG_NONE, "Error: PltResolver: Symbol %s %s(%sver %d: %s%s%s) not found, cannot apply R_X86_64_JUMP_SLOT %p in %s (local_maplib=%p, global maplib=%p, deepbind=%d)\n", (bind==STB_LOCAL)?"Local":((bind==STB_WEAK)?"Weak":""), symname, veropt?"opt":"", version, symname, vername?"@":"", vername?vername:"", p, (h && h->name)?h->name:"???", local_maplib, my_context->maplib, deepbind);
+        printf_log(LOG_NONE, "Error: PltResolver: Symbol %s%s(%sver %d: %s%s%s) not found, cannot apply R_X86_64_JUMP_SLOT %p in %s (local_maplib=%p, global maplib=%p, deepbind=%d)\n", (bind==STB_LOCAL)?"Local ":((bind==STB_WEAK)?"Weak ":""), symname, veropt?"opt":"", version, symname, vername?"@":"", vername?vername:"", p, (h && h->name)?h->name:"???", local_maplib, my_context->maplib, deepbind);
         emu->quit = 1;
         R_RIP = 0; //stop....
         return;

@@ -5,10 +5,13 @@
 
 #include "os.h"
 #include "hostext.h"
+#include "sysinfo.h"
 
 typedef struct box64context_s box64context_t;
 extern box64env_t box64env;
 extern box64env_t* cur_box64env;
+
+#define X86_PAGE_SIZE 4096UL
 
 extern uintptr_t box64_pagesize;
 extern int box64_rdtsc;
@@ -16,12 +19,27 @@ extern uint8_t box64_rdtsc_shift;
 extern int box64_is32bits;
 extern int box64_isAddressSpace32;
 extern int box64_nolibs;
+extern int box64_hasinterp;
 #ifdef DYNAREC
 extern cpu_ext_t cpuext;
 #endif
 #ifdef HAVE_TRACE
 extern uintptr_t trace_start, trace_end;
+extern uintptr_t* trace_addrs;
+extern int trace_addrs_count;
 extern char* trace_func;
+
+static inline int IsTraceAddr(uintptr_t addr) {
+    if (trace_end == 0)
+        return 1;
+    if (trace_addrs_count > 0) {
+        for (int i = 0; i < trace_addrs_count; i++)
+            if (addr == trace_addrs[i])
+                return 1;
+        return 0;
+    }
+    return (addr >= trace_start) && (addr < trace_end);
+}
 #endif
 extern int box64_mapclean;
 extern int box64_steam;
@@ -33,6 +51,7 @@ extern int box64_unittest_mode;
 extern uintptr_t fmod_smc_start, fmod_smc_end; // to handle libfmod (from Unreal) SMC (self modifying code)
 extern uint32_t default_gs, default_fs;
 extern int box64_tcmalloc_minimal;  // when using tcmalloc_minimal
+extern sysinfo_t box64_sysinfo;
 #define LOG_NONE 0
 #define LOG_INFO 1
 #define LOG_DEBUG 2
@@ -96,7 +115,7 @@ void init_malloc_hook(void);
 #define box_strdup      strdup
 #define box_realpath    realpath
 #else
-extern size_t(*box_malloc_usable_size)(void*);
+extern size_t (*box_malloc_usable_size)(void*);
 extern void* __libc_malloc(size_t);
 extern void* __libc_realloc(void*, size_t);
 extern void* __libc_calloc(size_t, size_t);

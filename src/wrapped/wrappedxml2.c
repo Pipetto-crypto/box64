@@ -20,6 +20,7 @@
 
 const char* xml2Name = "libxml2.so.2";
 #define ALTNAME "libxml2.so"
+#define ALTNAME2 "libxml2.so.16"
 
 #define LIBNAME xml2
 
@@ -60,6 +61,7 @@ void* my_wrap_xmlMemStrdup(void* p)
 }
 
 #define ADDED_FUNCTIONS() \
+    GO(xmlXPathValuePush, iFpp_t)
 
 #include "generated/wrappedxml2types.h"
 
@@ -1086,8 +1088,8 @@ static void* find_xmlExternalEntityLoaderFct(void* fct)
 static void* reverse_xmlExternalEntityLoaderFct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, pFppp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, pFppp, fct);
     #define GO(A) if(my_xmlExternalEntityLoader_##A == fct) return (void*)my_xmlExternalEntityLoader_fct_##A;
     SUPER()
     #undef GO
@@ -1125,8 +1127,8 @@ static void* find_xmlGenericErrorFunc_Fct(void* fct)
 static void* reverse_xmlGenericErrorFunc_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, vFpp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, vFpp, fct);
     #define GO(A) if(my_xmlGenericErrorFunc_##A == fct) return (void*)my_xmlGenericErrorFunc_fct_##A;
     SUPER()
     #undef GO
@@ -1158,8 +1160,8 @@ static void* find_xmlStructuredErrorFunc_Fct(void* fct)
 static void* reverse_xmlStructuredErrorFunc_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, vFpp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, vFpp, fct);
     #define GO(A) if(my_xmlStructuredErrorFunc_##A == fct) return (void*)my_xmlStructuredErrorFunc_fct_##A;
     SUPER()
     #undef GO
@@ -1503,6 +1505,18 @@ static void restoreSaxHandler(my_xmlSAXHandler_t* sav, my_xmlSAXHandler_t* v)
 
 #undef SUPER
 
+EXPORT void* my_xmlCreatePushParserCtxt(x64emu_t* emu, my_xmlSAXHandler_t* p, void* user_data, void* chunk,
+					            int size, void* filename)
+{
+    // handling of wine that change the default sax handler of...
+    my_xmlSAXHandler_t* old_saxhandler = p;
+    my_xmlSAXHandler_t sax_handler = {0};
+    wrapSaxHandler(&sax_handler, old_saxhandler);
+    void* ret = my->xmlCreatePushParserCtxt(p, user_data, chunk, size, filename);
+    restoreSaxHandler(&sax_handler, old_saxhandler);
+    return ret;
+}
+
 EXPORT int my_xmlParseDocument(x64emu_t* emu, my_xmlSAXHandler_t** p)
 {
     // handling of wine that change the default sax handler of...
@@ -1514,10 +1528,10 @@ EXPORT int my_xmlParseDocument(x64emu_t* emu, my_xmlSAXHandler_t** p)
     return ret;
 }
 
-EXPORT void* my_xmlCreateIOParserCtxt(x64emu_t* emu, my_xmlSAXHandler_t** p, void* user_data, void* ioread, void* ioclose, void* ioctx, int enc)
+EXPORT void* my_xmlCreateIOParserCtxt(x64emu_t* emu, my_xmlSAXHandler_t* p, void* user_data, void* ioread, void* ioclose, void* ioctx, int enc)
 {
     // handling of wine that change the default sax handler of...
-    my_xmlSAXHandler_t* old_saxhandler = p?(*p):NULL;
+    my_xmlSAXHandler_t* old_saxhandler = p;
     my_xmlSAXHandler_t sax_handler = {0};
     wrapSaxHandler(&sax_handler, old_saxhandler);
     void* ret = my->xmlCreateIOParserCtxt(p, user_data, find_xmlInputReadCallback_Fct(ioread), find_xmlInputCloseCallback_Fct(ioclose), ioctx, enc);
@@ -1587,6 +1601,14 @@ EXPORT int my_xmlMemSetup(x64emu_t* emu, void* v1, void* v2, void* v3, void* v4)
 {
     int ret = my->xmlMemSetup(find_xmlFreeFunc_Fct(v1), find_xmlMallocFunc_Fct(v2), find_xmlReallocFunc_Fct(v3), find_xmlStrdupFunc_Fct(v4));
     return ret;
+}
+
+EXPORT int my_valuePush(x64emu_t* emu, void* a, void* b)
+{
+    if(my->valuePush)
+        return my->valuePush(a, b);
+    else
+        return my->xmlXPathValuePush(a, b);
 }
 
 #include "wrappedlib_init.h"

@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -51,11 +52,11 @@ uint32_t my_set_thread_area_32(x64emu_t* emu, thread_area_32_t* td)
     int isempty = 0;
     // first, check if the "user_desc", here td, is "empty"
     if(td->read_exec_only==1 && td->seg_not_present==1)
-        if( !td->base_addr 
+        if( !td->base_addr
          && !td->limit
-         && !td->seg_32bit 
-         && !td->contents 
-         && !td->limit_in_pages 
+         && !td->seg_32bit
+         && !td->contents
+         && !td->limit_in_pages
          && !td->useable)
             isempty = 1;
     int idx = td->entry_number;
@@ -97,9 +98,9 @@ uint32_t my_set_thread_area_32(x64emu_t* emu, thread_area_32_t* td)
     return 0;
 }
 
-uint32_t my_modify_ldt(x64emu_t* emu, int op, thread_area_t* td, int size)
+uint32_t my_modify_ldt(x64emu_t* emu, int op, thread_area_32_t* td, int size)
 {
-    printf_log(LOG_DEBUG, "%04d| modify_ldt(0x%x, %p[0x%x/base=%p/limit=%u/32bits:%u/%u/%u...], %d)\n", GetTID(), op, td, td->entry_number, (void*)td->base_addr, td->limit_in_pages, td->seg_32bit, td->contents, td->read_exec_only, size);
+    printf_log(LOG_DEBUG, "%04d| modify_ldt(0x%x, %p[0x%x/base=%p/limit=%u/32bits:%u/%u/%u...], %d)\n", GetTID(), op, td, td->entry_number, (void*)(uintptr_t)td->base_addr, td->limit_in_pages, td->seg_32bit, td->contents, td->read_exec_only, size);
     if(!td) {
         errno = EFAULT;
         return (uint32_t)-1;
@@ -145,6 +146,13 @@ static const char* arch_prctl_param(int code)
     sprintf(ret, "0x%x", code);
     return ret;
 }
+
+void SetFSBaseEmu(x64emu_t* emu, void* addr)
+{
+    emu->segs[_FS] = 0;
+    emu->segs_offs[_FS] = (uintptr_t)addr;
+}
+
 int my_arch_prctl(x64emu_t *emu, int code, void* addr)
 {
     printf_log(LOG_DEBUG, "%04d| arch_prctl(%s, %p) (RSP=%p, FS=0x%x, GS=0x%x)\n", GetTID(), arch_prctl_param(code), addr,(void*)R_RSP, emu->segs[_FS], emu->segs[_GS]);
@@ -297,7 +305,9 @@ static tlsdatasize_t* setupTLSData(box64context_t* context)
         memcpy((void*)((uintptr_t)ptr+0x28), context->canary, sizeof(void*));      // put canary in place
         uintptr_t tlsptr = (uintptr_t)ptr;
         memcpy((void*)((uintptr_t)ptr+0x0), &tlsptr, sizeof(void*));
-        memcpy((void*)((uintptr_t)ptr+0x10), &tlsptr, sizeof(void*));  // set tcb and self same address
+        // Wrapped pthread symbols expose native pthread_t handles, so keep the fast self slot consistent.
+        uintptr_t pthread_self_value = (uintptr_t)pthread_self();
+        memcpy((void*)((uintptr_t)ptr+0x10), &pthread_self_value, sizeof(void*));
         uintptr_t dtp = (uintptr_t)ptr+POS_TLS;
         memcpy((void*)(tlsptr+sizeof(void*)), &dtp, sizeof(void*));
         if(dtssize) {
@@ -377,7 +387,7 @@ void refreshTLSData(x64emu_t* emu)
         if ((ptr = emu->tlsdata) == NULL) {
             ptr = (tlsdatasize_t*)fillTLSData(emu->context);
         }
-    if(ptr->tlssize != emu->context->tlssize)
+    if(ptr->tlssize != emu->context->tlssize || ptr->n_elfs != emu->context->elfsize)
         ptr = (tlsdatasize_t*)resizeTLSData(emu->context, ptr);
     emu->tlsdata = ptr;
     if(emu->test.emu) emu->test.emu->tlsdata = ptr;

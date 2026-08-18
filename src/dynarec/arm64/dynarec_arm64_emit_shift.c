@@ -969,17 +969,18 @@ void emit_ror32c(dynarec_arm_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, i
 }
 
 // emit ROL8 instruction, from s1 , constant c, store result in s1 using s3 and s4 as scratch
-void emit_rol8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4)
+void emit_rol8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg)
 {
     MAYUSE(s1); MAYUSE(s3); MAYUSE(s4);
 
     if (!c) return;
 
-    IFX2(X_OF, && !BOX64ENV(cputype)) {
-        LSRw(s3, s1, 6);
-        EORw_REG_LSR(s3, s3, s3, 1);
-        BFIw(xFlags, s3, F_OF, 1);
-    }
+    if(!BOX64ENV(cputype))
+        IFX2(X_OF, && ((c==1) || !modreg)) {
+            LSRw(s3, s1, 6);
+            EORw_REG_LSR(s3, s3, s3, 1);
+            BFIw(xFlags, s3, F_OF, 1);
+        }
     if(c&7) {
         int rc = 8-(c&7);
         ORRw_REG_LSL(s1, s1, s1, 8);
@@ -995,14 +996,14 @@ void emit_rol8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s
 }
 
 // emit ROR8 instruction, from s1 , constant c, store result in s1 using s3 and s4 as scratch
-void emit_ror8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4)
+void emit_ror8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg)
 {
     MAYUSE(s1); MAYUSE(s3); MAYUSE(s4);
 
     if (!c) return;
 
     if(!BOX64ENV(cputype))
-        IFX(X_OF) {
+        IFX2(X_OF, && ((c==1) || !modreg)) {
             EORw_REG_LSR(s3, s1, s1, 7);
             BFIw(xFlags, s3, F_OF, 1);
         }
@@ -1023,14 +1024,14 @@ void emit_ror8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s
 }
 
 // emit ROL16 instruction, from s1 , constant c, store result in s1 using s3 and s4 as scratch
-void emit_rol16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4)
+void emit_rol16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg)
 {
     MAYUSE(s1); MAYUSE(s3); MAYUSE(s4);
 
     if (!c) return;
 
     if(!BOX64ENV(cputype))
-        IFX2(X_OF, && c == 1) {
+        IFX2(X_OF, && ((c==1) || !modreg)) {
             LSRw(s3, s1, 14);
             EORw_REG_LSR(s3, s3, s3, 1);
             BFIw(xFlags, s3, F_OF, 1);
@@ -1051,14 +1052,14 @@ void emit_rol16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int 
 }
 
 // emit ROR16 instruction, from s1 , constant c, store result in s1 using s3 and s4 as scratch
-void emit_ror16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4)
+void emit_ror16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg)
 {
     MAYUSE(s1); MAYUSE(s3); MAYUSE(s4);
 
     if (!c) return;
 
     if(!BOX64ENV(cputype))
-        IFX2(X_OF, && c == 1) {
+        IFX2(X_OF, && ((c==1) || !modreg)) {
             EORw_REG_LSR(s3, s1, s1, 15);
             BFIw(xFlags, s3, F_OF, 1);
         }
@@ -1773,7 +1774,6 @@ void emit_shld16(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s5, int s3, 
     } else {
         SET_DFNONE();
     }
-    uint8_t mask = X_CF;
     if(BOX64ENV(cputype)) {
         IFX(X_CF|X_OF) {
             MOV32w(s3, 16);

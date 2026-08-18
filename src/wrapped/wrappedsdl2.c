@@ -52,7 +52,7 @@ int EXPORT my2_SDL_HasAVX(void) {
     return BOX64ENV(avx)?1:0;
 }
 int EXPORT my2_SDL_HasAVX2(void) {
-    return BOX64ENV(avx2)?1:0;
+    return (BOX64ENV(avx) == 2)?1:0;
 }
 int EXPORT my2_SDL_HasAVX512F(void) __attribute__((alias("sdl_No")));
 
@@ -185,8 +185,8 @@ static void* find_eventfilter_Fct(void* fct)
 static void* reverse_eventfilter_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, iFpp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, iFpp, fct);
     #define GO(A) if(my_eventfilter_##A == fct) return (void*)my_eventfilter_fct_##A;
     SUPER()
     #undef GO
@@ -218,8 +218,8 @@ static void* find_LogOutput_Fct(void* fct)
 static void* reverse_LogOutput_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, vFpiip, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, vFpiip, fct);
     #define GO(A) if(my_LogOutput_##A == fct) return (void*)my_LogOutput_fct_##A;
     SUPER()
     #undef GO
@@ -251,8 +251,8 @@ static void* find_Hint_Fct(void* fct)
 static void* reverse_Hint_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, vFpppp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, vFpppp, fct);
     #define GO(A) if(my_Hint_##A == fct) return (void*)my_Hint_fct_##A;
     SUPER()
     #undef GO
@@ -547,7 +547,7 @@ EXPORT void my2_SDL_AddHintCallback(x64emu_t* emu, char* name, void* callback, v
 }
 EXPORT void my2_SDL_DelHintCallback(x64emu_t* emu, char* name, void* callback, void* userdata)
 {
-    my->SDL_DelHintCallback(name, reverse_Hint_Fct(callback), userdata);
+    my->SDL_DelHintCallback(name, find_Hint_Fct(callback), userdata);
 }
 
 EXPORT int my2_SDL_vsnprintf(x64emu_t* emu, void* buff, size_t s, void * fmt, x64_va_list_t b)
@@ -838,11 +838,12 @@ EXPORT int64_t my2_SDL_IsJoystickHIDAPI(x64emu_t* emu, uint64_t a, uint64_t b)
 void* my_vkGetInstanceProcAddr(x64emu_t* emu, void* device, void* name);
 EXPORT void* my2_SDL_Vulkan_GetVkGetInstanceProcAddr(x64emu_t* emu)
 {
+    void* procaddr = my->SDL_Vulkan_GetVkGetInstanceProcAddr();
     if(!emu->context->vkprocaddress)
-        emu->context->vkprocaddress = (vkprocaddess_t)my->SDL_Vulkan_GetVkGetInstanceProcAddr();
+        emu->context->vkprocaddress = (vkprocaddess_t)procaddr;
 
-    if(emu->context->vkprocaddress)
-        return (void*)AddCheckBridge(my_lib->w.bridge, pFEpp, my_vkGetInstanceProcAddr, 0, "vkGetInstanceProcAddr");
+    if(procaddr)
+        return (void*)AddCheckBridge2(my_lib->w.bridge, pFEpp, my_vkGetInstanceProcAddr, procaddr, 0, "vkGetInstanceProcAddr");
     return NULL;
 }
 

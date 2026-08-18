@@ -39,6 +39,7 @@
 #include "box32.h"
 #include "converter32.h"
 #include "custommem.h"
+#include "syscall_user_dispatch.h"
 
 
 // Syscall table for x86_64 can be found 
@@ -275,6 +276,7 @@ void* my32_mmap64(x64emu_t* emu, void *addr, size_t length, int prot, int flags,
 int my32_munmap(x64emu_t* emu, void* addr, unsigned long length);
 int my32_sigaltstack(x64emu_t* emu, const i386_stack_t* ss, i386_stack_t* oss);
 pid_t my_vfork(x64emu_t* emu);
+uint32_t my_modify_ldt(x64emu_t* emu, int op, thread_area_32_t* td, int size);
 
 #ifndef FUTEX_LOCK_PI2
 #define FUTEX_LOCK_PI2 13
@@ -282,7 +284,8 @@ pid_t my_vfork(x64emu_t* emu);
 
 typedef struct clone_s {
     x64emu_t* emu;
-    void* stack2free;
+    uint32_t  size;
+    uint32_t  stack_from_context;
 } clone_t;
 
 static int clone32_fn(void* arg)
@@ -296,13 +299,10 @@ static int clone32_fn(void* arg)
     DynaRun(emu);
     int ret = S_EAX;
     printf_log(LOG_DEBUG, "%04d|clone32_fn ending with ret=%d (emu=%p)\n", GetTID(), ret, arg);
-    FreeX64Emu(&emu);
-    void* stack2free = args->stack2free;
-    box_free(args);
-    if(my_context->stack_clone_used && !stack2free)
+    if(my_context->stack_clone_used && !args->stack_from_context)
         my_context->stack_clone_used = 0;
-    if(stack2free)
-        box_free(stack2free);   // this free the stack, so it will crash very soon!
+    if(!args->stack_from_context)
+        munmap(args, args->size);   // this would free the stack, so is it ok to let the system free it instead?
     _exit(ret);
 }
 
@@ -311,6 +311,13 @@ void EXPORT x86Syscall(x64emu_t *emu)
 {
     uint32_t s = R_EAX;
     printf_log(LOG_DEBUG, "%04d|%p: Calling 32bits syscall 0x%02X (%d) %p %p %p %p %p", GetTID(), (void*)R_RIP, s, s, (void*)(uintptr_t)R_EBX, (void*)(uintptr_t)R_ECX, (void*)(uintptr_t)R_EDX, (void*)(uintptr_t)R_ESI, (void*)(uintptr_t)R_EDI); 
+    if(my_syscall_user_dispatch(emu, R_RIP - 2, s, 1))
+        return;
+    if(s == 172 && R_EBX == PR_SET_SYSCALL_USER_DISPATCH) {
+        S_EAX = my_syscall_user_dispatch_prctl(emu, R_ECX, R_EDX, R_ESI, R_EDI ? from_ptrv(R_EDI) : NULL);
+        printf_log(LOG_DEBUG, " => 0x%x\n", R_EAX);
+        return;
+    }
     // check wrapper first
     int cnt = sizeof(syscallwrap) / sizeof(scwrap_t);
     void* tmp;
@@ -327,7 +334,7 @@ void EXPORT x86Syscall(x64emu_t *emu)
                 case 5: *(int32_t*)&R_EAX = syscall(sc, R_EBX, R_ECX, R_EDX, R_ESI, R_EDI); break;
                 case 6: *(int32_t*)&R_EAX = syscall(sc, R_EBX, R_ECX, R_EDX, R_ESI, R_EDI, R_EBP); break;
                 default:
-                   printf_log(LOG_NONE, "ERROR, Unimplemented syscall wrapper (%d, %d)\n", s, syscallwrap[i].nbpars); 
+                   printf_log(LOG_NONE, "ERROR, Unimplemented syscall 32 wrapper (%d, %d)\n", s, syscallwrap[i].nbpars); 
                    emu->quit = 1;
                    return;
             }
@@ -404,23 +411,29 @@ void EXPORT x86Syscall(x64emu_t *emu)
                 if(R_ECX)
                 {
                     void* stack_base = from_ptrv(R_ECX);
-                    int stack_size = 0;
-                    uintptr_t sp = R_ECX;
-                    x64emu_t * newemu = NewX64Emu(emu->context, R_EIP, (uintptr_t)stack_base, stack_size, 0);
-                    SetupX64Emu(newemu, emu);
-                    CloneEmu(newemu, emu);
-                    newemu->regs[_SP].q[0] = sp;  // setup new stack pointer
+                    uint32_t size = sizeof(clone_t) + 16 + sizeof(x64emu_t) +16;
                     void* mystack = NULL;
-                    clone_t* args = box_calloc(1, sizeof(clone_t));
-                    args->emu = newemu;
+                    uint32_t stack_from_context = 1;
                     if(my_context->stack_clone_used) {
-                        args->stack2free = mystack = box_malloc(1024*1024);  // stack for own process...
+                        size += 1024*1024;  // stack for own process...
+                        stack_from_context = 0;
                     } else {
                         if(!my_context->stack_clone)
                             my_context->stack_clone = box_malloc(1024*1024);
                         mystack = my_context->stack_clone;
                         my_context->stack_clone_used = 1;
                     }
+                    size = (size+(box64_pagesize-1))&~(box64_pagesize-1);
+                    uintptr_t sp = R_ECX;
+                    clone_t* args = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+                    args->emu = (x64emu_t*)(((uintptr_t)(args+1)+15)&~15ULL);
+                    args->stack_from_context = stack_from_context;
+                    if(!stack_from_context)
+                        mystack = (void*)((((uintptr_t)(args->emu+1))+15)&~15ULL);
+                    x64emu_t * newemu = NewX64EmuFromStack(args->emu, emu->context, R_EIP, (uintptr_t)stack_base, 0);
+                    SetupX64Emu(newemu, emu);
+                    CloneEmu(newemu, emu);
+                    newemu->regs[_SP].q[0] = sp;  // setup new stack pointer
                     int64_t ret = clone(clone32_fn, (void*)((uintptr_t)mystack+1024*1024), R_EBX, args, R_EDX, R_EDI, R_ESI);
                     S_RAX = ret;
                 }
@@ -432,13 +445,14 @@ void EXPORT x86Syscall(x64emu_t *emu)
                     #endif
             }
             break;        
-        /*case 123:   // SYS_modify_ldt
-            R_EAX = my32_modify_ldt(emu, R_EBX, (thread_area_t*)(uintptr_t)R_ECX, R_EDX);
+        case 123:   // SYS_modify_ldt
+            R_EAX = my_modify_ldt(emu, R_EBX, (thread_area_32_t*)from_ptrv(R_ECX), R_EDX);
             if(R_EAX==0xffffffff && errno>0)
                 R_EAX = (uint32_t)-errno;
-            break;*/
+            break;
         case 141: { // getdents
-            native_linux_dirent_t* dirent_buffer = box_malloc(sizeof(native_linux_dirent_t) * (unsigned int)R_EDX);
+            native_linux_dirent_t dirent_buffer[R_EDX];
+            memset(dirent_buffer, 0, sizeof(dirent_buffer));
             S_EAX = syscall(__NR_getdents64, (unsigned)R_EBX, dirent_buffer, (unsigned int)R_EDX);
             if (S_EAX == -1) {
                 if (errno > 0) S_EAX = -errno;
@@ -461,7 +475,6 @@ void EXPORT x86Syscall(x64emu_t *emu)
                 }
                 S_EAX = total;
             }
-            box_free(dirent_buffer);
             break;
         }
         case 186:   // sigaltstack
@@ -539,7 +552,7 @@ void EXPORT x86Syscall(x64emu_t *emu)
             #endif
             break;
         default:
-            printf_log(LOG_INFO, "Warning: Unsupported Syscall 0x%02Xh (%d)\n", s, s);
+            printf_log(LOG_INFO, "Warning: Unsupported Syscall 32 0x%02Xh (%d)\n", s, s);
             R_EAX = (uint32_t)-ENOSYS;
             return;
     }
@@ -556,6 +569,14 @@ uint32_t EXPORT my32_syscall(x64emu_t *emu, uint32_t s, ptr_t* b)
 {
     static uint64_t warned[10] = {0};
     printf_log(LOG_DEBUG, "%p: Calling libc syscall 0x%02X (%d) %p %p %p %p %p\n", from_ptrv(R_EIP), s, s, from_ptrv(u32(0)), from_ptrv(u32(4)), from_ptrv(u32(8)), from_ptrv(u32(12)), from_ptrv(u32(16))); 
+    if(s == 172 && u32(0) == PR_SET_SYSCALL_USER_DISPATCH) {
+        long ret = my_syscall_user_dispatch_prctl(emu, u32(4), u32(8), u32(12), u32(16) ? p(16) : NULL);
+        if(ret < 0) {
+            errno = -ret;
+            return (uint32_t)-1;
+        }
+        return 0;
+    }
     // check wrapper first
     int cnt = sizeof(syscallwrap) / sizeof(scwrap_t);
     size_t tmps;
@@ -650,8 +671,10 @@ uint32_t EXPORT my32_syscall(x64emu_t *emu, uint32_t s, ptr_t* b)
             else
                 return (uint32_t)syscall(__NR_clone, u32(0), p(4), p(8), p(12), p(16));
             break;
+#endif
         case 123:   // SYS_modify_ldt
-            return my32_modify_ldt(emu, i32(0), (thread_area_t*)p(4), i32(8));
+            return my_modify_ldt(emu, i32(0), (thread_area_32_t*)p(4), i32(8));
+#if 0
         case 125:   // mprotect
             return (uint32_t)my32_mprotect(emu, p(0), u32(4), i32(8));
         case 174:   // sys_rt_sigaction
@@ -767,11 +790,11 @@ uint32_t EXPORT my32_syscall(x64emu_t *emu, uint32_t s, ptr_t* b)
         default:
             if((s>>6)<sizeof(warned)/sizeof(warned[0])) {
                 if(!(warned[s>>6]&(1<<(s&0x3f)))) {
-                    printf_log(LOG_INFO, "Warning: Unsupported libc Syscall 0x%02X (%d)\n", s, s);
+                    printf_log(LOG_INFO, "Warning: Unsupported libc Syscall 32 0x%02X (%d)\n", s, s);
                     warned[s>>6] |= (1<<(s&0x3f));
                 }
             } else
-                printf_log(LOG_INFO, "Warning: Unsupported libc Syscall 0x%02X (%d)\n", s, s);
+                printf_log(LOG_INFO, "Warning: Unsupported libc Syscall 32 0x%02X (%d)\n", s, s);
             errno = ENOSYS;
             return -1;
     }

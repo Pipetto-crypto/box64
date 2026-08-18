@@ -8,7 +8,8 @@ GO(__dn_comp, iFppipp)
 GO(__dn_count_labels, iFp)
 GOM(__dn_expand, iFEppppi)
 GOM(dn_expand, iFEppppi)
-GO(__dn_skipname, iFpp)
+GOM(__dn_skipname, iFEpp)
+GOM(dn_skipname, iFEpp)
 GO(__fp_nquery, vFpiS)
 GO(__fp_query, vFpS)
 GO(__fp_resstat, vFpS)
@@ -85,22 +86,23 @@ GOM(__res_mkquery, iFEipiipippi)
 GOM(res_mkquery, iFEipiipippi)
 GO(__res_nameinquery, iFpiipp)
 #ifdef STATICBUILD
-//GO(__res_nmkquery,
+//GO(__res_nmkquery, 
 #else
-GO(__res_nmkquery, iFpipiipippi)
+GOM(__res_nmkquery, iFEpipiipippi)
 #endif
-GO(res_nmkquery, iFpipiipippi)
+GOM(res_nmkquery, iFEpipiipippi)
 GOM(__res_nquery, iFEppiipi)
 GOM(res_nquery, iFEppiipi)
 GOM(__res_nquerydomain, iFEpppiipi)
 GOM(res_nquerydomain, iFEpppiipi)
-GO(__res_nsearch, iFppiipi)
+GOM(__res_nsearch, iFEppiipi)
+GOM(res_nsearch, iFEppiipi)
 #ifdef STATICBUILD
-//GO(__res_nsend,
+//GO(__res_nsend, 
 #else
-GO(__res_nsend, iFppipi)
+GOM(__res_nsend, iFEppipi)
 #endif
-GO(res_nsend, iFppipi)
+GOM(res_nsend, iFEppipi)
 //DATA(_res_opcodes, 4)
 GO(__res_ownok, iFp)
 GO(__res_queriesmatch, iFpppp)

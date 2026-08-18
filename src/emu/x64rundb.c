@@ -50,7 +50,7 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
     case 0xC7:
         CHECK_FLAGS(emu);
         if(!ACCESS_FLAG(F_CF))
-            ST0.q = ST(nextop&7).q;
+            fpu_ld80_copy(emu, 0, nextop&7);
         break;
     case 0xC8:      /* FCMOVNE ST(0), ST(i) */
     case 0xC9:
@@ -62,7 +62,7 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
     case 0xCF:
         CHECK_FLAGS(emu);
         if(!ACCESS_FLAG(F_ZF))
-            ST0.q = ST(nextop&7).q;
+            fpu_ld80_copy(emu, 0, nextop&7);
         break;
     case 0xD0:      /* FCMOVNBE ST(0), ST(i) */
     case 0xD1:
@@ -74,7 +74,7 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
     case 0xD7:
         CHECK_FLAGS(emu);
         if(!(ACCESS_FLAG(F_CF) || ACCESS_FLAG(F_ZF)))
-            ST0.q = ST(nextop&7).q;
+            fpu_ld80_copy(emu, 0, nextop&7);
         break;
     case 0xD8:      /* FCMOVNU ST(0), ST(i) */
     case 0xD9:
@@ -86,7 +86,7 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
     case 0xDF:
         CHECK_FLAGS(emu);
         if(!ACCESS_FLAG(F_PF))
-            ST0.q = ST(nextop&7).q;
+            fpu_ld80_copy(emu, 0, nextop&7);
         break;
 
     case 0xE1:      /* FDISI8087_NOP */
@@ -115,7 +115,10 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
     case 0xED:
     case 0xEE:
     case 0xEF:
-        fpu_fcomi(emu, ST(nextop&7).d);   // bad, should handle QNaN and IA interrupt
+    #ifndef HAVE_LD80BITS
+        if (!fpu_fcomi_ld80(emu, nextop&7))
+    #endif
+            fpu_fcomi(emu, ST(nextop&7).d);   // bad, should handle QNaN and IA interrupt
         break;
 
     case 0xF0:  /* FCOMI ST0, STx */
@@ -126,7 +129,10 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
     case 0xF5:
     case 0xF6:
     case 0xF7:
-        fpu_fcomi(emu, ST(nextop&7).d);
+    #ifndef HAVE_LD80BITS
+        if (!fpu_fcomi_ld80(emu, nextop&7))
+    #endif
+            fpu_fcomi(emu, ST(nextop&7).d);
         break;
 
     default:
@@ -141,26 +147,29 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 break;
             case 1: /* FISTTP Ed, ST0 */
                 GETE4(0);
-                if(isgreater(ST0.d, (double)0x7fffffff) || isless(ST0.d, -(double)0x80000000U) || !isfinite(ST0.d))
+                if(isgreater(ST0.d, (double)0x7fffffff) || isless(ST0.d, -(double)0x80000000U) || !isfinite(ST0.d)) {
+                    fpu_raise_invalid(emu);
                     ED->sdword[0] = 0x80000000;
-                else
+                } else
                     ED->sdword[0] = ST0.d;
                 fpu_do_pop(emu);
                 break;
             case 2: /* FIST Ed, ST0 */
                 GETE4(0);
-                if(isgreater(ST0.d, (double)0x7fffffff) || isless(ST0.d, -(double)0x80000000U) || !isfinite(ST0.d))
+                if(isgreater(ST0.d, (double)0x7fffffff) || isless(ST0.d, -(double)0x80000000U) || !isfinite(ST0.d)) {
+                    fpu_raise_invalid(emu);
                     ED->sdword[0] = 0x80000000;
-                else {
+                } else {
                     volatile int32_t tmp = fpu_round(emu, ST0.d);    // tmp to avoid BUS ERROR
                     ED->sdword[0] = tmp;
                 }
                 break;
             case 3: /* FISTP Ed, ST0 */
                 GETE4(0);
-                if(isgreater(ST0.d, (double)0x7fffffff) || isless(ST0.d, -(double)0x80000000U) || !isfinite(ST0.d))
+                if(isgreater(ST0.d, (double)0x7fffffff) || isless(ST0.d, -(double)0x80000000U) || !isfinite(ST0.d)) {
+                    fpu_raise_invalid(emu);
                     ED->sdword[0] = 0x80000000;
-                else {
+                } else {
                     volatile int32_t tmp = fpu_round(emu, ST0.d);    // tmp to avoid BUS ERROR
                     ED->sdword[0] = tmp;
                 }
@@ -175,7 +184,7 @@ uintptr_t RunDB(x64emu_t *emu, rex_t rex, uintptr_t addr)
                 break;
             case 7: /* FSTP tbyte */
                 GETET(0);
-                if(STld(0).uref && (ST0.q==STld(0).uref))
+                if(fpu_ld80_raw_valid(emu, 0))
                     memcpy(ED, &STld(0).ld, 10);
                 else
                     D2LD(&ST0.d, ED);

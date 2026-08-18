@@ -158,7 +158,7 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             }
             break;
         case 0x62:
-            if (rex.is32bits && !MODREG) {
+            if (rex.is32bits) {
                 // BOUND here
                 DEFAULT;
             } else {
@@ -211,26 +211,39 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 LW(x1, x3, 0);
                 PUSH1z(x1);
             } else {
-                MOV64z(x3, i64);
-                PUSH1z(x3);
+                if (!i64) {
+                    PUSH1z(xZR);
+                } else {
+                    MOV64z(x3, i64);
+                    PUSH1z(x3);
+                }
             }
             break;
         case 0x69:
             INST_NAME("IMUL Gd, Ed, Id");
-            SETFLAGS(X_ALL, SF_PENDING, NAT_FLAGS_NOFUSION);
+            SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION);
             nextop = F8;
             GETGD;
             GETED(4);
             i64 = F32S;
-            MOV64xw(x4, i64);
+            MOV64x(x4, i64);
+            CLEAR_FLAGS();
             if (rex.w) {
                 // 64bits imul
                 UFLAG_IF {
                     MULH(x3, ed, x4);
                     MUL(gd, ed, x4);
-                    UFLAG_OP1(x3);
-                    UFLAG_RES(gd);
-                    UFLAG_DF(x3, d_imul64);
+                    SET_DFNONE();
+                    IFX (X_CF | X_OF) {
+                        SRAI(x5, gd, 63);
+                        XOR(x3, x3, x5);
+                        SNEZ(x3, x3);
+                        IFX (X_CF) OR(xFlags, xFlags, x3); // F_CF == 0
+                        IFX (X_OF) {
+                            SLLI(x3, x3, F_OF2);
+                            OR(xFlags, xFlags, x3);
+                        }
+                    }
                 } else {
                     MULxw(gd, ed, x4);
                 }
@@ -238,39 +251,66 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 // 32bits imul
                 UFLAG_IF {
                     SEXT_W(x3, ed);
-                    MUL(gd, x3, x4);
-                    UFLAG_RES(gd);
-                    SRLI(x3, gd, 32);
-                    UFLAG_OP1(x3);
-                    UFLAG_DF(x3, d_imul32);
+                    MUL(x5, x3, x4);
+                    SET_DFNONE();
+                    IFX (X_CF | X_OF) {
+                        SEXT_W(x3, x5);
+                        XOR(x3, x5, x3);
+                        SNEZ(x3, x3);
+                        IFX (X_CF) OR(xFlags, xFlags, x3); // F_CF == 0
+                        IFX (X_OF) {
+                            SLLI(x3, x3, F_OF2);
+                            OR(xFlags, xFlags, x3);
+                        }
+                    }
+                    ZEXTW2(gd, x5);
                 } else {
                     MULxw(gd, ed, x4);
+                    ZEROUP(gd);
                 }
-                ZEROUP(gd);
             }
+            IFX (X_SF) {
+                SRLI(x5, gd, rex.w ? 63 : 31);
+                SLLI(x5, x5, F_SF);
+                OR(xFlags, xFlags, x5);
+            }
+            IFX (X_PF) emit_pf(dyn, ninst, gd, x3, x4);
             break;
         case 0x6A:
             INST_NAME("PUSH Ib");
             i64 = F8S;
-            MOV64z(x3, i64);
-            PUSH1z(x3);
+            if (!i64) {
+                PUSH1z(xZR);
+            } else {
+                MOV64z(x3, i64);
+                PUSH1z(x3);
+            }
             break;
         case 0x6B:
             INST_NAME("IMUL Gd, Ed, Ib");
-            SETFLAGS(X_ALL, SF_PENDING, NAT_FLAGS_NOFUSION);
+            SETFLAGS(X_ALL, SF_SET_NODF, NAT_FLAGS_NOFUSION);
             nextop = F8;
             GETGD;
             GETED(1);
             i64 = F8S;
-            MOV64xw(x4, i64);
+            MOV64x(x4, i64);
+            CLEAR_FLAGS();
             if (rex.w) {
                 // 64bits imul
                 UFLAG_IF {
                     MULH(x3, ed, x4);
                     MUL(gd, ed, x4);
-                    UFLAG_OP1(x3);
-                    UFLAG_RES(gd);
-                    UFLAG_DF(x3, d_imul64);
+                    SET_DFNONE();
+                    IFX (X_CF | X_OF) {
+                        SRAI(x5, gd, 63);
+                        XOR(x3, x3, x5);
+                        SNEZ(x3, x3);
+                        IFX (X_CF) OR(xFlags, xFlags, x3); // F_CF == 0
+                        IFX (X_OF) {
+                            SLLI(x3, x3, F_OF2);
+                            OR(xFlags, xFlags, x3);
+                        }
+                    }
                 } else {
                     MUL(gd, ed, x4);
                 }
@@ -278,16 +318,30 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
                 // 32bits imul
                 UFLAG_IF {
                     SEXT_W(x3, ed);
-                    MUL(gd, x3, x4);
-                    UFLAG_RES(gd);
-                    SRLI(x3, gd, 32);
-                    UFLAG_OP1(x3);
-                    UFLAG_DF(x3, d_imul32);
+                    MUL(x5, x3, x4); // full 64bits product
+                    SET_DFNONE();
+                    IFX (X_CF | X_OF) {
+                        SEXT_W(x3, x5);
+                        XOR(x3, x5, x3);
+                        SNEZ(x3, x3);
+                        IFX (X_CF) OR(xFlags, xFlags, x3); // F_CF == 0
+                        IFX (X_OF) {
+                            SLLI(x3, x3, F_OF2);
+                            OR(xFlags, xFlags, x3);
+                        }
+                    }
+                    ZEXTW2(gd, x5);
                 } else {
                     MULW(gd, ed, x4);
+                    ZEROUP(gd);
                 }
-                ZEROUP(gd);
             }
+            IFX (X_SF) {
+                SRLI(x5, gd, rex.w ? 63 : 31);
+                SLLI(x5, x5, F_SF);
+                OR(xFlags, xFlags, x5);
+            }
+            IFX (X_PF) emit_pf(dyn, ninst, gd, x3, x4);
             break;
 
         case 0x6C:
@@ -308,7 +362,7 @@ uintptr_t dynarec64_00_1(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int 
             break;
         case 0x6E:
         case 0x6F:
-            INST_NAME(opcode == 0x6C ? "OUTSB" : "OUTSD");
+            INST_NAME(opcode == 0x6E ? "OUTSB" : "OUTSD");
             if (BOX64DRENV(dynarec_safeflags) > 1) {
                 READFLAGS(X_PEND);
             } else {

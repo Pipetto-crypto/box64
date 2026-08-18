@@ -83,7 +83,7 @@ KHASH_MAP_IMPL_STR(datamap, uint64_t)
 char* Path2Name(const char* path)
 {
     char* name = (char*)box_calloc(1, MAX_PATH);
-    char* p = strrchr(path, '/');
+    char* p = (char *)strrchr(path, '/');
     strcpy(name, (p)?(p+1):path);
     // name should be libXXX.so.A(.BB.CCCC)
     // so keep only 2 dot after ".so" (if any)
@@ -98,7 +98,7 @@ char* Path2Name(const char* path)
 }
 int NbDot(const char* name)
 {
-    char *p = strstr(name, ".so");
+    const char *p = strstr(name, ".so");
     if(!p)
         return -1;
     int ret = 0;
@@ -111,7 +111,7 @@ int NbDot(const char* name)
 
 void WrappedLib_CommonInit(library_t *lib) {
     lib->w.bridge = NewBridge();
-    
+
     lib->w.symbolmap = kh_init(symbolmap);
     lib->w.wsymbolmap = kh_init(symbolmap);
     lib->w.mysymbolmap = kh_init(symbolmap);
@@ -291,15 +291,19 @@ static void initWrappedLib(library_t *lib, box64context_t* context) {
                 printf_dlsym_dump(LOG_DEBUG, "Failure to add lib %s linkmap\n", lib->name);
                 break;
             }
-            struct link_map real_lm;
+            struct link_map *real_lm = NULL;
             #ifndef ANDROID
             if(dlinfo(lib->w.lib, RTLD_DI_LINKMAP, &real_lm)) {
                 printf_dlsym_dump(LOG_DEBUG, "Failed to dlinfo lib %s\n", lib->name);
             }
             #endif
-            lm->l_addr = real_lm.l_addr;
-            lm->l_name = real_lm.l_name;
-            lm->l_ld = real_lm.l_ld;
+            if(real_lm) {
+                lm->l_addr = real_lm->l_addr;
+                lm->l_name = real_lm->l_name;
+                lm->l_ld = real_lm->l_ld;
+            } else {
+                lm->l_name = lib->path;
+            }
             break;
         }
     }
@@ -400,7 +404,7 @@ static int loadEmulatedLib(const char* libname, library_t *lib, box64context_t* 
     return 0;
 }
 
-static void initEmulatedLib(const char* path, library_t *lib, box64context_t* context, elfheader_t* verneeded)
+static void initEmulatedLib(const char* path, library_t *lib, box64context_t* context, elfheader_t* verneeded, path_collection_t* rpath)
 {
     char libname[MAX_PATH];
     strcpy(libname, path);
@@ -408,7 +412,17 @@ static void initEmulatedLib(const char* path, library_t *lib, box64context_t* co
     if(found)
         if(loadEmulatedLib(libname, lib, context, verneeded))
             return;
-    if(!strchr(path, '/'))
+    if(!strchr(path, '/')) {
+        if(rpath) {
+            for(int i=0; i<rpath->size; ++i)
+            {
+                strcpy(libname, rpath->paths[i]);
+                strcat(libname, path);
+                if(box64_is32bits?FileIsX86ELF(libname):FileIsX64ELF(libname))
+                    if(loadEmulatedLib(libname, lib, context, verneeded))
+                        return;
+            }
+        }
         for(int i=0; i<context->box64_ld_lib.size; ++i)
         {
             strcpy(libname, context->box64_ld_lib.paths[i]);
@@ -422,8 +436,9 @@ static void initEmulatedLib(const char* path, library_t *lib, box64context_t* co
             strcat(libname, path);
             if(box64_is32bits?FileIsX86ELF(libname):FileIsX64ELF(libname))
                 if(loadEmulatedLib(libname, lib, context, verneeded))
-                    return;            
+                    return;
         }
+    }
 }
 
 static void initDummyLib(library_t *lib)
@@ -439,15 +454,15 @@ static void initDummyLib(library_t *lib)
 }
 
 static const char* essential_libs[] = {
-    "libc.so.6", "libpthread.so.0", "librt.so.1", "libGL.so.1", "libGL.so", "libX11.so.6", 
-    "libasound.so.2", "libdl.so.2", "libm.so.6", "libbsd.so.0", "libutil.so.1", "libresolv.so.2", "libresolv.so", 
+    "libc.so.6", "libpthread.so.0", "librt.so.1", "libGL.so.1", "libGL.so", "libX11.so.6",
+    "libasound.so.2", "libdl.so.2", "libm.so.6", "libbsd.so.0", "libutil.so.1", "libresolv.so.2", "libresolv.so",
     "libXxf86vm.so.1", "libXinerama.so.1", "libXrandr.so.2", "libXext.so.6", "libXfixes.so.3", "libXcursor.so.1",
     "libXrender.so.1", "libXft.so.2", "libXi.so.6", "libXss.so.1", "libXpm.so.4", "libXau.so.6", "libXdmcp.so.6",
     "libX11-xcb.so.1", "libxcb.so.1", "libxcb-xfixes.so.0", "libxcb-shape.so.0", "libxcb-shm.so.0", "libxcb-randr.so.0",
     "libxcb-image.so.0", "libxcb-keysyms.so.1", "libxcb-xtest.so.0", "libxcb-glx.so.0", "libxcb-dri2.so.0", "libxcb-dri3.so.0",
-    "libXtst.so.6", "libXt.so.6", "libXcomposite.so.1", "libXdamage.so.1", "libXmu.so.6", "libxkbcommon.so.0", 
+    "libXtst.so.6", "libXt.so.6", "libXcomposite.so.1", "libXdamage.so.1", "libXmu.so.6", "libxkbcommon.so.0",
     "libxkbcommon-x11.so.0", "libpulse-simple.so.0", "libpulse.so.0", "libvulkan.so.1", "libvulkan.so",
-    "ld-linux-x86-64.so.2", "crashhandler.so", "libtcmalloc_minimal.so.0", "libtcmalloc_minimal.so.4", "libanl.so.1",
+    "ld-linux-x86-64.so.2", "libtcmalloc_minimal.so.0", "libtcmalloc_minimal.so.4", "libanl.so.1",
     "ld-linux.so.2", "ld-linux.so.3", "libthread_db.so.1"
 };
 static const char* essential_libs_egl[] = {
@@ -475,7 +490,7 @@ static lib_brick_t* cur_brick = NULL;
 static size_t cur_lib = 0;
 static size_t lib_cap = 0;
 
-library_t *NewLibrary(const char* path, box64context_t* context, elfheader_t* verneeded)
+library_t *NewLibrary(const char* path, box64context_t* context, elfheader_t* verneeded, path_collection_t* rpath)
 {
     printf_dlsym_dump(LOG_DEBUG, "Trying to load \"%s\"\n", path);
     //library_t *lib = (library_t*)box_calloc(1, sizeof(library_t));
@@ -543,7 +558,7 @@ library_t *NewLibrary(const char* path, box64context_t* context, elfheader_t* ve
         initWrappedLib(lib, context);
     // then look for a native one
     if(lib->type==LIB_UNNKNOW)
-        initEmulatedLib(path, lib, context, verneeded);
+        initEmulatedLib(path, lib, context, verneeded, rpath);
     // still not loaded but notwrapped indicated: use wrapped...
     if(lib->type==LIB_UNNKNOW && notwrapped && !precise)
         initWrappedLib(lib, context);
@@ -646,6 +661,17 @@ void Free1Library(library_t **the_lib, x64emu_t* emu)
         needed = copy_neededlib(needed);
     // free elf
     if(lib_type==LIB_EMULATED) {
+        // remove the atfork associated to the elf header
+        if(my_context)
+            for(int i=my_context->atfork_sz-1; i>=0; --i) {
+                if(my_context->atforks[i].handle == lib->e.elf) {
+                    // find one, remove it by copying above data and decrementing atfork_sz
+                    int next = i+1;
+                    if(next!=my_context->atfork_sz)
+                        memmove(my_context->atforks+i, my_context->atforks+next, (my_context->atfork_sz-next)*sizeof(atfork_fnc_t));
+                    --my_context->atfork_sz;
+                }
+            }
         FreeElfHeader(&lib->e.elf);
     }
 
@@ -711,7 +737,7 @@ char* GetNameLib(library_t* lib)
 int IsSameLib(library_t* lib, const char* path)
 {
     int ret = 0;
-    if(!lib) 
+    if(!lib)
         return 0;
     if(lib->type==LIB_UNNKNOW)
         return 0;
@@ -898,8 +924,14 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
                 printf_log(LOG_NONE, "Warning, function %s not found\n", buff);
                 return 0;
             }
-            s->addr = AddBridge(lib->w.bridge, s->w, symbol, 0, name);
-            s->resolved = 1;
+            void* s2 = dlsym(lib->w.lib, name);
+            if(s2) {
+                s->addr = AddCheckBridge2(lib->w.bridge, s->w, symbol, s2, 0, name);
+                // don't resolve the symbol here, it may change
+            } else {
+                s->addr = AddCheckBridge(lib->w.bridge, s->w, symbol, 0, name);
+                s->resolved = 1;
+            }
         }
         *addr = s->addr;
         *size = sizeof(void*);
@@ -926,7 +958,7 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
                 printf_log(LOG_NONE, "Warning, function %s not found\n", buff);
                 return 0;
             }
-            s->addr = AddBridge(lib->w.bridge, s->w, symbol, box64_is32bits?4:sizeof(void*), name);
+            s->addr = AddCheckBridge(lib->w.bridge, s->w, symbol, box64_is32bits?4:sizeof(void*), name);
             s->resolved = 1;
         }
         *addr = s->addr;
@@ -962,7 +994,7 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
                 printf_dump(LOG_INFO, "Warning, function %s not found in lib %s\n", name, lib->name);
                 return 0;
             }
-            s->addr = AddBridge(lib->w.bridge, s->w, symbol, 0, name);
+            s->addr = AddCheckBridge(lib->w.bridge, s->w, symbol, 0, name);
             s->resolved = 1;
         }
         *addr = s->addr;
@@ -991,8 +1023,14 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
                     printf_log(LOG_NONE, "Warning, function %s not found\n", buff);
                     return 0;
                 }
-                s->addr = AddBridge(lib->w.bridge, s->w, symbol, 0, name);
+            void* s2 = dlsym(lib->w.lib, name);
+            if(s2) {
+                s->addr = AddCheckBridge2(lib->w.bridge, s->w, symbol, s2, 0, name);
+                // don't resolve the symbol here, it may change
+            } else {
+                s->addr = AddCheckBridge(lib->w.bridge, s->w, symbol, 0, name);
                 s->resolved = 1;
+            }
             }
             *addr = s->addr;
             *size = sizeof(void*);
@@ -1026,7 +1064,7 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
                     printf_dump(LOG_INFO, "Warning, function %s not found in lib %s\n", name, lib->name);
                     return 0;
                 }
-                s->addr = AddBridge(lib->w.bridge, s->w, symbol, 0, name);
+                s->addr = AddCheckBridge(lib->w.bridge, s->w, symbol, 0, name);
                 s->resolved = 1;
             }
             *addr = s->addr;
@@ -1036,7 +1074,7 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
         }
     }
     // check in symbol2map
-    // 
+    //
     // NOTE: symbol2map & symbolmap share the same hash function, so we can use the same hash
     k = kh_get_with_hash(symbol2map, lib->w.symbol2map, name, hash);
     if (k!=kh_end(lib->w.symbol2map))  {
@@ -1057,7 +1095,7 @@ static int getSymbolInSymbolMaps(library_t*lib, const char* name, int noweak, ui
                     printf_dump(LOG_INFO, "Warning, function %s not found in lib %s\n", kh_value(lib->w.symbol2map, k).name, lib->name);
                     return 0;
                 }
-                s->addr = AddBridge(lib->w.bridge, s->w, symbol, 0, name);
+                s->addr = AddCheckBridge(lib->w.bridge, s->w, symbol, 0, name);
                 s->resolved = 1;
             }
             *addr = s->addr;
@@ -1270,6 +1308,10 @@ void free_neededlib(needed_libs_t* needed)
     needed->libs = NULL;
     needed->names = NULL;
     needed->cap = needed->size = 0;
+    if(needed->rpath) {
+        FreeCollection(needed->rpath);
+        box_free(needed->rpath);
+    }
     box_free(needed);
 }
 void add1_neededlib(needed_libs_t* needed)

@@ -27,10 +27,10 @@
 #define type_1RI20(opc, imm20, rd)       ((opc) << 25 | ((imm20) & 0xFFFFF) << 5 | (rd))
 #define type_1RI21(opc, imm21, rj)       ((opc) << 26 | ((imm21) & 0xFFFF) << 10 | (rj) << 5 | ((imm21) & 0x1F0000) >> 16)
 #define type_hint(opc, imm15)            ((opc) << 15 | ((imm15) & 0x7FFF))
-#define type_I26(opc, imm26)             ((opc) << 26 | ((imm26) & 0xFFFF) << 10 | ((imm26 >> 16) & 0x3FF))
+#define type_I26(opc, imm26)             ((opc) << 26 | ((imm26) & 0xFFFF) << 10 | (((imm26) >> 16) & 0x3FF))
 
 // Made-up formats not found in the spec.
-#define type_1RI13(opc, imm13, rd)         ((opc) << 18 | ((imm13) & 0x1FFFF) << 5 | (rd))
+#define type_1RI13(opc, imm13, rd)         ((opc) << 18 | ((imm13) & 0x1FFF) << 5 | (rd))
 #define type_2RI1(opc, imm1, rj, rd)       ((opc) << 11 | ((imm1) & 0x1) << 10 | (rj) << 5 | (rd))
 #define type_2RI2(opc, imm2, rj, rd)       ((opc) << 12 | ((imm2) & 0x3) << 10 | (rj) << 5 | (rd))
 #define type_2RI3(opc, imm3, rj, rd)       ((opc) << 13 | ((imm3) & 0x7) << 10 | (rj) << 5 | (rd))
@@ -140,18 +140,20 @@
 // GR[rd] = {tmp[GRLEN-1:12], 12'b0}
 #define PCALAU12I(rd, imm20) EMIT(type_1RI20(0b0001101, imm20, rd))
 
-#define LL_W(rd, rj, imm) EMIT(type_2RI14(0b00100000, imm >> 2, rj, rd))
-#define SC_W(rd, rj, imm) EMIT(type_2RI14(0b00100001, imm >> 2, rj, rd))
-#define LL_D(rd, rj, imm) EMIT(type_2RI14(0b00100010, imm >> 2, rj, rd))
-#define SC_D(rd, rj, imm) EMIT(type_2RI14(0b00100011, imm >> 2, rj, rd))
+#define LL_W(rd, rj, imm) EMIT(type_2RI14(0b00100000, (imm) >> 2, rj, rd))
+#define SC_W(rd, rj, imm) EMIT(type_2RI14(0b00100001, (imm) >> 2, rj, rd))
+#define LL_D(rd, rj, imm) EMIT(type_2RI14(0b00100010, (imm) >> 2, rj, rd))
+#define SC_D(rd, rj, imm) EMIT(type_2RI14(0b00100011, (imm) >> 2, rj, rd))
 
 #define SC_Q(rd, rk, rj) EMIT(type_3R(0b00111000010101110, rk, rj, rd))
 
-#define LLxw(rd, rj, imm) EMIT(type_2RI14(0b00100000 | (rex.w ? 0b10 : 0b00), imm >> 2, rj, rd))
-#define SCxw(rd, rj, imm) EMIT(type_2RI14(0b00100001 | (rex.w ? 0b10 : 0b00), imm >> 2, rj, rd))
+#define LLxw(rd, rj, imm) EMIT(type_2RI14(0b00100000 | (rex.w ? 0b10 : 0b00), (imm) >> 2, rj, rd))
+#define SCxw(rd, rj, imm) EMIT(type_2RI14(0b00100001 | (rex.w ? 0b10 : 0b00), (imm) >> 2, rj, rd))
 
 // DBAR hint
 #define DBAR(hint) EMIT(type_hint(0b00111000011100100, hint))
+// IBAR hint
+#define IBAR(hint) EMIT(type_hint(0b00111000011100101, hint))
 
 #define DBAR_RW_RW() DBAR(0b10000)
 #define DBAR_R_RW()  DBAR(0b10100)
@@ -185,10 +187,10 @@
 
 #define NOP() ANDI(xZR, xZR, 0)
 
-#define BREAK() EMIT(0b1010100)
+#define BREAK() BRK(0)
 
-// there is no UDF instruction, use BREAK instead is an acceptable offer
-#define UDF() BREAK()
+// there is no UDF instruction, use AMSWAP_W($r0, $r1, $r0) like gcc
+#define UDF() AMSWAP_W(0, 1, 0)
 
 // tmp = SLL(GR[rj][31:0], GR[rk][4:0])
 // GR[rd] = SignExtend(tmp[31:0], GRLEN)
@@ -480,10 +482,10 @@
 // if signed(GR[rj]) >= signed(GR[rd]):
 //     PC = PC + SignExtend({imm16, 2'b0}, GRLEN)
 #define BGE(rj, rd, imm18) EMIT(type_2RI16(0b011001, ((imm18) >> 2), rj, rd))
-// if unsigned(GR[rj]) == unsigned(GR[rd]):
+// if unsigned(GR[rj]) < unsigned(GR[rd]):
 //     PC = PC + SignExtend({imm16, 2'b0}, GRLEN)
 #define BLTU(rj, rd, imm18) EMIT(type_2RI16(0b011010, ((imm18) >> 2), rj, rd))
-// if unsigned(GR[rj]) == unsigned(GR[rd]):
+// if unsigned(GR[rj]) >= unsigned(GR[rd]):
 //     PC = PC + SignExtend({imm16, 2'b0}, GRLEN)
 #define BGEU(rj, rd, imm18) EMIT(type_2RI16(0b011011, ((imm18) >> 2), rj, rd))
 
@@ -494,10 +496,10 @@
 //     PC = PC + SignExtend({imm21, 2'b0}, GRLEN)
 #define BNEZ(rj, imm23) EMIT(type_1RI21(0b010001, ((imm23) >> 2), rj))
 
-#define BGT(rj, rd, imm13)  BLT(rd, rj, imm13)
-#define BLE(rj, rd, imm13)  BGE(rd, rj, imm13)
-#define BGTU(rj, rd, imm13) BLTU(rd, rj, imm13)
-#define BLEU(rj, rd, imm13) BGEU(rd, rj, imm13)
+#define BGT(rj, rd, imm18)  BLT(rd, rj, imm18)
+#define BLE(rj, rd, imm18)  BGE(rd, rj, imm18)
+#define BGTU(rj, rd, imm18) BLTU(rd, rj, imm18)
+#define BLEU(rj, rd, imm18) BGEU(rd, rj, imm18)
 
 #define SEQ(rd, rj, rk)         \
     do {                        \
@@ -564,7 +566,10 @@
 #define B(imm28)               EMIT(type_I26(0b010100, ((imm28) >> 2)))
 #define B__(reg1, reg2, imm28) B(imm28)
 
-#define BEQ_safe(rj, rd, imm)                      \
+#define NEAR_JUMP_INSTS  100
+#define NEAR_JUMPZ_INSTS 300
+
+#define BEQ_safe_(rj, rd, imm)                     \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BEQ(rj, rd, imm);                      \
@@ -575,7 +580,20 @@
         }                                          \
     } while (0)
 
-#define BNE_safe(rj, rd, imm)                      \
+#define BEQ_safe(rj, rd, imm, jmp)                \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BEQ_safe_(rj, rd, imm);           \
+            else                                  \
+                BEQ(rj, rd, imm);                 \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BEQ(rj, rd, imm);                     \
+        else                                      \
+            BEQ_safe_(rd, rj, imm);               \
+    } while (0)
+
+#define BNE_safe_(rj, rd, imm)                     \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BNE(rj, rd, imm);                      \
@@ -586,7 +604,20 @@
         }                                          \
     } while (0)
 
-#define BLT_safe(rj, rd, imm)                      \
+#define BNE_safe(rj, rd, imm, jmp)                \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BNE_safe_(rj, rd, imm);           \
+            else                                  \
+                BNE(rj, rd, imm);                 \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BNE(rj, rd, imm);                     \
+        else                                      \
+            BNE_safe_(rj, rd, imm);               \
+    } while (0)
+
+#define BLT_safe_(rj, rd, imm)                     \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BLT(rj, rd, imm);                      \
@@ -597,7 +628,20 @@
         }                                          \
     } while (0)
 
-#define BGE_safe(rj, rd, imm)                      \
+#define BLT_safe(rj, rd, imm, jmp)                \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BLT_safe_(rj, rd, imm);           \
+            else                                  \
+                BLT(rj, rd, imm);                 \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BLT(rj, rd, imm);                     \
+        else                                      \
+            BLT_safe_(rj, rd, imm);               \
+    } while (0)
+
+#define BGE_safe_(rj, rd, imm)                     \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BGE(rj, rd, imm);                      \
@@ -608,7 +652,20 @@
         }                                          \
     } while (0)
 
-#define BLTU_safe(rj, rd, imm)                     \
+#define BGE_safe(rj, rd, imm, jmp)                \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BGE_safe_(rj, rd, imm);           \
+            else                                  \
+                BGE(rj, rd, imm);                 \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BGE(rj, rd, imm);                     \
+        else                                      \
+            BGE_safe_(rj, rd, imm);               \
+    } while (0)
+
+#define BLTU_safe_(rj, rd, imm)                    \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BLTU(rj, rd, imm);                     \
@@ -619,7 +676,20 @@
         }                                          \
     } while (0)
 
-#define BGEU_safe(rj, rd, imm)                     \
+#define BLTU_safe(rj, rd, imm, jmp)               \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BLTU_safe_(rj, rd, imm);          \
+            else                                  \
+                BLTU(rj, rd, imm);                \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BLTU(rj, rd, imm);                    \
+        else                                      \
+            BLTU_safe_(rj, rd, imm);              \
+    } while (0)
+
+#define BGEU_safe_(rj, rd, imm)                    \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BGEU(rj, rd, imm);                     \
@@ -630,7 +700,20 @@
         }                                          \
     } while (0)
 
-#define BGT_safe(rj, rd, imm)                      \
+#define BGEU_safe(rj, rd, imm, jmp)               \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BGEU_safe_(rj, rd, imm);          \
+            else                                  \
+                BGEU(rj, rd, imm);                \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BGEU(rj, rd, imm);                    \
+        else                                      \
+            BGEU_safe_(rj, rd, imm);              \
+    } while (0)
+
+#define BGT_safe_(rj, rd, imm)                     \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BGT(rj, rd, imm);                      \
@@ -641,7 +724,20 @@
         }                                          \
     } while (0)
 
-#define BLE_safe(rj, rd, imm)                      \
+#define BGT_safe(rj, rd, imm, jmp)                \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BGT_safe_(rj, rd, imm);           \
+            else                                  \
+                BGT(rj, rd, imm);                 \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BGT(rj, rd, imm);                     \
+        else                                      \
+            BGT_safe_(rj, rd, imm);               \
+    } while (0)
+
+#define BLE_safe_(rj, rd, imm)                     \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BLE(rj, rd, imm);                      \
@@ -652,7 +748,20 @@
         }                                          \
     } while (0)
 
-#define BGTU_safe(rj, rd, imm)                     \
+#define BLE_safe(rj, rd, imm, jmp)                \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BLE_safe_(rj, rd, imm);           \
+            else                                  \
+                BLE(rj, rd, imm);                 \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BLE(rj, rd, imm);                     \
+        else                                      \
+            BLE_safe_(rj, rd, imm);               \
+    } while (0)
+
+#define BGTU_safe_(rj, rd, imm)                    \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BGTU(rj, rd, imm);                     \
@@ -663,7 +772,20 @@
         }                                          \
     } while (0)
 
-#define BLEU_safe(rj, rd, imm)                     \
+#define BGTU_safe(rj, rd, imm, jmp)               \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BGTU_safe_(rj, rd, imm);          \
+            else                                  \
+                BGTU(rj, rd, imm);                \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BGTU(rj, rd, imm);                    \
+        else                                      \
+            BGTU_safe_(rj, rd, imm);              \
+    } while (0)
+
+#define BLEU_safe_(rj, rd, imm)                    \
     do {                                           \
         if ((imm) > -0x20000 && (imm) < 0x20000) { \
             BLEU(rj, rd, imm);                     \
@@ -674,7 +796,20 @@
         }                                          \
     } while (0)
 
-#define BEQZ_safe(rj, imm)                         \
+#define BLEU_safe(rj, rd, imm, jmp)               \
+    do {                                          \
+        if (jmp < ninst) {                        \
+            if ((imm) < -0x20000)                 \
+                BLEU_safe_(rj, rd, imm);          \
+            else                                  \
+                BLEU(rj, rd, imm);                \
+        } else if (jmp - ninst < NEAR_JUMP_INSTS) \
+            BLEU(rj, rd, imm);                    \
+        else                                      \
+            BLEU_safe_(rj, rd, imm);              \
+    } while (0)
+
+#define BEQZ_safe_(rj, imm)                        \
     do {                                           \
         if ((imm) > -0x70000 && (imm) < 0x70000) { \
             BEQZ(rj, imm);                         \
@@ -685,7 +820,20 @@
         }                                          \
     } while (0)
 
-#define BNEZ_safe(rj, imm)                         \
+#define BEQZ_safe(rj, imm, jmp)                    \
+    do {                                           \
+        if (jmp < ninst) {                         \
+            if ((imm) < -0x70000)                  \
+                BEQZ_safe_(rj, imm);               \
+            else                                   \
+                BEQZ(rj, imm);                     \
+        } else if (jmp - ninst < NEAR_JUMPZ_INSTS) \
+            BEQZ(rj, imm);                         \
+        else                                       \
+            BEQZ_safe_(rj, imm);                   \
+    } while (0)
+
+#define BNEZ_safe_(rj, imm)                        \
     do {                                           \
         if ((imm) > -0x70000 && (imm) < 0x70000) { \
             BNEZ(rj, imm);                         \
@@ -694,6 +842,67 @@
             BEQZ(rj, 8);                           \
             B((imm) - 4);                          \
         }                                          \
+    } while (0)
+
+#define BNEZ_safe(rj, imm, jmp)                    \
+    do {                                           \
+        if (jmp < ninst) {                         \
+            if ((imm) < -0x70000)                  \
+                BNEZ_safe_(rj, imm);               \
+            else                                   \
+                BNEZ(rj, imm);                     \
+        } else if (jmp - ninst < NEAR_JUMPZ_INSTS) \
+            BNEZ(rj, imm);                         \
+        else                                       \
+            BNEZ_safe_(rj, imm);                   \
+    } while (0)
+
+#define BCEQZ_safe_(rj, imm)                       \
+    do {                                           \
+        if ((imm) > -0x70000 && (imm) < 0x70000) { \
+            BCEQZ(rj, imm);                        \
+            NOP();                                 \
+        } else {                                   \
+            BCNEZ(rj, 8);                          \
+            B((imm) - 4);                          \
+        }                                          \
+    } while (0)
+
+#define BCEQZ_safe(rj, imm, jmp)                   \
+    do {                                           \
+        if (jmp < ninst) {                         \
+            if ((imm) < -0x70000)                  \
+                BCEQZ_safe_(rj, imm);              \
+            else                                   \
+                BCEQZ(rj, imm);                    \
+        } else if (jmp - ninst < NEAR_JUMPZ_INSTS) \
+            BCEQZ(rj, imm);                        \
+        else                                       \
+            BCEQZ_safe_(rj, imm);                  \
+    } while (0)
+
+#define BCNEZ_safe_(rj, imm)                       \
+    do {                                           \
+        if ((imm) > -0x70000 && (imm) < 0x70000) { \
+            BCNEZ(rj, imm);                        \
+            NOP();                                 \
+        } else {                                   \
+            BCEQZ(rj, 8);                          \
+            B((imm) - 4);                          \
+        }                                          \
+    } while (0)
+
+#define BCNEZ_safe(rj, imm, jmp)                   \
+    do {                                           \
+        if (jmp < ninst) {                         \
+            if ((imm) < -0x70000)                  \
+                BCNEZ_safe_(rj, imm);              \
+            else                                   \
+                BCNEZ(rj, imm);                    \
+        } else if (jmp - ninst < NEAR_JUMPZ_INSTS) \
+            BCNEZ(rj, imm);                        \
+        else                                       \
+            BCNEZ_safe_(rj, imm);                  \
     } while (0)
 
 // vaddr = GR[rj] + SignExtend(imm12, GRLEN)
@@ -1098,14 +1307,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VADDA_H(vd, vj, vk)          EMIT(type_3R(0b01110000010111001, vk, vj, vd))
 #define VADDA_W(vd, vj, vk)          EMIT(type_3R(0b01110000010111010, vk, vj, vd))
 #define VADDA_D(vd, vj, vk)          EMIT(type_3R(0b01110000010111011, vk, vj, vd))
-#define VMAXI_B(vd, vj, imm5)        EMIT(type_3R(0b01110010100100000, imm5, vj, vd))
-#define VMAXI_H(vd, vj, imm5)        EMIT(type_3R(0b01110010100100001, imm5, vj, vd))
-#define VMAXI_W(vd, vj, imm5)        EMIT(type_3R(0b01110010100100010, imm5, vj, vd))
-#define VMAXI_D(vd, vj, imm5)        EMIT(type_3R(0b01110010100100011, imm5, vj, vd))
-#define VMAXI_BU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101000, imm5, vj, vd))
-#define VMAXI_HU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101001, imm5, vj, vd))
-#define VMAXI_WU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101010, imm5, vj, vd))
-#define VMAXI_DU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101011, imm5, vj, vd))
+#define VMAXI_B(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100000, imm5, vj, vd))
+#define VMAXI_H(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100001, imm5, vj, vd))
+#define VMAXI_W(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100010, imm5, vj, vd))
+#define VMAXI_D(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100011, imm5, vj, vd))
+#define VMAXI_BU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101000, imm5, vj, vd))
+#define VMAXI_HU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101001, imm5, vj, vd))
+#define VMAXI_WU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101010, imm5, vj, vd))
+#define VMAXI_DU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101011, imm5, vj, vd))
 #define VMAX_B(vd, vj, vk)           EMIT(type_3R(0b01110000011100000, vk, vj, vd))
 #define VMAX_H(vd, vj, vk)           EMIT(type_3R(0b01110000011100001, vk, vj, vd))
 #define VMAX_W(vd, vj, vk)           EMIT(type_3R(0b01110000011100010, vk, vj, vd))
@@ -1114,14 +1323,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VMAX_HU(vd, vj, vk)          EMIT(type_3R(0b01110000011101001, vk, vj, vd))
 #define VMAX_WU(vd, vj, vk)          EMIT(type_3R(0b01110000011101010, vk, vj, vd))
 #define VMAX_DU(vd, vj, vk)          EMIT(type_3R(0b01110000011101011, vk, vj, vd))
-#define VMINI_B(vd, vj, imm5)        EMIT(type_3R(0b01110010100100100, imm5, vj, vd))
-#define VMINI_H(vd, vj, imm5)        EMIT(type_3R(0b01110010100100101, imm5, vj, vd))
-#define VMINI_W(vd, vj, imm5)        EMIT(type_3R(0b01110010100100110, imm5, vj, vd))
-#define VMINI_D(vd, vj, imm5)        EMIT(type_3R(0b01110010100100111, imm5, vj, vd))
-#define VMINI_BU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101100, imm5, vj, vd))
-#define VMINI_HU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101101, imm5, vj, vd))
-#define VMINI_WU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101110, imm5, vj, vd))
-#define VMINI_DU(vd, vj, imm5)       EMIT(type_3R(0b01110010100101111, imm5, vj, vd))
+#define VMINI_B(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100100, imm5, vj, vd))
+#define VMINI_H(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100101, imm5, vj, vd))
+#define VMINI_W(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100110, imm5, vj, vd))
+#define VMINI_D(vd, vj, imm5)        EMIT(type_2RI5(0b01110010100100111, imm5, vj, vd))
+#define VMINI_BU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101100, imm5, vj, vd))
+#define VMINI_HU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101101, imm5, vj, vd))
+#define VMINI_WU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101110, imm5, vj, vd))
+#define VMINI_DU(vd, vj, imm5)       EMIT(type_2RI5(0b01110010100101111, imm5, vj, vd))
 #define VMIN_B(vd, vj, vk)           EMIT(type_3R(0b01110000011100100, vk, vj, vd))
 #define VMIN_H(vd, vj, vk)           EMIT(type_3R(0b01110000011100101, vk, vj, vd))
 #define VMIN_W(vd, vj, vk)           EMIT(type_3R(0b01110000011100110, vk, vj, vd))
@@ -1259,6 +1468,10 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VROTR_H(vd, vj, vk)          EMIT(type_3R(0b01110000111011101, vk, vj, vd))
 #define VROTR_W(vd, vj, vk)          EMIT(type_3R(0b01110000111011110, vk, vj, vd))
 #define VROTR_D(vd, vj, vk)          EMIT(type_3R(0b01110000111011111, vk, vj, vd))
+#define VROTRI_B(vd, vj, imm3)       EMIT(type_2RI3(0b111001010100000001, imm3, vj, vd))
+#define VROTRI_H(vd, vj, imm4)       EMIT(type_2RI4(0b11100101010000001, imm4, vj, vd))
+#define VROTRI_W(vd, vj, imm5)       EMIT(type_2RI5(0b1110010101000001, imm5, vj, vd))
+#define VROTRI_D(vd, vj, imm6)       EMIT(type_2RI6(0b111001010100001, imm6, vj, vd))
 #define VSRLR_B(vd, vj, vk)          EMIT(type_3R(0b01110000111100000, vk, vj, vd))
 #define VSRLR_H(vd, vj, vk)          EMIT(type_3R(0b01110000111100001, vk, vj, vd))
 #define VSRLR_W(vd, vj, vk)          EMIT(type_3R(0b01110000111100010, vk, vj, vd))
@@ -1510,14 +1723,14 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VST(vd, rj, imm12)           EMIT(type_2RI12(0b0010110001, imm12, rj, vd))
 #define VLDX(vd, rj, rk)             EMIT(type_3R(0b00111000010000000, rk, rj, vd))
 #define VSTX(vd, rj, rk)             EMIT(type_3R(0b00111000010001000, rk, rj, vd))
-#define VSTELM_D(vd, rj, imm8, imm1) EMIT(type_2RI9(0b0011000100010, (((imm1) << 8) | (imm8)), rj, vd))
-#define VSTELM_W(vd, rj, imm8, imm2) EMIT(type_2RI10(0b001100010010, (((imm2) << 8) | (imm8)), rj, vd))
-#define VSTELM_H(vd, rj, imm8, imm3) EMIT(type_2RI11(0b00110001010, (((imm3) << 8) | (imm8)), rj, vd))
-#define VSTELM_B(vd, rj, imm8, imm4) EMIT(type_2RI12(0b0011000110, (((imm4) << 8) | (imm8)), rj, vd))
-#define VLDREPL_D(vd, rj, imm9)      EMIT(type_2RI9(0b0011000000010, imm9, rj, vd))
-#define VLDREPL_W(vd, rj, imm10)     EMIT(type_2RI10(0b001100000010, imm10, rj, vd))
-#define VLDREPL_H(vd, rj, imm11)     EMIT(type_2RI11(0b00110000010, imm11, rj, vd))
-#define VLDREPL_B(vd, rj, imm12)     EMIT(type_2RI12(0b0011000010, imm12, rj, vd))
+#define VSTELM_D(vd, rj, imm8, imm1) EMIT(type_2RI9(0b0011000100010, (((imm1) << 8) | ((imm8) & 0xFF)), rj, vd))
+#define VSTELM_W(vd, rj, imm8, imm2) EMIT(type_2RI10(0b001100010010, (((imm2) << 8) | ((imm8) & 0xFF)), rj, vd))
+#define VSTELM_H(vd, rj, imm8, imm3) EMIT(type_2RI11(0b00110001010, (((imm3) << 8) | ((imm8) & 0xFF)), rj, vd))
+#define VSTELM_B(vd, rj, imm8, imm4) EMIT(type_2RI12(0b0011000110, (((imm4) << 8) | ((imm8) & 0xFF)), rj, vd))
+#define VLDREPL_D(vd, rj, offset)   EMIT(type_2RI9(0b0011000000010, ((offset) >> 3), rj, vd))
+#define VLDREPL_W(vd, rj, offset)   EMIT(type_2RI10(0b001100000010, ((offset) >> 2), rj, vd))
+#define VLDREPL_H(vd, rj, offset)   EMIT(type_2RI11(0b00110000010, ((offset) >> 1), rj, vd))
+#define VLDREPL_B(vd, rj, offset)   EMIT(type_2RI12(0b0011000010, offset, rj, vd))
 #define VFCMP_S(vd, vj, vk, cond)    EMIT(type_4R(0b000011000101, cond, vk, vj, vd))
 #define VFCMP_D(vd, vj, vk, cond)    EMIT(type_4R(0b000011000110, cond, vk, vj, vd))
 #define XVFCMP_S(vd, vj, vk, cond)   EMIT(type_4R(0b000011001001, cond, vk, vj, vd))
@@ -1906,16 +2119,6 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define XVFMAXA_D(vd, vj, vk)        EMIT(type_3R(0b01110101010000010, vk, vj, vd))
 #define XVFMINA_S(vd, vj, vk)        EMIT(type_3R(0b01110101010000101, vk, vj, vd))
 #define XVFMINA_D(vd, vj, vk)        EMIT(type_3R(0b01110101010000110, vk, vj, vd))
-#define XVFRINT_S(xd, xj)            EMIT(type_2R(0b0111011010011101001101, xj, xd))
-#define XVFRINT_D(xd, xj)            EMIT(type_2R(0b0111011010011101001110, xj, xd))
-#define XVFRINTRM_S(xd, xj)          EMIT(type_2R(0b0111011010011101010001, xj, xd))
-#define XVFRINTRM_D(xd, xj)          EMIT(type_2R(0b0111011010011101010010, xj, xd))
-#define XVFRINTRP_S(xd, xj)          EMIT(type_2R(0b0111011010011101010101, xj, xd))
-#define XVFRINTRP_D(xd, xj)          EMIT(type_2R(0b0111011010011101010110, xj, xd))
-#define XVFRINTRZ_S(xd, xj)          EMIT(type_2R(0b0111011010011101011001, xj, xd))
-#define XVFRINTRZ_D(xd, xj)          EMIT(type_2R(0b0111011010011101011010, xj, xd))
-#define XVFRINTRNE_S(xd, xj)         EMIT(type_2R(0b0111011010011101011101, xj, xd))
-#define XVFRINTRNE_D(xd, xj)         EMIT(type_2R(0b0111011010011101011110, xj, xd))
 #define XVFRINTRRD_S(vd, vj, rm)     EMIT(type_2RI4(0b011101101001110101, ((rm & 0b11) << 2) | 0b01, vj, vd))
 #define XVFRINTRRD_D(vd, vj, rm)     EMIT(type_2RI4(0b011101101001110101, ((rm & 0b11) << 2) | 0b10, vj, vd))
 #define XVFCVTL_S_H(xd, xj)          EMIT(type_2R(0b0111011010011101111010, xj, xd))
@@ -2074,10 +2277,10 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define VSLLWIL_HU_BU(vd, vj, imm3) EMIT(type_2RI3(0b0111001100001100001, imm3, vj, vd))
 #define VSLLWIL_WU_HU(vd, vj, imm4) EMIT(type_2RI4(0b011100110000110001, imm4, vj, vd))
 #define VSLLWIL_DU_WU(vd, vj, imm5) EMIT(type_2RI5(0b01110011000011001, imm5, vj, vd))
-#define VNEG_B(vd, vj)              EMIT(type_2R(0b0111011010011100001100, vj, vd))
-#define VNEG_H(vd, vj)              EMIT(type_2R(0b0111011010011100001101, vj, vd))
-#define VNEG_W(vd, vj)              EMIT(type_2R(0b0111011010011100001110, vj, vd))
-#define VNEG_D(vd, vj)              EMIT(type_2R(0b0111011010011100001111, vj, vd))
+#define VNEG_B(vd, vj)              EMIT(type_2R(0b0111001010011100001100, vj, vd))
+#define VNEG_H(vd, vj)              EMIT(type_2R(0b0111001010011100001101, vj, vd))
+#define VNEG_W(vd, vj)              EMIT(type_2R(0b0111001010011100001110, vj, vd))
+#define VNEG_D(vd, vj)              EMIT(type_2R(0b0111001010011100001111, vj, vd))
 
 #define XVLD(vd, rj, imm12)             EMIT(type_2RI12(0b0010110010, imm12, rj, vd))
 #define XVST(vd, rj, imm12)             EMIT(type_2RI12(0b0010110011, imm12, rj, vd))
@@ -2087,10 +2290,10 @@ LSX instruction starts with V, LASX instruction starts with XV.
 #define XVLDREPL_W(xd, rj, offset)      EMIT(type_2RI10(0b001100100010, (offset >> 2), rj, xd))
 #define XVLDREPL_H(xd, rj, offset)      EMIT(type_2RI11(0b00110010010, (offset >> 1), rj, xd))
 #define XVLDREPL_B(xd, rj, offset)      EMIT(type_2RI12(0b0011001010, offset, rj, xd))
-#define XVSTELM_D(xd, rj, offset, imm2) EMIT(type_2RI10(0b001100110001, ((imm2) << 8) | (offset), rj, xd))
-#define XVSTELM_W(xd, rj, offset, imm3) EMIT(type_2RI11(0b00110011001, ((imm3) << 8) | (offset), rj, xd))
-#define XVSTELM_H(xd, rj, offset, imm4) EMIT(type_2RI12(0b0011001101, ((imm4) << 8) | (offset), rj, xd))
-#define XVSTELM_B(xd, rj, offset, imm5) EMIT(type_2RI13(0b001100111, ((imm5) << 8) | (offset), rj, xd))
+#define XVSTELM_D(xd, rj, offset, imm2) EMIT(type_2RI10(0b001100110001, ((imm2) << 8) | ((offset) & 0xFF), rj, xd))
+#define XVSTELM_W(xd, rj, offset, imm3) EMIT(type_2RI11(0b00110011001, ((imm3) << 8) | ((offset) & 0xFF), rj, xd))
+#define XVSTELM_H(xd, rj, offset, imm4) EMIT(type_2RI12(0b0011001101, ((imm4) << 8) | ((offset) & 0xFF), rj, xd))
+#define XVSTELM_B(xd, rj, offset, imm5) EMIT(type_2RI13(0b001100111, ((imm5) << 8) | ((offset) & 0xFF), rj, xd))
 
 #define XVHSELI_D(vd, vj, imm5)      EMIT(type_2RI5(0b01110110100111111, imm5, vj, vd))
 #define XVROTRI_B(vd, vj, imm3)      EMIT(type_2RI3(0b0111011010100000001, imm3, vj, vd))
@@ -2715,6 +2918,44 @@ LSX instruction starts with V, LASX instruction starts with XV.
         } else {            \
             PUSH1(reg);     \
         }                   \
+    } while (0)
+
+#define PUSH1mz(reg)                                              \
+    do {                                                          \
+        if ((reg) != xRSP)                                        \
+            dyn->insts[ninst].rsp_class = RSP_CLASS_PUSH;         \
+        if (dyn->insts[ninst].rsp_merge) {                        \
+            if (rex.is32bits) {                                   \
+                ST_W(reg, xRSP, dyn->insts[ninst].rsp_entry - 4); \
+            } else {                                              \
+                ST_D(reg, xRSP, dyn->insts[ninst].rsp_entry - 8); \
+            }                                                     \
+            if (dyn->insts[ninst].rsp_flush)                      \
+                ADDI_D(xRSP, xRSP, dyn->insts[ninst].rsp_flush);  \
+        } else if (rex.is32bits) {                                \
+            PUSH1_32(reg);                                        \
+        } else {                                                  \
+            PUSH1(reg);                                           \
+        }                                                         \
+    } while (0)
+
+#define POP1mz(reg)                                              \
+    do {                                                         \
+        if ((reg) != xRSP)                                       \
+            dyn->insts[ninst].rsp_class = RSP_CLASS_POP;         \
+        if (dyn->insts[ninst].rsp_merge) {                       \
+            if (rex.is32bits) {                                  \
+                LD_WU(reg, xRSP, dyn->insts[ninst].rsp_entry);   \
+            } else {                                             \
+                LD_D(reg, xRSP, dyn->insts[ninst].rsp_entry);    \
+            }                                                    \
+            if (dyn->insts[ninst].rsp_flush)                     \
+                ADDI_D(xRSP, xRSP, dyn->insts[ninst].rsp_flush); \
+        } else if (rex.is32bits) {                               \
+            POP1_32(reg);                                        \
+        } else {                                                 \
+            POP1(reg);                                           \
+        }                                                        \
     } while (0)
 
 #define VAND_Vxy(vd, vj, vk)     \
@@ -3459,6 +3700,8 @@ LSX instruction starts with V, LASX instruction starts with XV.
         }                               \
     } while (0)
 
+// NOTE: for vex.l (LASX) and imm > 0, this clobbers the scratch register x5 (the
+// immediate must be materialised in a GPR); pass a scratch that is dead at the call site.
 #define VREPLVEIxy(width, vd, vj, imm)         \
     do {                                       \
         if (vex.l) {                           \

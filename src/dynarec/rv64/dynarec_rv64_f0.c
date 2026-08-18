@@ -75,8 +75,8 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 ANDI(x2, wback, 3);
                 SLLI(x2, x2, 3);
                 ANDI(x3, wback, ~3);
-                SLL(x1, x1, x2);
-                AMOOR_W(x4, x1, x3, 1, 1);
+                SLL(x6, x1, x2);
+                AMOOR_W(x4, x6, x3, 1, 1);
                 IFXORNAT (X_ALL | X_PEND) {
                     SRL(x2, x4, x2);
                     ANDI(x2, x2, 0xFF);
@@ -267,7 +267,6 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                             SRAIW(x1, gd, 5);
                         if (!rex.w && !rex.is32bits) { ADDIW(x1, x1, 0); }
                         ADDSLy(x3, wback, x1, 2 + rex.w, x1);
-                        LDxw(x1, x3, fixedaddress);
                         ed = x1;
                         wback = x3;
                         MARKLOCK;
@@ -318,6 +317,7 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                                 case 0:
                                     INST_NAME("LOCK CMPXCHG8B Gq, Eq");
                                     SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+                                    SET_DFNONE();
                                     nextop = F8;
                                     addr = geted(dyn, addr, ninst, nextop, &wback, x1, x2, &fixedaddress, rex, LOCK_LOCK, 0, 0);
                                     ANDI(xFlags, xFlags, ~(1 << F_ZF));
@@ -363,6 +363,7 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                                     PASS3(if (!warned) dynarec_log(LOG_INFO, "Warning, LOCK CMPXCHG16B is not well supported on RISC-V and issues are expected.\n"));
                                     PASS3(warned = 1);
                                     SETFLAGS(X_ZF, SF_SUBSET, NAT_FLAGS_NOFUSION);
+                                    SET_DFNONE();
                                     nextop = F8;
                                     addr = geted(dyn, addr, ninst, nextop, &wback, x1, x2, &fixedaddress, rex, LOCK_LOCK, 0, 0);
                                     ANDI(xFlags, xFlags, ~(1 << F_ZF));
@@ -434,14 +435,14 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 MARK;
                 SLLI(x3, x3, 3);
                 ADDI(x4, xZR, 0xff);
-                ANDI(wback, wback, ~3); // aligning address
-                SLL(x4, x4, x3);        // x4 = byte mask
-                NOT(x5, x4);            // x5 = ~mask
-                SLL(x2, x2, x3);        // x2 = extented Gb
+                ANDI(x1, wback, ~3); // aligning address (into scratch, wback may be a live guest reg)
+                SLL(x4, x4, x3);     // x4 = byte mask
+                NOT(x5, x4);         // x5 = ~mask
+                SLL(x2, x2, x3);     // x2 = extented Gb
                 MARK2;
-                LR_W(x6, wback, 1, 1); // x6 = Ed
-                AND(x7, x6, x4);       // x7 = extended Ed.b[dest]
-                AND(x6, x6, x5);       // x6 = clear Ed.b[dest]
+                LR_W(x6, x1, 1, 1); // x6 = Ed
+                AND(x7, x6, x4);    // x7 = extended Ed.b[dest]
+                AND(x6, x6, x5);    // x6 = clear Ed.b[dest]
                 ADDW(x5, x7, x2);
                 ANDI(x4, xFlags, 1 << F_CF);
                 SLL(x4, x4, x3);  // extented
@@ -450,7 +451,7 @@ uintptr_t dynarec64_F0(dynarec_rv64_t* dyn, uintptr_t addr, uintptr_t ip, int ni
                 SLL(x4, x4, x3);
                 AND(x5, x5, x4);
                 OR(x5, x5, x6);
-                SC_W(x4, x5, wback, 1, 1);
+                SC_W(x4, x5, x1, 1, 1);
                 BNEZ_MARK2(x4);
                 IFXORNAT (X_ALL | X_PEND) {
                     SRL(x2, x2, x3); // Gb

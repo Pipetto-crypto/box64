@@ -1,6 +1,6 @@
 # Bundling x86 Libraries
 
-The script `box64-bundle-x86-libs.sh` is provided to download, extract, and re-bundle x86_64 and x86 libraries for use with Box64/Box32 and Box86. These libraries improve Box emulation. This bundle provides a much smaller size compared to using a full root file system of an operating system.
+The script `box64-bundle-x86-libs.sh` is provided to download, extract, and re-bundle x86_64 and x86 libraries for use with Box64/Box32 and Box86. This bundle improves Box emulation by providing libraries that are not wrapped yet. In a perfect world, the application or game would already provide these libraries but that is not always the case. The bundle archive provides a much smaller size compared to using a full root file system of an operating system.
 
 ## Usage
 
@@ -50,7 +50,9 @@ Preference of operating system packages that provide a library:
 4. XBPS from Void Linux provide updated variants of obscure 32-bit libraries.
 5. Other (whereever a library is packaged)
 
-Some essential library files will never be emulated (only wrapped) and should not be bundled. This includes glibc, OpenGL, Vulkan, and X11/Xorg libraries. The full list can be found [in the library source code](https://github.com/ptitSeb/box64/blob/v0.3.6/src/librarian/library.c#L433). Other libraries with lots of dependencies, such as GTK, require all dependencies to be installed for emulation to work. This becomes dependency hell and should be avoided.
+Some essential libraries will always be emulated and should be bundled. The full list can be found in the [in the core source code](https://github.com/ptitSeb/box64/blob/v0.4.0/src/core.c#L413).
+
+Some essential library files will never be emulated (only natively wrapped instead) and should not be bundled. This includes glibc, OpenGL, Vulkan, and X11/Xorg libraries. The full list can be found [in the library source code](https://github.com/ptitSeb/box64/blob/v0.4.0/src/librarian/library.c#L440). Other libraries with lots of dependencies, such as GTK, require all dependencies to be installed for emulation to work. This becomes dependency hell and should be avoided.
 
 For finding package names that contian a specific library file, use the [pkgs.org website](https://pkgs.org/). Otherwise, use one of these package manager commands on a x86_64 Linux distribution:
 - DEB
@@ -67,8 +69,8 @@ Once the package name is found, find the exact URL for downloading it.
     - https://archive.debian.org/debian/pool/
 - EOPKG = Use the "`<VERSION>-<RELEASE>-x86_64.eopkg`" and "`32bit-<VERSION>-<RELEASE>-x86_64.eopkg`" packages.
     - https://cdn.getsol.us/repo/shannon/
-- RPM = Navigate to the "`<MAJOR>.<MINOR>`" version directory first. Then explore "AppStream" and "BaseOS". Use the "x86_64.rpm" and "i686.rpm" packages.
-    - https://repo.almalinux.org/almalinux/
+- RPM = Navigate to the "`<MAJOR>.<MINOR>`" version directory first. Then explore "AppStream" and "BaseOS". The "x86_64" repository will contain both "x86_64.rpm" and "i686.rpm" packages.
+    - https://vault.almalinux.org/
     - Enterprise Linux (EL) distributions, such as AlamaLinux, sometimes are missing 32-bit packages. Use the Fedora 34 [update](https://archives.fedoraproject.org/pub/archive/fedora/linux/updates/34/Everything/x86_64/Packages/) and [release](https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/34/Everything/x86_64/os/Packages/) archives for compatible packages with EL 9.
 - XBPS = There are too many files in the repository to display on a web browser. Use pkgs.org instead to find the exact URL for downloading it.
     - https://repo-default.voidlinux.org/current/

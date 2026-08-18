@@ -36,6 +36,7 @@
 .global arm64_lock_get_d
 .global arm64_lock_get_dd
 .global arm64_crc
+.global arm64_x31_hash
 
 arm64_lock_read_b:
     dmb     ish
@@ -261,6 +262,7 @@ arm64_atomic_storeifref:
     mov     x3, x2
     casal   x2, x1, [x0]
     cmp     x2, x3
+    bne     2f
     mov     x0, x1
     ret
 2:
@@ -291,6 +293,7 @@ arm64_atomic_storeifref_d:
     // address is x0, value is w1, w1 store to x0 only if [x0] is w2. return new [x0] value (so w1 or old value)
     mov     w3, w2
     casal   w2, w1, [x0]
+    bne     2f
     cmp     w2, w3
     mov     w0, w1
     ret
@@ -441,4 +444,31 @@ arm64_crc:
     subs    w1, w1, #1
     bne     3b
 4:
+    ret
+
+arm64_x31_hash:
+    //x0 is address, w1 is len
+    mov     x2, x0  // address is x2 now
+    mov     w0, wzr // hash is w0
+1:
+    cmp     w1, #8
+    blo     2f
+    ldr     x3, [x2], #8
+    mov     x4, #8
+3:
+    sub     w0, w0, w0, lsl #5
+    sub     w0, w0, w3, uxtb
+    sub     w0, wzr, w0
+    ror     x3, x3, #8
+    subs    w4, w4, #1
+    bne    3b
+2:
+    cbz     w1, 5f
+4:
+    ldrb    w3, [x2], #1
+    sub     w0, w0, w0, lsl #5
+    sub     w0, w3, w0
+    subs    w1, w1, #1
+    bne     4b
+5:
     ret

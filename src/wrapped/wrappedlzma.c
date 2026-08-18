@@ -84,8 +84,8 @@ static void* find_alloc_Fct(void* fct)
 static void* reverse_alloc_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, pFpuu, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, pFpuu, fct);
     #define GO(A) if(my_alloc_##A == fct) return (void*)my_alloc_fct_##A;
     SUPER()
     #undef GO
@@ -116,8 +116,8 @@ static void* find_free_Fct(void* fct)
 static void* reverse_free_Fct(void* fct)
 {
     if(!fct) return fct;
-    if(CheckBridged(my_lib->w.bridge, fct))
-        return (void*)CheckBridged(my_lib->w.bridge, fct);
+    if(CheckBridged(my_lib->w.bridge, vFpp, fct))
+        return (void*)CheckBridged(my_lib->w.bridge, vFpp, fct);
     #define GO(A) if(my_free_##A == fct) return (void*)my_free_fct_##A;
     SUPER()
     #undef GO
@@ -181,7 +181,6 @@ EXPORT int my_lzma_stream_encoder(x64emu_t* emu, lzma_stream_t* stream, void* fi
     return ret;
 }
 
-
 EXPORT int my_lzma_easy_encoder(x64emu_t* emu, lzma_stream_t* stream, uint32_t precheck, uint32_t check)
 {
     wrap_alloc_struct(stream->allocator);
@@ -234,6 +233,14 @@ EXPORT int my_lzma_stream_encoder_mt(x64emu_t* emu, lzma_stream_t* stream, void*
 {
     wrap_alloc_struct(stream->allocator);
     int ret = my->lzma_stream_encoder_mt(stream, options);
+    unwrap_alloc_struct(stream->allocator);
+    return ret;
+}
+
+EXPORT int my_lzma_stream_decoder_mt(x64emu_t* emu, lzma_stream_t* stream, void* options)
+{
+    wrap_alloc_struct(stream->allocator);
+    int ret = my->lzma_stream_decoder_mt(stream, options);
     unwrap_alloc_struct(stream->allocator);
     return ret;
 }

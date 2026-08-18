@@ -80,12 +80,41 @@ void native_fxtract(x64emu_t* emu)
 }
 void native_fprem(x64emu_t* emu)
 {
-    int64_t ll = (int64_t)trunc(ST0.d / ST1.d);
-    ST0.d = ST0.d - (ST1.d * ll);
+    if(STld(0).uref==ST0.q && STld(1).uref==ST1.q) {
+        // try a full precision fpre alternative
+        if(full_ld_fprem(emu))
+            return;
+    }
+    double x = ST0.d, y = ST1.d;
+    int64_t q = 0;
+    if (isnan(x) || isnan(y)) {
+        ST0.d = NAN;
+        q = 0;
+    } else if (isinf(x) || y == 0.0) {
+#if !defined(_WIN32) && !defined(__MINGW32__)
+        feraiseexcept(FE_INVALID);
+#endif
+        ST0.d = NAN;
+        q = 0;
+    } else {
+#if defined(_WIN32) || defined(__MINGW32__)
+        if(isinf(y))
+            q = 0;
+        else {
+            q = (int64_t)trunc(x / y);
+            ST0.d = x - (y * q);
+        }
+#else
+        ST0.d = fmod(x, y);
+        q = (int64_t)trunc(x / y);
+#endif
+    }
+    //q &= 7;   //why forcing all low bits (and so C0, C1 & C3) to 1?
     emu->sw.f.F87_C2 = 0;
-    emu->sw.f.F87_C1 = (ll & 1) ? 1 : 0;
-    emu->sw.f.F87_C3 = (ll & 2) ? 1 : 0;
-    emu->sw.f.F87_C0 = (ll & 4) ? 1 : 0;
+    emu->sw.f.F87_C1 = q & 1;
+    emu->sw.f.F87_C3 = (q >> 1) & 1;
+    emu->sw.f.F87_C0 = (q >> 2) & 1;
+
 }
 void native_fyl2xp1(x64emu_t* emu)
 {
@@ -271,7 +300,7 @@ void native_fsave(x64emu_t* emu, uint8_t* ed)
     uint8_t* p = ed;
     p += 28;
     for (int i=0; i<8; ++i) {
-        LD2D(p, &emu->x87[7-i].d);
+        LD2D(p, &ST(i).d);
         p+=10;
     }
     reset_fpu(emu);
@@ -283,7 +312,7 @@ void native_fsave16(x64emu_t* emu, uint8_t* ed)
     uint8_t* p = ed;
     p += 14;
     for (int i=0; i<8; ++i) {
-        LD2D(p, &emu->x87[7-i].d);
+        LD2D(p, &ST(i).d);
         p+=10;
     }
     reset_fpu(emu);
@@ -295,7 +324,7 @@ void native_frstor(x64emu_t* emu, uint8_t* ed)
     uint8_t* p = ed;
     p += 28;
     for (int i=0; i<8; ++i) {
-        D2LD(&emu->x87[7-i].d, p);
+        D2LD(&ST(i).d, p);
         p+=10;
     }
 
@@ -307,7 +336,7 @@ void native_frstor16(x64emu_t* emu, uint8_t* ed)
     uint8_t* p = ed;
     p += 14;
     for (int i=0; i<8; ++i) {
-        D2LD(&emu->x87[7-i].d, p);
+        D2LD(&ST(i).d, p);
         p+=10;
     }
 
@@ -315,13 +344,32 @@ void native_frstor16(x64emu_t* emu, uint8_t* ed)
 
 void native_fprem1(x64emu_t* emu)
 {
-    int e0, e1;
-    int64_t ll = (int64_t)round(ST0.d / ST1.d);
-    ST0.d = ST0.d - (ST1.d * ll);
+    double x = ST0.d, y = ST1.d;
+    int q = 0;
+    if (isnan(x) || isnan(y)) {
+        ST0.d = NAN;
+    } else if (isinf(x) || y == 0.0) {
+#if !defined(_WIN32) && !defined(__MINGW32__)
+        feraiseexcept(FE_INVALID);
+#endif
+        ST0.d = NAN;
+    } else {
+#if defined(_WIN32) || defined(__MINGW32__)
+        if(isinf(y))
+            q = 0;
+        else {
+            q = (int)round(x / y);
+            ST0.d = x - (y * q);
+        }
+#else
+        ST0.d = remquo(x, y, &q);
+#endif
+    }
+    //q &= 7;   //why forcing all low bits (and so C0, C1 & C3) to 1?
     emu->sw.f.F87_C2 = 0;
-    emu->sw.f.F87_C1 = (ll & 1) ? 1 : 0;
-    emu->sw.f.F87_C3 = (ll & 2) ? 1 : 0;
-    emu->sw.f.F87_C0 = (ll & 4) ? 1 : 0;
+    emu->sw.f.F87_C1 = q & 1;
+    emu->sw.f.F87_C3 = (q >> 1) & 1;
+    emu->sw.f.F87_C0 = (q >> 2) & 1;
 }
 
 const uint8_t ff_mult2[4][256] = {
@@ -669,58 +717,73 @@ void native_aeskeygenassist(x64emu_t* emu, int gx, int ex, void* p, uint32_t u8)
     GX->ud[3] ^= u8;
 }
 
+static inline __int128 pclmul_4bit(uint64_t a, uint64_t b)
+{
+    __uint128_t result = 0;
+    __uint128_t op2 = b;
+    __uint128_t table[16];
+    table[0] = 0;
+    table[1] = op2;
+    table[2] = op2 << 1;
+    table[3] = table[2] ^ table[1];
+    table[4] = op2 << 2;
+    table[5] = table[4] ^ table[1];
+    table[6] = table[4] ^ table[2];
+    table[7] = table[6] ^ table[1];
+    table[8] = op2 << 3;
+    table[9] = table[8] ^ table[1];
+    table[10] = table[8] ^ table[2];
+    table[11] = table[10] ^ table[1];
+    table[12] = table[8] ^ table[4];
+    table[13] = table[12] ^ table[1];
+    table[14] = table[12] ^ table[2];
+    table[15] = table[14] ^ table[1];
+
+    for (int i = 0; i < 16; ++i) {
+        result ^= table[(a >> (i * 4)) & 0xf] << (i * 4);
+    }
+    return (__int128)result;
+}
+
 void native_pclmul(x64emu_t* emu, int gx, int ex, void* p, uint32_t u8)
 {
-    sse_regs_t *EX = p?((sse_regs_t*)p):&emu->xmm[ex];
-    sse_regs_t *GX = &emu->xmm[gx];
-    int g = (u8&1)?1:0;
-    int e = (u8&0b10000)?1:0;
-    __int128 result = 0;
-    __int128 op2 = EX->q[e];
-    for (int i=0; i<64; ++i)
-        if(GX->q[g]&(1LL<<i))
-            result ^= (op2<<i);
-    GX->u128 = result;
+    sse_regs_t* EX = p ? ((sse_regs_t*)p) : &emu->xmm[ex];
+    sse_regs_t* GX = &emu->xmm[gx];
+    int g = (u8 & 1) ? 1 : 0;
+    int e = (u8 & 0b10000) ? 1 : 0;
+
+    GX->u128 = pclmul_4bit(GX->q[g], EX->q[e]);
 }
+
 void native_pclmul_x(x64emu_t* emu, int gx, int vx, void* p, uint32_t u8)
 {
+    sse_regs_t* EX = ((uintptr_t)p > 15) ? (sse_regs_t*)p : &emu->xmm[(uintptr_t)p];
+    sse_regs_t* GX = &emu->xmm[gx];
+    sse_regs_t* VX = &emu->xmm[vx];
+    int g = (u8 & 1) ? 1 : 0;
+    int e = (u8 & 0b10000) ? 1 : 0;
 
-    sse_regs_t *EX = ((uintptr_t)p>15)?((sse_regs_t*)p):&emu->xmm[(uintptr_t)p];
-    sse_regs_t *GX = &emu->xmm[gx];
-    sse_regs_t *VX = &emu->xmm[vx];
-    int g = (u8&1)?1:0;
-    int e = (u8&0b10000)?1:0;
-    __int128 result = 0;
-    __int128 op2 = EX->q[e];
-    for (int i=0; i<64; ++i)
-        if(VX->q[g]&(1LL<<i))
-            result ^= (op2<<i);
-
-    GX->u128 = result;
+    GX->u128 = pclmul_4bit(VX->q[g], EX->q[e]);
 }
+
 void native_pclmul_y(x64emu_t* emu, int gy, int vy, void* p, uint32_t u8)
 {
-    //compute both low and high values
     native_pclmul_x(emu, gy, vy, p, u8);
-    sse_regs_t *EY = ((uintptr_t)p>15)?((sse_regs_t*)(p+16)):&emu->ymm[(uintptr_t)p];
-    sse_regs_t *GY = &emu->ymm[gy];
-    sse_regs_t *VY = &emu->ymm[vy];
-    int g = (u8&1)?1:0;
-    int e = (u8&0b10000)?1:0;
-    __int128 result = 0;
-    __int128 op2 = EY->q[e];
-    for (int i=0; i<64; ++i)
-        if(VY->q[g]&(1LL<<i))
-            result ^= (op2<<i);
 
-    GY->u128 = result;
+    sse_regs_t* EY = ((uintptr_t)p > 15) ? (sse_regs_t*)((char*)p + 16)
+                                         : &emu->ymm[(uintptr_t)p];
+    sse_regs_t* GY = &emu->ymm[gy];
+    sse_regs_t* VY = &emu->ymm[vy];
+    int g = (u8 & 1) ? 1 : 0;
+    int e = (u8 & 0b10000) ? 1 : 0;
+
+    GY->u128 = pclmul_4bit(VY->q[g], EY->q[e]);
 }
 
 static int flagsCacheNeedsTransform(dynarec_native_t* dyn, int ninst) {
     int jmp = dyn->insts[ninst].x64.jmp_insts;
     if(jmp<0)
         return 0;
-    #ifdef ARM64
     // df_none is now a defered information
     if(dyn->insts[ninst].f_exit==dyn->insts[jmp].f_entry)
         return 0;
@@ -738,28 +801,6 @@ static int flagsCacheNeedsTransform(dynarec_native_t* dyn, int ninst) {
         case status_none_pending:
             return 1;
     }
-    #else
-    if(dyn->insts[ninst].f_exit.dfnone)  // flags are fully known, nothing we can do more
-        return 0;
-    if(dyn->insts[jmp].f_entry.dfnone && !dyn->insts[ninst].f_exit.dfnone && !dyn->insts[jmp].df_notneeded)
-        return 1;
-    switch (dyn->insts[jmp].f_entry.pending) {
-        case SF_UNKNOWN: return 0;
-        case SF_SET:
-            if(dyn->insts[ninst].f_exit.pending!=SF_SET && dyn->insts[ninst].f_exit.pending!=SF_SET_PENDING)
-                return 1;
-            else
-                return 0;
-        case SF_SET_PENDING:
-            if(dyn->insts[ninst].f_exit.pending==SF_SET_PENDING)
-                return 0;
-            return 1;
-        case SF_PENDING:
-            if(dyn->insts[ninst].f_exit.pending==SF_PENDING || dyn->insts[ninst].f_exit.pending==SF_SET_PENDING)
-                return 0;
-            return (dyn->insts[jmp].f_entry.dfnone  == dyn->insts[ninst].f_exit.dfnone)?0:1;
-    }
-    #endif
     return 0;
 }
 
@@ -821,19 +862,55 @@ uint8_t geted_ib(dynarec_native_t* dyn, uintptr_t addr, int ninst, uint8_t nexto
 }
 #undef F8
 
-void propagate_nodf(dynarec_native_t* dyn, int ninst)
+static void propagate_dfneeded_internal(dynarec_native_t* dyn, int ninst)
 {
     while(ninst>=0) {
+        if(dyn->insts[ninst].df_needed)
+            return; // already flagged
+        dyn->insts[ninst].df_needed = 1;
+        if(dyn->insts[ninst].x64.gen_flags || (dyn->insts[ninst].x64.use_flags&X_PEND) || (dyn->insts[ninst].x64.need_before))
+            return; // flags are use, we can stop propagate there
+        if(!dyn->insts[ninst].pred_sz)
+            return;
+        for(int i=1; i<dyn->insts[ninst].pred_sz; ++i)
+            propagate_dfneeded_internal(dyn, dyn->insts[ninst].pred[i]);
+        ninst = dyn->insts[ninst].pred[0];
+    }
+}
+
+static void propagate_nodf_internal(dynarec_native_t* dyn, int ninst)
+{
+    while(ninst>=0) {
+        if(dyn->insts[ninst].df_needed)
+            return; // flag are needed, stop
         if(dyn->insts[ninst].df_notneeded)
             return; // already flagged
-        if(dyn->insts[ninst].x64.gen_flags || dyn->insts[ninst].x64.use_flags)
-            return; // flags are use, so maybe it's needed
+        if(dyn->insts[ninst].x64.has_callret || (dyn->insts[ninst].x64.barrier&BARRIER_FLAGS))
+            return; // stop propagate
         dyn->insts[ninst].df_notneeded = 1;
         if(!dyn->insts[ninst].pred_sz)
             return;
         for(int i=1; i<dyn->insts[ninst].pred_sz; ++i)
-            propagate_nodf(dyn, dyn->insts[ninst].pred[i]);
+            propagate_nodf_internal(dyn, dyn->insts[ninst].pred[i]);
         ninst = dyn->insts[ninst].pred[0];
+    }
+}
+
+void propagate_nodf(dynarec_native_t* dyn)
+{
+    // first propagate the df_needed flag
+    for(int ninst=dyn->size-1; ninst>=0; --ninst) {
+        if((dyn->insts[ninst].x64.jmp && dyn->insts[ninst].x64.jmp_insts==-1)
+         || (dyn->insts[ninst].x64.barrier&BARRIER_FLAGS) || (dyn->insts[ninst].x64.use_flags)
+         || dyn->insts[ninst].x64.has_callret
+         || ((dyn->insts[ninst].x64.state_flags&SF_SUB) && dyn->insts[ninst].x64.need_before)
+        )
+            propagate_dfneeded_internal(dyn, ninst);
+    }
+    // and now propagete df_unneeded
+    for(int ninst=dyn->size-1; ninst>=0; --ninst) {
+        if(dyn->insts[ninst].f_exit!=status_unk && dyn->insts[ninst].x64.gen_flags)
+            propagate_nodf_internal(dyn, ninst);
     }
 }
 
@@ -843,7 +920,7 @@ void x64disas_add_register_mapping_annotations(char* buf, const char* disas, con
     tmp[0] = '\0';
     int len = 0;
     // skip the mnemonic
-    char* p = strchr(disas, ' ');
+    const char* p = strchr(disas, ' ');
     if (!p) {
         sprintf(buf, "%s", disas);
         return;

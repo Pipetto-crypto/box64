@@ -108,14 +108,16 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         GETEX(0);
         GETGD;
         if (rex.w) {
-            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x7fffffffffffffffLL)
+            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x7fffffffffffffffLL) {
+                mxcsr_raise_invalid(emu);
                 GD->q[0] = 0x8000000000000000LL;
-            else
+            } else
                 GD->sq[0] = EX->f[0];
         } else {
-            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x7fffffff)
+            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x7fffffff) {
+                mxcsr_raise_invalid(emu);
                 GD->dword[0] = 0x80000000;
-            else
+            } else
                 GD->sdword[0] = EX->f[0];
             GD->dword[1] = 0;
         }
@@ -125,9 +127,10 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         GETEX(0);
         GETGD;
         if(rex.w) {
-            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x7fffffffffffffffLL)
+            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x7fffffffffffffffLL) {
+                mxcsr_raise_invalid(emu);
                 GD->q[0] = 0x8000000000000000LL;
-            else
+            } else
                 switch(emu->mxcsr.f.MXCSR_RC) {
                     case ROUND_Nearest: {
                         int round = fegetround();
@@ -170,8 +173,10 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
                 }
             if (tmp64s==(int32_t)tmp64s)
                 GD->sdword[0] = (int32_t)tmp64s;
-            else
+            else {
+                mxcsr_raise_invalid(emu);
                 GD->sdword[0] = INT32_MIN;
+            }
             GD->dword[1] = 0;
         }
         break;
@@ -228,7 +233,7 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         if (EX->f[0]<0)
             GX->f[0] = -NAN;
         else if (isnanf(EX->f[0]))
-            GX->f[0] = EX->f[0];
+            GX->ud[0] = EX->ud[0] | 0x00400000;
         else
             GX->f[0] = sqrtf(EX->f[0]);
         break;
@@ -241,7 +246,7 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         else if (EX->f[0]<0)
             GX->f[0] = -NAN;
         else if (isnan(EX->f[0]))
-            GX->f[0] = EX->f[0];
+            GX->ud[0] = EX->ud[0] | 0x00400000;
         else if (isinf(EX->f[0]))
             GX->f[0] = 0.0;
         else
@@ -251,33 +256,40 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         nextop = F8;
         GETEX(0);
         GETGX;
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] = 1.0f/EX->f[0];
+        if(isnanf(EX->f[0])) GX->ud[0] = EX->ud[0] | 0x00400000;
+        else { GX->f[0] = 1.0f/EX->f[0]; if(isnanf(GX->f[0])) GX->ud[0] |= 0x80000000; }
         break;
 
     case 0x58:  /* ADDSS Gx, Ex */
         nextop = F8;
         GETEX(0);
         GETGX;
-        MARK_NAN_F_2(GX, EX);
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] += EX->f[0];
-        CHECK_NAN_F(GX);
+        if(isnanf(GX->f[0])) GX->ud[0] |= 0x00400000;
+        else if(isnanf(EX->f[0])) GX->ud[0] = EX->ud[0] | 0x00400000;
+        else { GX->f[0] += EX->f[0]; if(isnanf(GX->f[0])) GX->ud[0] |= 0x80000000; }
         break;
     case 0x59:  /* MULSS Gx, Ex */
         nextop = F8;
         GETEX(0);
         GETGX;
-        MARK_NAN_F_2(GX, EX);
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] *= EX->f[0];
-        CHECK_NAN_F(GX);
+        if(isnanf(GX->f[0])) GX->ud[0] |= 0x00400000;
+        else if(isnanf(EX->f[0])) GX->ud[0] = EX->ud[0] | 0x00400000;
+        else { GX->f[0] *= EX->f[0]; if(isnanf(GX->f[0])) GX->ud[0] |= 0x80000000; }
         break;
     case 0x5A:  /* CVTSS2SD Gx, Ex */
         nextop = F8;
         GETEX(0);
         GETGX;
+        #ifdef RV64
+        if(isnanf(EX->f[0]))
+            GX->q[0] = ((uint64_t)(EX->ud[0] & 0x80000000) << 32)
+                     | ((uint64_t)(EX->ud[0] & 0x007fffff) << 29)
+                     | 0x7ff8000000000000ULL;
+        else
+            GX->d[0] = EX->f[0];
+        #else
         GX->d[0] = EX->f[0];
+        #endif
         break;
     case 0x5B:  /* CVTTPS2DQ Gx, Ex */
         nextop = F8;
@@ -291,6 +303,7 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
             if (tmp64s==(int32_t)tmp64s) {
                 GX->sd[i] = (int32_t)tmp64s;
             } else {
+                mxcsr_raise_invalid(emu);
                 GX->sd[i] = INT32_MIN;
             }
         }
@@ -299,8 +312,9 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         nextop = F8;
         GETEX(0);
         GETGX;
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] -= EX->f[0];
+        if(isnanf(GX->f[0])) GX->ud[0] |= 0x00400000;
+        else if(isnanf(EX->f[0])) GX->ud[0] = EX->ud[0] | 0x00400000;
+        else { GX->f[0] -= EX->f[0]; if(isnanf(GX->f[0])) GX->ud[0] |= 0x80000000; }
         break;
     case 0x5D:  /* MINSS Gx, Ex */
         nextop = F8;
@@ -313,10 +327,9 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         nextop = F8;
         GETEX(0);
         GETGX;
-        MARK_NAN_F_2(GX, EX);
-        NAN_PROPAGATION(GX->f[0], EX->f[0], break);
-        GX->f[0] /= EX->f[0];
-        CHECK_NAN_F(GX);
+        if(isnanf(GX->f[0])) GX->ud[0] |= 0x00400000;
+        else if(isnanf(EX->f[0])) GX->ud[0] = EX->ud[0] | 0x00400000;
+        else { GX->f[0] /= EX->f[0]; if(isnanf(GX->f[0])) GX->ud[0] |= 0x80000000; }
         break;
     case 0x5F:  /* MAXSS Gx, Ex */
         nextop = F8;
@@ -361,6 +374,25 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         GETGX;
         memcpy(EX, GX, 16);    // unaligned...
         break;
+
+    case 0xA3:  // ignore F3 prefix
+    case 0xA4:
+    case 0xA5:
+    case 0xAC:
+    case 0xAD:
+    case 0xAF:
+    case 0xB3:
+    case 0xB7:
+    case 0xBA:
+    case 0xBB:
+    case 0xBF:
+    case 0xC1:
+    case 0xCD:
+        #ifdef TEST_INTERPRETER 
+        return Test0F(test, rex, addr-1, step);
+        #else
+        return Run0F(emu, rex, addr-1, step);
+        #endif
 
     case 0xAE:
         nextop = F8;
@@ -412,14 +444,6 @@ uintptr_t RunF30F(x64emu_t *emu, rex_t rex, uintptr_t addr, int* step)
         CLEAR_FLAG(F_PF);
         CONDITIONAL_SET_FLAG(GD->q[0]==0, F_ZF);
         break;
-
-    case 0xA5:  // ignore F3 prefix
-    case 0xBA:
-        #ifdef TEST_INTERPRETER 
-        return Test0F(test, rex, addr-1, step);
-        #else
-        return Run0F(emu, rex, addr-1, step);
-        #endif
 
     case 0xBC:  /* TZCNT Ed,Gd */
         CHECK_FLAGS(emu);

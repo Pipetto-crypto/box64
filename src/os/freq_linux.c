@@ -69,24 +69,48 @@ static inline uint64_t readFreq()
     return val;
 }
 #elif defined(LA64)
+#define LA64_CPUCFG2        0x2
+#define LA64_CPUCFG2_LLFTP  (1u << 14)
+#define LA64_CPUCFG4        0x4
+#define LA64_CPUCFG5        0x5
+
 static inline uint64_t readCycleCounter()
 {
     uint64_t val;
+    uint64_t id;
     asm volatile("rdtime.d %0, %1"
-                 : "=r"(val) : "r"(0));
+                 : "=r"(val), "=r"(id));
+    (void)id;
     return val;
 }
 
 static inline uint64_t readFreq()
 {
-    static size_t val = -1;
+    static uint64_t val = 0;
 
-    FILE* f = popen("cat /proc/cpuinfo | grep -i \"CPU MHz\" | head -n 1 | sed -r 's/CPU MHz.+:\\s{1,}//g'", "r");
-    if(f) {
-        char tmp[200] = "";
-        ssize_t s = fread(tmp, 1, 200, f);
-        pclose(f);
-        if (s > 0) return (uint64_t)atof(tmp) * 1e6;
+    if (val) return val;
+
+    uint32_t idx = LA64_CPUCFG2;
+    uint32_t res;
+    asm volatile("cpucfg %0, %1"
+                 : "=r"(res)
+                 : "r"(idx));
+    if (res & LA64_CPUCFG2_LLFTP) {
+        idx = LA64_CPUCFG4;
+        uint32_t base_freq;
+        asm volatile("cpucfg %0, %1"
+                     : "=r"(base_freq)
+                     : "r"(idx));
+        idx = LA64_CPUCFG5;
+        asm volatile("cpucfg %0, %1"
+                     : "=r"(res)
+                     : "r"(idx));
+        uint32_t cfm = res & 0xffff;
+        uint32_t cfd = (res >> 16) & 0xffff;
+        if (base_freq && cfm && cfd) {
+            val = (uint64_t)base_freq * cfm / cfd;
+            return val;
+        }
     }
 
     // fallback to rdtime + sleep

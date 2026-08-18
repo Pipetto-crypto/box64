@@ -47,6 +47,7 @@
 #include <sys/shm.h>
 #endif
 #include <sys/wait.h>
+#include <sched.h>
 
 #include "wrappedlibs.h"
 
@@ -72,6 +73,8 @@
 #include "converter32.h"
 #include "cleanup.h"
 #include "box32_inputevent.h"
+#include "syscall_user_dispatch.h"
+#include "cpumask.h"
 
 // need to undef all read / read64 stuffs!
 #undef pread
@@ -134,6 +137,13 @@ static const char* libcName =
     "libc.so.6"
 #endif
     ;
+
+EXPORT int my32_getpagesize(x64emu_t* emu)
+{
+    (void)emu;
+    return X86_PAGE_SIZE;
+}
+EXPORT int my32___getpagesize(x64emu_t* emu) __attribute__((alias("my32_getpagesize")));
 
 typedef int32_t (*iFiiV_t)(int32_t, int32_t, ...);
 typedef int32_t (*iFpipp_t)(void*, int32_t, void*, void*);
@@ -715,17 +725,17 @@ pid_t EXPORT my32_fork(x64emu_t* emu)
     if(type == EMUTYPE_MAIN)
         thread_set_emu(emu);
     if(v<0) {
-        printf_log(LOG_NONE, "BOX32: Warning, fork errored... (%d)\n", v);
+        printf_log(LOG_NONE, "Warning, fork errored... (%d)\n", v);
         // error...
     } else if(v>0) {
         // execute atforks parent functions
-        for (int i=0; i<my_context->atfork_sz; --i)
+        for (int i=0; i<my_context->atfork_sz; ++i)
             if(my_context->atforks[i].parent)
                 RunFunctionWithEmu(emu, 0, my_context->atforks[i].parent, 0);
 
     } else /*if(v==0)*/ {
         // execute atforks child functions
-        for (int i=0; i<my_context->atfork_sz; --i)
+        for (int i=0; i<my_context->atfork_sz; ++i)
             if(my_context->atforks[i].child)
                 RunFunctionWithEmu(emu, 0, my_context->atforks[i].child, 0);
     }
@@ -829,6 +839,10 @@ int of_unconvert32(int a)
     #ifdef ARM64
     if(!O_LARGEFILE) {
         if((a&(0400000))==(0400000)) {a&=~(0400000); b|=(X86_O_LARGEFILE);}
+    }
+    #elif defined(PPC64LE)
+    if(!O_LARGEFILE) {
+        if((a&(0200000))==(0200000)) {a&=~(0200000); b|=(X86_O_LARGEFILE);}
     }
     #else
     if(!O_LARGEFILE) missing |= X86_O_LARGEFILE;
@@ -1586,8 +1600,6 @@ static int isProcSelf(const char *path, const char* w)
     return 0;
 }
 
-int getNCpu();
-
 #ifdef ANDROID
 static int shm_open(const char *name, int oflag, mode_t mode) {
     return -1;
@@ -2053,7 +2065,7 @@ EXPORT int32_t my32_execve(x64emu_t* emu, const char* path, ptr_t argv[], ptr_t 
 EXPORT int32_t my32_execvp(x64emu_t* emu, const char* path, ptr_t argv[])
 {
     // need to use BOX32_PATH / PATH here...
-    char* fullpath = ResolveFile(path, &my_context->box64_path);
+    char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath now
     int self = isProcSelf(fullpath, "exe");
     int x86 = FileIsX86ELF(fullpath);
@@ -2102,7 +2114,7 @@ EXPORT int32_t my32_execvp(x64emu_t* emu, const char* path, ptr_t argv[])
 EXPORT int32_t my32_execvpe(x64emu_t* emu, const char* path, ptr_t argv[], ptr_t envp[])
 {
     // need to use BOX32_PATH / PATH here...
-    char* fullpath = ResolveFile(path, &my_context->box64_path);
+    char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath now
     int self = isProcSelf(fullpath, "exe");
     int x86 = FileIsX86ELF(fullpath);
@@ -2291,7 +2303,7 @@ EXPORT int32_t my32_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
         convert_file_action_to_64(actions, actions_s);
     }
     // need to use BOX32_PATH / PATH here...
-    char* fullpath = ResolveFile(path, &my_context->box64_path);
+    char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath...
     int self = isProcSelf(fullpath, "exe");
     int x86 = FileIsX86ELF(fullpath);
@@ -2471,9 +2483,11 @@ EXPORT void* my32_ctime(void* t)
 EXPORT int my32_utimensat(int dirfd, void* name, void* times, int flags)
 {
     struct timespec times_l[2] = {0};
-    from_struct_LL((struct_LL_t*)&times_l[0], to_ptrv(times));
-    from_struct_LL((struct_LL_t*)&times_l[1], to_ptrv(times)+8);
-    return utimensat(dirfd, name, times_l, flags);
+    if (times) {
+        from_struct_LL((struct_LL_t*)&times_l[0], to_ptrv(times));
+        from_struct_LL((struct_LL_t*)&times_l[1], to_ptrv(times)+8);
+    }
+    return utimensat(dirfd, name, times ? times_l : NULL, flags);
 }
 
 #ifndef ANDROID
@@ -2609,12 +2623,13 @@ EXPORT int32_t my32___register_atfork(x64emu_t *emu, void* prepare, void* parent
     // this is partly incorrect, because the emulated funcionts should be executed by actual fork and not by my32_atfork...
     if(my_context->atfork_sz==my_context->atfork_cap) {
         my_context->atfork_cap += 4;
-        my_context->atforks = (atfork_fnc_t*)realloc(my_context->atforks, my_context->atfork_cap*sizeof(atfork_fnc_t));
+        my_context->atforks = (atfork_fnc_t*)box_realloc(my_context->atforks, my_context->atfork_cap*sizeof(atfork_fnc_t));
     }
-    my_context->atforks[my_context->atfork_sz].prepare = (uintptr_t)prepare;
-    my_context->atforks[my_context->atfork_sz].parent = (uintptr_t)parent;
-    my_context->atforks[my_context->atfork_sz].child = (uintptr_t)child;
-    my_context->atforks[my_context->atfork_sz].handle = handle;
+    int i = my_context->atfork_sz++;
+    my_context->atforks[i].prepare = (uintptr_t)prepare;
+    my_context->atforks[i].parent = (uintptr_t)parent;
+    my_context->atforks[i].child = (uintptr_t)child;
+    my_context->atforks[i].handle = FindElfAddress(my_context, (uintptr_t)handle);
     return 0;
 }
 
@@ -3268,31 +3283,37 @@ EXPORT int my32_nanosleep(const struct timespec *req, struct timespec *rem)
 EXPORT int my32_utimes(x64emu_t* emu, const char* name, uint32_t* times)
 {
     struct timeval tm[2];
-    tm[0].tv_sec = times[0];
-    tm[0].tv_usec = times[1];
-    tm[1].tv_sec = times[2];
-    tm[1].tv_usec = times[3];
-    return utimes(name, tm);
+    if (times) {
+        tm[0].tv_sec = times[0];
+        tm[0].tv_usec = times[1];
+        tm[1].tv_sec = times[2];
+        tm[1].tv_usec = times[3];
+    }
+    return utimes(name, times ? tm : NULL);
 }
 
 EXPORT int my32_futimes(x64emu_t* emu, int fd, uint32_t* times)
 {
     struct timeval tm[2];
-    tm[0].tv_sec = times[0];
-    tm[0].tv_usec = times[1];
-    tm[1].tv_sec = times[2];
-    tm[1].tv_usec = times[3];
-    return futimes(fd, tm);
+    if (times) {
+        tm[0].tv_sec = times[0];
+        tm[0].tv_usec = times[1];
+        tm[1].tv_sec = times[2];
+        tm[1].tv_usec = times[3];
+    }
+    return futimes(fd, times ? tm : NULL);
 }
 
 EXPORT int my32_futimens(x64emu_t* emu, int fd, uint32_t* times)
 {
     struct timespec tm[2];
-    tm[0].tv_sec = times[0];
-    tm[0].tv_nsec = times[1];
-    tm[1].tv_sec = times[2];
-    tm[1].tv_nsec = times[3];
-    return futimens(fd, tm);
+    if (times) {
+        tm[0].tv_sec = times[0];
+        tm[0].tv_nsec = times[1];
+        tm[1].tv_sec = times[2];
+        tm[1].tv_nsec = times[3];
+    }
+    return futimens(fd, times ? tm : NULL);
 }
 
 EXPORT long my32_strtol(const char* s, char** endp, int base)
@@ -3481,6 +3502,40 @@ EXPORT int my32_shmdt(x64emu_t* emu, void* addr)
 }
 #endif
 
+EXPORT int my32_sched_getaffinity(x64emu_t* emu, pid_t pid, size_t sz, cpu_set_t* mask)
+{
+    if(!BOX64ENV(skipcpu))
+        return sched_getaffinity(pid, sz, mask);
+    uint8_t mask_[sz];
+    int ret = sched_getaffinity(pid, sz, (cpu_set_t*)mask_);
+    if(ret>=0) {
+        cpumask_shiftright(mask_, sz, BOX64ENV(skipcpu));
+        cpumask_maxcpu(mask, sz, BOX64ENV(maxcpu));
+        memcpy(mask, mask_, sz);
+    }
+    return ret;
+}
+EXPORT int my32_sched_getcpu(x64emu_t* emu)
+{
+    int ret = sched_getcpu();
+    if(ret>=0 && BOX64ENV(skipcpu)) {
+        ret -= BOX64ENV(skipcpu);
+        if(ret<0) ret = 0;
+    }
+    return ret;
+}
+EXPORT int my32_sched_setaffinity(x64emu_t* emu, pid_t pid, size_t sz, cpu_set_t* mask)
+{
+    if(!BOX64ENV(skipcpu))
+        return sched_setaffinity(pid, sz, mask);
+    uint8_t mask_[sz];
+    memcpy(mask_, mask, sz);
+    cpumask_maxcpu(mask, sz, BOX64ENV(maxcpu));
+    cpumask_shiftleft(mask_, sz, BOX64ENV(skipcpu));
+    return sched_setaffinity(pid, sz, (cpu_set_t*)mask_);
+}
+
+
 #if 0
 #ifndef __NR_memfd_create
 #define MFD_CLOEXEC		    0x0001U
@@ -3608,7 +3663,15 @@ EXPORT int my32___prctl_time64(x64emu_t* emu, int option, unsigned long arg2, un
         }
     }
     if(option==PR_SET_SECCOMP) {
-        printf_log(LOG_INFO, "ignoring prctl(PR_SET_SECCOMP, ...)\n");
+        printf_log(LOG_DEBUG, "Ignoring prctl(PR_SET_SECCOMP, ...)\n");
+        return 0;
+    }
+    if (option == PR_SET_SYSCALL_USER_DISPATCH) {
+        long ret = my_syscall_user_dispatch_prctl(emu, arg2, arg3, arg4, (void*)arg5);
+        if(ret < 0) {
+            errno = -ret;
+            return -1;
+        }
         return 0;
     }
     return prctl(option, arg2, arg3, arg4, arg5);
@@ -3629,6 +3692,14 @@ EXPORT int my32_prctl(x64emu_t* emu, int option, unsigned long arg2, unsigned lo
     }
     if(option==PR_SET_SECCOMP) {
         printf_log(LOG_INFO, "ignoring prctl(PR_SET_SECCOMP, ...)\n");
+        return 0;
+    }
+    if (option == PR_SET_SYSCALL_USER_DISPATCH) {
+        long ret = my_syscall_user_dispatch_prctl(emu, arg2, arg3, arg4, (void*)arg5);
+        if(ret < 0) {
+            errno = -ret;
+            return -1;
+        }
         return 0;
     }
     return prctl(option, arg2, arg3, arg4, arg5);

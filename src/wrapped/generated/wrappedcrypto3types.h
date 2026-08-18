@@ -12,8 +12,10 @@
 #endif
 
 typedef void (*vFp_t)(void*);
+typedef int32_t (*iFp_t)(void*);
 typedef void* (*pFp_t)(void*);
 typedef void (*vFpp_t)(void*, void*);
+typedef int32_t (*iFpp_t)(void*, void*);
 typedef void (*vFppp_t)(void*, void*, void*);
 typedef int32_t (*iFppp_t)(void*, void*, void*);
 typedef int32_t (*iFppV_t)(void*, void*, ...);
@@ -21,28 +23,58 @@ typedef void* (*pFppp_t)(void*, void*, void*);
 typedef void (*vFiipV_t)(int32_t, int32_t, void*, ...);
 typedef void (*vFiipA_t)(int32_t, int32_t, void*, va_list);
 typedef void* (*pFiLpp_t)(int32_t, uintptr_t, void*, void*);
+typedef void* (*pFpppL_t)(void*, void*, void*, uintptr_t);
 typedef void* (*pFpppp_t)(void*, void*, void*, void*);
+typedef void* (*pFSppp_t)(void*, void*, void*, void*);
 typedef int32_t (*iFpiipp_t)(void*, int32_t, int32_t, void*, void*);
+typedef int32_t (*iFpLppp_t)(void*, uintptr_t, void*, void*, void*);
+typedef void* (*pFppppp_t)(void*, void*, void*, void*, void*);
+typedef int32_t (*iFilpppp_t)(int32_t, intptr_t, void*, void*, void*, void*);
 typedef int32_t (*iFpplppi_t)(void*, void*, intptr_t, void*, void*, int32_t);
 typedef int32_t (*iFppppipp_t)(void*, void*, void*, void*, int32_t, void*, void*);
+typedef void* (*pFpppppppp_t)(void*, void*, void*, void*, void*, void*, void*, void*);
 
 #define SUPER() ADDED_FUNCTIONS() \
 	GO(CRYPTO_set_id_callback, vFp_t) \
 	GO(CRYPTO_set_locking_callback, vFp_t) \
+	GO(EVP_CIPHER_nid, iFp_t) \
+	GO(BIO_meth_get_callback_ctrl, pFp_t) \
+	GO(BIO_meth_get_create, pFp_t) \
+	GO(BIO_meth_get_ctrl, pFp_t) \
+	GO(BIO_meth_get_destroy, pFp_t) \
+	GO(BIO_meth_get_gets, pFp_t) \
+	GO(BIO_meth_get_puts, pFp_t) \
+	GO(BIO_meth_get_read, pFp_t) \
+	GO(BIO_meth_get_write, pFp_t) \
 	GO(OPENSSL_sk_new, pFp_t) \
+	GO(OSSL_PARAM_construct_end, pFp_t) \
 	GO(X509V3_EXT_get, pFp_t) \
+	GO(ERR_print_errors_cb, vFpp_t) \
 	GO(OPENSSL_sk_pop_free, vFpp_t) \
 	GO(X509_STORE_CTX_set_verify_cb, vFpp_t) \
 	GO(X509_STORE_set_verify_cb, vFpp_t) \
+	GO(BIO_meth_set_callback_ctrl, iFpp_t) \
+	GO(BIO_meth_set_gets, iFpp_t) \
+	GO(UI_method_set_closer, iFpp_t) \
+	GO(UI_method_set_opener, iFpp_t) \
+	GO(UI_method_set_reader, iFpp_t) \
+	GO(UI_method_set_writer, iFpp_t) \
 	GO(EVP_MD_do_all_provided, vFppp_t) \
 	GO(ASN1_i2d_bio, iFppp_t) \
 	GO(BIO_printf, iFppV_t) \
 	GO(OPENSSL_sk_deep_copy, pFppp_t) \
+	GO(OSSL_PARAM_construct_int, pFppp_t) \
+	GO(OSSL_PARAM_construct_uint, pFppp_t) \
 	GO(ERR_set_error, vFiipV_t) \
 	GO(ERR_vset_error, vFiipA_t) \
 	GO(RSA_generate_key, pFiLpp_t) \
+	GO(OSSL_PARAM_construct_octet_string, pFpppL_t) \
+	GO(OSSL_PARAM_construct_utf8_string, pFpppL_t) \
 	GO(ASN1_d2i_bio, pFpppp_t) \
+	GO(PEM_X509_INFO_read_bio, pFpppp_t) \
 	GO(PEM_read_DHparams, pFpppp_t) \
+	GO(PEM_read_PUBKEY, pFpppp_t) \
+	GO(PEM_read_PrivateKey, pFpppp_t) \
 	GO(PEM_read_bio_DHparams, pFpppp_t) \
 	GO(PEM_read_bio_DSAPrivateKey, pFpppp_t) \
 	GO(PEM_read_bio_DSA_PUBKEY, pFpppp_t) \
@@ -59,12 +91,18 @@ typedef int32_t (*iFppppipp_t)(void*, void*, void*, void*, int32_t, void*, void*
 	GO(PEM_read_bio_X509_CERT_PAIR, pFpppp_t) \
 	GO(PEM_read_bio_X509_CRL, pFpppp_t) \
 	GO(PEM_read_bio_X509_REQ, pFpppp_t) \
+	GO(PEM_read_X509, pFSppp_t) \
+	GO(PEM_read_X509_AUX, pFSppp_t) \
 	GO(ENGINE_ctrl, iFpiipp_t) \
+	GO(ECDH_compute_key, iFpLppp_t) \
+	GO(OSSL_STORE_open, pFppppp_t) \
+	GO(CRYPTO_get_ex_new_index, iFilpppp_t) \
 	GO(ENGINE_ctrl_cmd, iFpplppi_t) \
 	GO(PEM_write_bio_DSAPrivateKey, iFppppipp_t) \
 	GO(PEM_write_bio_ECPrivateKey, iFppppipp_t) \
 	GO(PEM_write_bio_PrivateKey, iFppppipp_t) \
 	GO(PEM_write_bio_PrivateKey_traditional, iFppppipp_t) \
-	GO(PEM_write_bio_RSAPrivateKey, iFppppipp_t)
+	GO(PEM_write_bio_RSAPrivateKey, iFppppipp_t) \
+	GO(OSSL_STORE_open_ex, pFpppppppp_t)
 
 #endif // __wrappedcrypto3TYPES_H_

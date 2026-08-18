@@ -145,17 +145,10 @@ uintptr_t dynarec64_DB(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xEE:
         case 0xEF:
             INST_NAME("FUCOMI ST0, STx");
-            SETFLAGS(X_ALL, SF_SET);
+            SETFLAGS(X_ALL, SF_SET_NODF);
             v1 = x87_get_st(dyn, ninst, x1, x2, 0, X87_COMBINE(0, nextop&7));
             v2 = x87_get_st(dyn, ninst, x1, x2, nextop&7, X87_COMBINE(0, nextop&7));
-            IFX(X_CF|X_PF|X_ZF) {
-                if(ST_IS_F(0)) {
-                    FCMPS(v1, v2);
-                } else {
-                    FCMPD(v1, v2);
-                }
-            }
-            FCOMI(x1, x2);
+            FCOMI(x1, x2, ST_IS_F(0), v1, v2);
             break;
         case 0xF0:
         case 0xF1:
@@ -166,17 +159,10 @@ uintptr_t dynarec64_DB(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
         case 0xF6:
         case 0xF7:
             INST_NAME("FCOMI ST0, STx");
-            SETFLAGS(X_ALL, SF_SET);
+            SETFLAGS(X_ALL, SF_SET_NODF);
             v1 = x87_get_st(dyn, ninst, x1, x2, 0, X87_COMBINE(0, nextop&7));
             v2 = x87_get_st(dyn, ninst, x1, x2, nextop&7, X87_COMBINE(0, nextop&7));
-            IFX(X_CF|X_PF|X_ZF) {
-                if(ST_IS_F(0)) {
-                    FCMPS(v1, v2);
-                } else {
-                    FCMPD(v1, v2);
-                }
-            }
-            FCOMI(x1, x2);
+            FCOMI(x1, x2,ST_IS_F(0), v1, v2);
             break;
 
         default:
@@ -326,7 +312,7 @@ uintptr_t dynarec64_DB(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int nin
                     addr = geted(dyn, addr, ninst, nextop, &wback, x2, &fixedaddress, &unscaled, 0xfff<<3, 7, rex, NULL, 0, 0);
                     VST64(v1, wback, fixedaddress);
                 } else {
-                    if(!BOX64ENV(dynarec_fastround)) {
+                    if(!BOX64ENV(dynarec_fastround) || !rex.is32bits) {
                         x87_forget(dyn, ninst, x1, x3, 0);
                         addr = geted(dyn, addr, ninst, nextop, &ed, x1, &fixedaddress, NULL, 0, 0, rex, NULL, 0, 0);
                         if(ed!=x1) {MOVx_REG(x1, ed);}

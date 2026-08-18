@@ -83,7 +83,7 @@
     }
 #define GETEDw(D)                                                                                                     \
     if (MODREG) {                                                                                                     \
-        ed = xEAX + (nextop & 7) + (rex.b << 3);                                                                      \
+        ed = TO_NAT((nextop & 7) + (rex.b << 3));                                                                     \
         wback = 0;                                                                                                    \
     } else {                                                                                                          \
         SMREAD();                                                                                                     \
@@ -132,7 +132,7 @@
 #define WBACKx      if(wback) {STx(ed, wback, fixedaddress); SMWRITE();}
 // Write back ed in wback (if wback not 0)
 #define WBACKw      if(wback) {STW(ed, wback, fixedaddress); SMWRITE();}
-//FAKEELike GETED, but doesn't get anything
+//FAKEED like GETED, but doesn't get anything
 #define FAKEED                                    \
     if (MODREG) {                                 \
         ed = TO_NAT((nextop & 7) + (rex.b << 3)); \
@@ -167,7 +167,7 @@
         ed = i;                                                                                                                 \
         wb1 = 1;                                                                                                                \
     }
-//Compute wback for MDREG only, no fetching
+//Compute wback for MODREG only, no fetching
 #define CALCEW()                                                                                                                \
     wback = TO_NAT((nextop & 7) + (rex.b << 3));                                                                                \
 //GETEW will use i for ed, and can use r3 for wback.
@@ -183,20 +183,6 @@
         LDH(i, wback, fixedaddress);                                                                                             \
         ed = i;                                                                                                                  \
         wb1 = 1;                                                                                                                 \
-    }
-//GETEW will use i for ed, and can use r3 for wback.
-#define GETEW32(i, D)                                                                                                              \
-    if (MODREG) {                                                                                                                  \
-        wback = TO_NAT((nextop & 7) + (rex.b << 3));                                                                               \
-        UXTHw(i, wback);                                                                                                           \
-        ed = i;                                                                                                                    \
-        wb1 = 0;                                                                                                                   \
-    } else {                                                                                                                       \
-        SMREAD();                                                                                                                  \
-        addr = geted32(dyn, addr, ninst, nextop, &wback, x3, &fixedaddress, &unscaled, 0xfff << 1, (1 << 1) - 1, rex, NULL, 0, D); \
-        LDH(i, wback, fixedaddress);                                                                                               \
-        ed = i;                                                                                                                    \
-        wb1 = 1;                                                                                                                   \
     }
 //GETSEW will use i for ed, and can use r3 for wback. This is the Signed version
 #define GETSEW(i, D)                                                                                                             \
@@ -270,27 +256,6 @@
         wb1 = 1;                                                                                                 \
         ed = i;                                                                                                  \
     }
-//GETEB will use i for ed, and can use r3 for wback.
-#define GETEB32(i, D)                                                                                              \
-    if (MODREG) {                                                                                                  \
-        if (rex.rex) {                                                                                             \
-            wback = TO_NAT((nextop & 7) + (rex.b << 3));                                                           \
-            wb2 = 0;                                                                                               \
-        } else {                                                                                                   \
-            wback = (nextop & 7);                                                                                  \
-            wb2 = (wback >> 2) * 8;                                                                                \
-            wback = TO_NAT(wback & 3);                                                                             \
-        }                                                                                                          \
-        UBFXx(i, wback, wb2, 8);                                                                                   \
-        wb1 = 0;                                                                                                   \
-        ed = i;                                                                                                    \
-    } else {                                                                                                       \
-        SMREAD();                                                                                                  \
-        addr = geted32(dyn, addr, ninst, nextop, &wback, x3, &fixedaddress, &unscaled, 0xfff, 0, rex, NULL, 0, D); \
-        LDB(i, wback, fixedaddress);                                                                               \
-        wb1 = 1;                                                                                                   \
-        ed = i;                                                                                                    \
-    }
 // Write eb (ed) back to original register / memory
 #define EBBACK   if(wb1) {STB(ed, wback, fixedaddress); SMWRITE();} else {BFIx(wback, ed, wb2, 8);}
 // no fetch version of GETGB
@@ -334,6 +299,14 @@
 #define GETG        gd = ((nextop&0x38)>>3)+(rex.r<<3)
 
 // Get GX as a quad (might use x1)
+// mark an XMM reg as accessed scalar-only (upper-64 untouched) in this opcode
+#define MARK_XMM_SCALAR(a)  dyn->n.xmm_scalar |= (1 << (a))
+// test if the upper-64 of an XMM reg is proven dead in this opcode
+#define XMMH_UNNEEDED(a)    (dyn->insts[ninst].n.xmmh_unneeded & (1 << (a)))
+// mark an XMM reg as accessed scalar-single (only low-32 touched, upper-96 untouched)
+#define MARK_XMM_SCALAR_SINGLE(a)  ((dyn->n.xmm_scalar |= (1 << (a))), (dyn->n.xmm_scalar_single |= (1 << (a))))
+// test if the upper-96 of an XMM reg is proven dead in this opcode
+#define XMMS_UNNEEDED(a)    (dyn->insts[ninst].n.xmms_unneeded & (1 << (a)))
 #define GETGX(a, w)                     \
     gd = ((nextop&0x38)>>3)+(rex.r<<3); \
     a = sse_get_reg(dyn, ninst, x1, gd, w)
@@ -498,7 +471,7 @@
         a = fpu_get_scratch(dyn, ninst);                                                                       \
         VLDR128_U12(a, ed, fixedaddress);                                                                      \
     }
-// Get EX as a quad, (x3 is used)
+// Get EX as a quad but don't load anything, just reserve an empty reg (x3 is used)
 #define GETEX_empty_Y(a, D)                                                                             \
     if(MODREG) {                                                                                        \
         a = sse_get_reg_empty(dyn, ninst, x3, (nextop&7)+(rex.b<<3));                                   \
@@ -589,7 +562,7 @@
         SMWRITE2();                 \
     }
 
-#define YMM0(a) ymm_mark_zero(dyn, ninst, a);
+#define YMM0(a) ymm_mark_zero(dyn, ninst, a)
 
 // Get Direction with size Z and based of F_DF flag, on register r ready for LDR/STR fetching
 // F_DF is 1<<10, so 1 ROR 11*2 (so F_OF)
@@ -700,7 +673,7 @@
 #define B_MARK3(cond)                   \
     j64 = GETMARK3-(dyn->native_size);  \
     Bcond(cond, j64)
-// Test bit N of A and branch to MARK3 if not set
+// Test bit N of A and branch to MARK2 if not set
 #define TBZ_MARK2(A, N)                 \
     j64 = GETMARK2-(dyn->native_size);  \
     TBZ(A, N, j64)
@@ -841,30 +814,10 @@
     ORRw_REG_LSL(s3, s3, s1, 8);                                            \
     STRH_U12(s3, xEmu, offsetof(x64emu_t, sw))
 
-// Generate FCOMI with s1 and s2 scratch regs (the VCMP is already done)
-#define FCOMI(s1, s2)                                                       \
-    IFX(X_OF|X_AF|X_SF) {                                                   \
-        MOV32w(s2, 0b100011010101);                                         \
-        BICw_REG(xFlags, xFlags, s2);                                       \
-        IFX(X_CF|X_PF|X_ZF) {                                               \
-            MOV32w(s2, 0b01000101);                                         \
-        }                                                                   \
-    } else {                                                                \
-        IFX(X_CF|X_PF|X_ZF) {                                               \
-            MOV32w(s2, 0b01000101);                                         \
-            BICw_REG(xFlags, xFlags, s2);                                   \
-        }                                                                   \
-    }                                                                       \
-    IFX(X_CF|X_PF|X_ZF) {                                                   \
-        CSETw(s1, cMI); /* 1 if less than, 0 else */                        \
-        /*s2 already set */     /* unordered */                             \
-        CSELw(s1, s2, s1, cVS);                                             \
-        MOV32w(s2, 0b01000000); /* zero */                                  \
-        CSELw(s1, s2, s1, cEQ);                                             \
-        /* greater than leave 0 */                                          \
-        ORRw_REG(xFlags, xFlags, s1);                                       \
-    }                                                                       \
-    SET_DFNONE();                                                           \
+// Generate FCOMI with s1 and s2 scratch regs (the VCMP is not done)
+#define FCOMIS(s1, s2, d1, d2)  emit_fcomi(dyn, ninst, s1, s2, 1, d1, d2)
+#define FCOMID(s1, s2, d1, d2)  emit_fcomi(dyn, ninst, s1, s2, 0, d1, d2)
+#define FCOMI(s1, s2, isfloat, d1, d2)  emit_fcomi(dyn, ninst, s1, s2, isfloat, d1, d2)
 
 #ifndef IF_UNALIGNED
 #define IF_UNALIGNED(A)    if(dyn->insts[ninst].unaligned)
@@ -875,7 +828,7 @@
 #endif
 
 #ifndef CALLRET_RET
-#define CALLRET_RET()   NOP
+#define CALLRET_RET(A)   do {if(BOX64DRENV(dynarec_callret)>1) {NOP;}} while(0)
 #endif
 #ifndef CALLRET_GETRET
 #define CALLRET_GETRET()    (dyn->callrets?(dyn->callrets[dyn->callret_size].offs-dyn->native_size):0)
@@ -977,7 +930,7 @@
 #else
 #define X87_PUSH_OR_FAIL(var, dyn, ninst, scratch, t)   \
     if ((dyn->n.x87stack==8) || (dyn->n.pushed==8)) {   \
-        if(dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
+        if(dyn->need_dump && dyn->need_dump != 3) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
         dyn->abort = 1;                                 \
         return addr;                                    \
     }                                                   \
@@ -985,7 +938,7 @@
 
 #define X87_PUSH_EMPTY_OR_FAIL(dyn, ninst, scratch)     \
     if ((dyn->n.x87stack==8) || (dyn->n.pushed==8)) {   \
-        if(dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
+        if(dyn->need_dump && dyn->need_dump != 3) dynarec_log(LOG_NONE, " Warning, suspicious x87 Push, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.pushed, ninst); \
         dyn->abort = 1;                                 \
         return addr;                                    \
     }                                                   \
@@ -993,7 +946,7 @@
 
 #define X87_POP_OR_FAIL(dyn, ninst, scratch)            \
     if ((dyn->n.x87stack==-8) || (dyn->n.poped==8)) {   \
-        if(dyn->need_dump) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.poped, ninst); \
+        if(dyn->need_dump && dyn->need_dump != 3) dynarec_log(LOG_NONE, " Warning, suspicious x87 Pop, stack=%d/%d on inst %d\n", dyn->n.x87stack, dyn->n.poped, ninst); \
         dyn->abort = 1;                                 \
         return addr;                                    \
     }                                                   \
@@ -1025,7 +978,7 @@
         TABLE64C(x6, const_updateflags_arm64);              \
         BLR(x6);                                            \
         dyn->f = status_none;                               \
-    }
+    } else if((A)==X_ALL) flushNative(dyn, ninst);
 #endif
 
 #define GRABFLAGS(A) \
@@ -1096,6 +1049,11 @@
     dyn->doublepush = 0; \
     dyn->doublepop = 0;
 #define ARCH_RESET()
+
+#undef PREFLAGSNEEDED
+#define PREFLAGSNEEDED()                                                                                        \
+    if(dyn->always_test && ninst && (dyn->insts[ninst].sep || (ninst && dyn->insts[ninst-1].x64.has_callret)))  \
+        checkCRC(dyn, ninst);
 
 #if STEP < 2
 #define GETIP(A) MOV64x(xRIP, A)
@@ -1307,6 +1265,7 @@
 #define emit_shld16     STEPNAME(emit_shld16)
 
 #define emit_pf         STEPNAME(emit_pf)
+#define emit_fcomi      STEPNAME(emit_fcomi)
 
 #define x87_do_push         STEPNAME(x87_do_push)
 #define x87_do_push_empty   STEPNAME(x87_do_push_empty)
@@ -1315,7 +1274,7 @@
 #define x87_get_cache   STEPNAME(x87_get_cache)
 #define x87_get_neoncache STEPNAME(x87_get_neoncache)
 #define x87_get_st      STEPNAME(x87_get_st)
-#define x87_get_st_empty  STEPNAME(x87_get_st)
+#define x87_get_st_empty  STEPNAME(x87_get_st_empty)
 #define x87_free        STEPNAME(x87_free)
 #define x87_forget      STEPNAME(x87_forget)
 #define x87_reget_st    STEPNAME(x87_reget_st)
@@ -1339,6 +1298,7 @@
 #define doPreload         STEPNAME(doPreload)
 #define doEnterBlock      STEPNAME(doEnterBlock)
 #define doLeaveBlock      STEPNAME(doLeaveBlock)
+#define checkCRC          STEPNAME(checkCRC)
 
 #define fpu_pushcache   STEPNAME(fpu_pushcache)
 #define fpu_popcache    STEPNAME(fpu_popcache)
@@ -1354,6 +1314,8 @@
 #define avx_purge_ymm   STEPNAME(avx_purge_ymm)
 
 #define CacheTransform       STEPNAME(CacheTransform)
+#define additionnal_checks   STEPNAME(additionnal_checks)
+#define flushNative         STEPNAME(flushNative)
 
 #define arm64_move32        STEPNAME(arm64_move32)
 #define arm64_move64        STEPNAME(arm64_move64)
@@ -1457,10 +1419,10 @@ void emit_sar16(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3, int s4);
 void emit_sar16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
 void emit_rol32c(dynarec_arm_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
 void emit_ror32c(dynarec_arm_t* dyn, int ninst, rex_t rex, int s1, uint32_t c, int s3, int s4);
-void emit_rol8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
-void emit_ror8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
-void emit_rol16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
-void emit_ror16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
+void emit_rol8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg);
+void emit_ror8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg);
+void emit_rol16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg);
+void emit_ror16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4, int modreg);
 void emit_rcl8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
 void emit_rcr8c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
 void emit_rcl16c(dynarec_arm_t* dyn, int ninst, int s1, uint32_t c, int s3, int s4);
@@ -1479,6 +1441,7 @@ void emit_shld16c(dynarec_arm_t* dyn, int ninst, int s1, int s2, uint32_t c, int
 void emit_shld16(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s5, int s3, int s4);
 
 void emit_pf(dynarec_arm_t* dyn, int ninst, int s1, int s4);
+void emit_fcomi(dynarec_arm_t* dyn, int ninst, int s1, int s2, int isfloat, int d1, int d2);
 
 // x87 helper
 // cache of the local stack counter, to avoid update at every call, return old internal stack counter
@@ -1519,6 +1482,8 @@ int sse_setround(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 void avx_purge_ymm(dynarec_arm_t* dyn, int ninst, uint16_t mask, int s1);
 
 void CacheTransform(dynarec_arm_t* dyn, int ninst, int cacheupd);
+void additionnal_checks(dynarec_arm_t* dyn, int ninst);
+void flushNative(dynarec_arm_t* dyn, int ninst);
 
 void arm64_move32(dynarec_arm_t* dyn, int ninst, int reg, uint32_t val);
 void arm64_move64(dynarec_arm_t* dyn, int ninst, int reg, uint64_t val);
@@ -1611,6 +1576,8 @@ void doPreload(dynarec_arm_t* dyn, int ninst);
 void doEnterBlock(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
 // Leave a block (atomic decrement of in_used)
 void doLeaveBlock(dynarec_arm_t* dyn, int ninst, int s1, int s2, int s3);
+// in case of allways_test, this insert a check of crc of the dynablock (and exit to ArmNext if wrong)
+void checkCRC(dynarec_arm_t* dyn, int ninst);
 
 uintptr_t dynarec64_00(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
 uintptr_t dynarec64_0F(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip, int ninst, rex_t rex, int* ok, int* need_epilog);
@@ -1765,13 +1732,21 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
         break;                                              \
     case B+0xA:                                             \
         INST_NAME(T1 "P " T2);                              \
+        IFNATIVE(NF_PF_V) {                                 \
+        GO( , cVC, cVS, X_PF)                               \
+        } else {                                            \
         GO( TSTw_mask(xFlags, 0b011110, 0)                  \
             , cEQ, cNE, X_PF)                               \
+        }                                                   \
         break;                                              \
     case B+0xB:                                             \
         INST_NAME(T1 "NP " T2);                             \
+        IFNATIVE(NF_PF_V) {                                 \
+        GO( , cVS, cVC, X_PF)                               \
+        } else {                                            \
         GO( TSTw_mask(xFlags, 0b011110, 0)                  \
             , cNE, cEQ, X_PF)                               \
+        }                                                   \
         break;                                              \
     case B+0xC:                                             \
         INST_NAME(T1 "L " T2);                              \
@@ -1872,7 +1847,7 @@ uintptr_t dynarec64_AVX_F3_0F38(dynarec_arm_t* dyn, uintptr_t addr, uintptr_t ip
 
 #define PURGE_YMM()                                                         \
     do {                                                                    \
-        if ((ok > 0) && reset_n == -1 && dyn->insts[ninst + 1].purge_ymm)   \
+        if (dyn->use_ymm && (ok > 0) && reset_n == -1 && dyn->insts[ninst + 1].purge_ymm) \
             avx_purge_ymm(dyn, ninst, dyn->insts[ninst + 1].purge_ymm, x1); \
     } while (0)
 

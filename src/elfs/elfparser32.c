@@ -167,7 +167,7 @@ elfheader_t* ParseElfHeader32(FILE* f, const char* name, int exec)
             printf_log(LOG_DEBUG, "Read number of String Table in 1st Section\n");
             h->SHIdx = h->SHEntries._32[0].sh_link;
         }
-        if(h->SHIdx > h->numSHEntries) {
+        if(h->SHIdx >= h->numSHEntries) {
             printf_log(LOG_INFO, "Incoherent Section String Table Index : %d / %d\n", h->SHIdx, h->numSHEntries);
             FreeElfHeader(&h);
             return NULL;
@@ -284,6 +284,19 @@ elfheader_t* ParseElfHeader32(FILE* f, const char* name, int exec)
                 case DT_VERDEF:
                     h->VerDef._32 = (Elf32_Verdef*)from_ptr(ptr);
                     printf_log(LOG_DEBUG, "The DT_VERDEF is at address %p\n", h->VerDef);
+                    break;
+                case DT_FLAGS:
+                    h->flags |= val;
+                    printf_log(LOG_DEBUG, "The DT_FLAGS is 0x%x\n", h->flags);
+                    break;
+                case DT_BIND_NOW:
+                    h->flags |= DF_BIND_NOW;
+                    printf_log(LOG_DEBUG, "The DT_BIND_NOW flag is present\n");
+                    break;
+                case DT_FLAGS_1:
+                    if(val & DF_1_NOW)
+                        h->flags |= DF_BIND_NOW;
+                    printf_log(LOG_DEBUG, "The DT_FLAGS_1 is 0x%x\n", val);
                     break;
                 case DT_HASH:
                     h->hash = ptr;

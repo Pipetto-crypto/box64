@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <dlfcn.h>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -42,25 +43,25 @@ typedef struct bridge_s {
     kh_bridgemap_t  *bridgemap;
 } bridge_t;
 
-brick_t* NewBrick(void* old)
+brick_t* NewBrick(void* old, int is32bits)
 {
     brick_t* ret = (brick_t*)box_calloc(1, sizeof(brick_t));
     static void* load_addr_32bits = NULL;
-    if(box64_is32bits)
+    if(is32bits)
         old = load_addr_32bits;
     else {
         if(old)
             old = old + NBRICK * sizeof(onebridge_t);
     }
-    void* ptr = box_mmap(old, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!box64_is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0); // 0x40 is MAP_32BIT
+    void* ptr = box_mmap(old, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0); // 0x40 is MAP_32BIT
     if(ptr == MAP_FAILED)
-        ptr = box_mmap(NULL, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!box64_is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0);
+        ptr = box_mmap(NULL, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0);
     if(ptr == MAP_FAILED) {
         printf_log(LOG_NONE, "Warning, cannot allocate 0x%lx aligned bytes for bridge, will probably crash later\n", NBRICK*sizeof(onebridge_t));
     }
     setProtection_box((uintptr_t)ptr, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC | PROT_NOPROT);
     dynarec_log(LOG_INFO, "New Bridge brick at %p (size 0x%zx)\n", ptr, NBRICK*sizeof(onebridge_t));
-    if(box64_is32bits) load_addr_32bits = ptr + NBRICK*sizeof(onebridge_t);
+    if(is32bits) load_addr_32bits = ptr + NBRICK*sizeof(onebridge_t);
     ret->b = ptr;
     return ret;
 }
@@ -75,7 +76,7 @@ bridge_t *NewBridge()
     void* load_addr = NULL;
     if((!box64_is32bits && box64_wine && my_context->exit_bridge))  // a first bridge is create for system use, before box64_is32bits can be computed, so use exit_bridge to detect that
         load_addr = (void*)0x700000000000LL;
-    b->head = NewBrick(load_addr);
+    b->head = NewBrick(load_addr, box64_is32bits);
     b->last = b->head;
     b->bridgemap = kh_init(bridgemap);
 
@@ -99,6 +100,12 @@ void FreeBridge(bridge_t** bridge)
     *bridge = NULL;
 }
 
+static khint128_t getKey(wrapper_t w, void* fnc, void* fnc2)
+{
+    // addresses are 48bits max, and the wrapper, being part of box64, is expected to be 32bits, so the key is constitute as fnc2(48)fnc(48)wrap(32)
+    return ((((uintptr_t)fnc)&0xffffffffffffULL)<<32) | (khint128_t)((uintptr_t)fnc2&0xffffffffffffULL)<<(64+16) | ((uintptr_t)w&0xffffffffULL);
+}
+
 //static const char* default_bridge = "bridge???";
 uintptr_t AddBridge2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2, int N, const char* name)
 {
@@ -109,14 +116,14 @@ uintptr_t AddBridge2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2, int N
     mutex_lock(&my_context->mutex_bridge);
     b = bridge->last;
     if(b->sz == (int)NBRICK) {
-        b->next = NewBrick(b->b);
+        b->next = NewBrick(b->b, box64_is32bits);
         b = b->next;
         bridge->last = b;
     }
     sz = b->sz;
     b->sz++;
     // add bridge to map, for fast recovery
-    khint128_t key = (uintptr_t)fnc | (khint128_t)((uintptr_t)fnc2)<<64;
+    khint128_t key = getKey(w, fnc, fnc2);
     khint_t k = kh_put(bridgemap, bridge->bridgemap, key, &ret);
     kh_value(bridge->bridgemap, k) = (uintptr_t)&b->b[sz].CC;
     mutex_unlock(&my_context->mutex_bridge);
@@ -138,19 +145,19 @@ uintptr_t AddBridge(bridge_t* bridge, wrapper_t w, void* fnc, int N, const char*
     return AddBridge2(bridge, w, fnc, NULL, N, name);
 }
 
-uintptr_t CheckBridged(bridge_t* bridge, void* fnc)
+uintptr_t CheckBridged(bridge_t* bridge, wrapper_t w, void* fnc)
 {
     // check if function alread have a bridge (the function wrapper will not be tested)
-    khint_t k = kh_get(bridgemap, bridge->bridgemap, (uintptr_t)fnc);
+    khint_t k = kh_get(bridgemap, bridge->bridgemap, getKey(w, fnc, NULL));
     if(k==kh_end(bridge->bridgemap))
         return 0;
     return kh_value(bridge->bridgemap, k);
 }
 
-uintptr_t CheckBridged2(bridge_t* bridge, void* fnc, void* fnc2)
+uintptr_t CheckBridged2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2)
 {
     // check if function alread have a bridge (the function wrapper will not be tested)
-    khint128_t key = (uintptr_t)fnc | (khint128_t)((uintptr_t)fnc2)<<64;
+    khint128_t key = getKey(w, fnc, fnc2);
     khint_t k = kh_get(bridgemap, bridge->bridgemap, key);
     if(k==kh_end(bridge->bridgemap))
         return 0;
@@ -161,7 +168,7 @@ uintptr_t AddCheckBridge(bridge_t* bridge, wrapper_t w, void* fnc, int N, const 
 {
     if(!fnc && w)
         return 0;
-    uintptr_t ret = CheckBridged(bridge, fnc);
+    uintptr_t ret = CheckBridged(bridge, w, fnc);
     if(!ret)
         ret = AddBridge(bridge, w, fnc, N, name);
     return ret;
@@ -171,7 +178,7 @@ uintptr_t AddCheckBridge2(bridge_t* bridge, wrapper_t w, void* fnc, void* fnc2, 
 {
     if(!fnc && w)
         return 0;
-    uintptr_t ret = CheckBridged2(bridge, fnc, fnc2);
+    uintptr_t ret = CheckBridged2(bridge, w, fnc, fnc2);
     if(!ret)
         ret = AddBridge2(bridge, w, fnc, fnc2, N, name);
     return ret;
@@ -181,7 +188,7 @@ uintptr_t AddAutomaticBridge(bridge_t* bridge, wrapper_t w, void* fnc, int N, co
 {
     if(!fnc)
         return 0;
-    uintptr_t ret = CheckBridged(bridge, fnc);
+    uintptr_t ret = CheckBridged(bridge, w, fnc);
     if(!ret)
         ret = AddBridge(bridge, w, fnc, N, name);
     if(!hasAlternate(fnc)) {
@@ -195,7 +202,7 @@ uintptr_t AddAutomaticBridgeAlt(bridge_t* bridge, wrapper_t w, void* fnc, void* 
 {
     if(!fnc)
         return 0;
-    uintptr_t ret = CheckBridged(bridge, alt);
+    uintptr_t ret = CheckBridged(bridge, w, alt);
     if(!ret)
         ret = AddBridge(bridge, w, alt, N, name);
     if(!hasAlternate(fnc)) {
@@ -203,6 +210,34 @@ uintptr_t AddAutomaticBridgeAlt(bridge_t* bridge, wrapper_t w, void* fnc, void* 
         addAlternate(fnc, (void*)ret);
     }
     return ret;
+}
+
+uintptr_t AddAltJump(bridge_t* bridge, uintptr_t addr, uintptr_t jump_to_addr)
+{
+    brick_t *b = NULL;
+    int sz = -1;
+    int ret;
+
+    mutex_lock(&my_context->mutex_bridge);
+    b = bridge->last;
+    if(b->sz == (int)NBRICK) {
+        b->next = NewBrick(b->b, 1);
+        b = b->next;
+        bridge->last = b;
+    }
+    sz = b->sz++;
+    mutex_unlock(&my_context->mutex_bridge);
+
+    // 64bit && 32bit jumps
+    b->b[sz].FF = 0xFF;
+    b->b[sz]._25 = 0x25;
+    b->b[sz].offset6 = 6;
+    b->b[sz].FF_2 = 0xFF;
+    b->b[sz]._25_2 = 0x25;
+    b->b[sz].delta = (uintptr_t)&b->b[sz].jmpaddr;
+    b->b[sz].jmpaddr = jump_to_addr;
+    dynarec_log(LOG_INFO, "Added AltJump for %p to %p at %p\n", (void*)addr, (void*)jump_to_addr, &b->b[sz]);
+    return (uintptr_t)&b->b[sz];
 }
 
 void* GetNativeOrAlt(void* fnc, void* alt)
@@ -256,7 +291,7 @@ uintptr_t AddVSyscall(bridge_t* bridge, int num)
     mutex_lock(&my_context->mutex_bridge);
     b = bridge->last;
     if(b->sz == (int)NBRICK) {
-        b->next = NewBrick(b->b);
+        b->next = NewBrick(b->b, box64_is32bits);
         b = b->next;
         bridge->last = b;
     }
@@ -285,13 +320,21 @@ const char* getBridgeName(void* addr)
             return "ExitEmulation";
         else {
             if(one->func)
-                return GetNativeName(one->name_or_func);
+                return GetNativeName(one->name_or_func, 0);
             else
                 return one->name_or_func;
         }
     }
     return NULL;
 }
+
+#if !defined(DYNAREC) || !defined(LA64)
+int isInlinableNativeCall(uintptr_t addr)
+{
+    (void)addr;
+    return 0;
+}
+#endif
 
 void* getBridgeFnc2(void* addr)
 {
@@ -354,6 +397,32 @@ int isNativeCall32(uintptr_t addr, uintptr_t* calladdress, uint16_t* retn)
 }
 #endif
 
+// Strict readable-range guard: native-call probing must fail-closed.
+// Wine mappings can be transient while loader updates protections.
+static int bridge_can_read_range(uintptr_t p, size_t sz)
+{
+    if (!p || !sz)
+        return 0;
+    uintptr_t end = p + sz - 1;
+    if (end < p)
+        return 0;
+
+    uintptr_t cur = p & ~(box64_pagesize - 1);
+    uintptr_t last = end & ~(box64_pagesize - 1);
+    while (1) {
+        if (!memExist(cur))
+            return 0;
+        if (!(getProtection(cur) & PROT_READ))
+            return 0;
+        if (cur == last)
+            break;
+        if (cur > UINTPTR_MAX - box64_pagesize)
+            return 0;
+        cur += box64_pagesize;
+    }
+    return 1;
+}
+
 int isNativeCallInternal(uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t* retn)
 {
     if (is32bits)
@@ -362,13 +431,17 @@ int isNativeCallInternal(uintptr_t addr, int is32bits, uintptr_t* calladdress, u
 #define PK(a)   *(uint8_t*)(addr + a)
 #define PK32(a) *(int32_t*)(addr + a)
 
-    if (!addr || !getProtection(addr))
+    if (!bridge_can_read_range(addr, 2))
         return 0;
     if (PK(0) == 0xff && PK(1) == 0x25) {    // "absolute" jump, maybe the GOT (well, RIP relative in fact)
+        if (!bridge_can_read_range(addr + 2, sizeof(int32_t)))
+            return 0;
         uintptr_t a1 = addr + 6 + (PK32(2)); // need to add a check to see if the address is from the GOT !
+        if (!bridge_can_read_range(a1, sizeof(void*)))
+            return 0;
         addr = (uintptr_t)getAlternate(*(void**)a1);
     }
-    if (!addr || !getProtection(addr))
+    if (!bridge_can_read_range(addr, sizeof(onebridge_t)))
         return 0;
     onebridge_t* b = (onebridge_t*)(addr);
     if (b->CC == 0xCC && IsBridgeSignature(b->S, b->C) && b->w != (wrapper_t)0 && b->f != (uintptr_t)PltResolver64) {

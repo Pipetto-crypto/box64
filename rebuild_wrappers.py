@@ -403,6 +403,8 @@ def readFiles(files: Iterable[Filename]) -> Tuple[JumbledGlobals, JumbledRedirec
 							 or match("sdl1mixer", "sdl2mixer") \
 							 or match("sdl1net", "sdl2net") \
 							 or match("sdl1ttf", "sdl2ttf") \
+							 or match("sdl1ttf", "sdl3ttf") \
+							 or match("sdl2ttf", "sdl3ttf") \
 							 or match("libgl", "libegl") \
 							 or match("libgl", "glesv2") \
 							 or match("libgl", "libglxnvidia") \
@@ -414,8 +416,14 @@ def readFiles(files: Iterable[Filename]) -> Tuple[JumbledGlobals, JumbledRedirec
 							 or match("libc", "tcmallocminimal") \
 							 or match("libc", "tbbmallocproxy") \
 							 or match("libc", "androidshmem") \
+							 or match("libc", "mimalloc") \
 							 or match("crypto", "libssl3") \
-							 or match("tcmallocminimal", "tbbmallocproxy"):
+							 or match("tcmallocminimal", "tbbmallocproxy") \
+							 or match("tcmallocminimal", "mimalloc") \
+							 or match("tbbmallocproxy", "mimalloc") \
+							 or match("libbsd", "mimalloc") \
+							 or match("iconv", "libunistring2") \
+							 or match("gomp", "libomp"):
 								continue
 							
 							# Note: this test is very (too) simple. If it ever raises, comment
@@ -1180,7 +1188,7 @@ def main(root: str, files: Iterable[Filename], ver: str):
 				"fn({0});",                                                # v
 				"R_RAX=(uint8_t)fn({0});",                                 # c
 				"R_RAX=(uint16_t)fn({0});",                                # w
-				"R_RAX=(uint32_t)fn({0});",                                # i
+				"R_RAX=(int)fn({0});",                                	   # i
 				"S_RAX=(int64_t)fn({0});",                                 # I
 				"R_RAX=(unsigned char)fn({0});",                           # C
 				"R_RAX=(unsigned short)fn({0});",                          # W
@@ -1209,8 +1217,8 @@ def main(root: str, files: Iterable[Filename], ver: str):
 				"fn({0});",                                                # v
 				"R_RAX=fn({0});",                                          # c
 				"R_RAX=fn({0});",                                          # w
-				"R_RAX=(int32_t)fn({0});",                                 # i
-				"R_RAX=(int64_t)fn({0});",                                 # I
+				"R_RAX=(int)fn({0});",                                     # i
+				"S_RAX=(int64_t)fn({0});",                                 # I
 				"R_RAX=(unsigned char)fn({0});",                           # C
 				"R_RAX=(unsigned short)fn({0});",                          # W
 				"R_RAX=(uint32_t)fn({0});",                                # u

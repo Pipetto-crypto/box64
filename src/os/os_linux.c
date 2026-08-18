@@ -85,18 +85,18 @@ void* GetSegmentBase(void* emu, uint32_t desc)
     }
     int base = desc >> 3;
     int is_ldt = !!(desc&4);
-    base_segment_t* segs = is_ldt?((x64emu_t*)emu)->segldt:((base>5)?((x64emu_t*)emu)->seggdt:my_context->seggdt);
     if(!box64_nolibs) {
         if (!box64_is32bits && (base == 0x8) )
             return GetSeg43Base((x64emu_t*)emu);
         if (box64_is32bits && (base == 0x6))
             return GetSeg43Base((x64emu_t*)emu);
-        }
+    }
     if (base > 15) {
         printf_log(LOG_NONE, "Warning, accessing segment unknown 0x%x or unset\n", desc);
         return NULL;
     }
-
+    
+    base_segment_t* segs = is_ldt?((x64emu_t*)emu)->segldt:((base>5)?((x64emu_t*)emu)->seggdt:my_context->seggdt);
     void* ptr = (void*)segs[base].base;
     return ptr;
 }
@@ -106,9 +106,10 @@ const char* GetBridgeName(void* p)
     return getBridgeName(p);
 }
 
-const char* GetNativeName(void* p)
+static __thread char native_name[500] = { 0 };
+
+const char* GetNativeName(void* p, int lib)
 {
-    static char buff[500] = { 0 };
     {
         const char* n = GetBridgeName(p);
         if (n)
@@ -119,22 +120,22 @@ const char* GetNativeName(void* p)
         const char* ret = GetNameOffset(my_context->maplib, p);
         if (ret)
             return ret;
-        sprintf(buff, "%s(%p)", "???", p);
-        return buff;
+        sprintf(native_name, "%s(%p)", "???", p);
+        return native_name;
     } else {
         if (info.dli_sname) {
-            strcpy(buff, info.dli_sname);
-            if (info.dli_fname) {
-                strcat(buff, "(");
-                strcat(buff, info.dli_fname);
-                strcat(buff, ")");
+            strcpy(native_name, info.dli_sname);
+            if (lib && info.dli_fname) {
+                strcat(native_name, "(");
+                strcat(native_name, info.dli_fname);
+                strcat(native_name, ")");
             }
         } else {
-            sprintf(buff, "%s(%s+%p)", "???", info.dli_fname, (void*)(p - info.dli_fbase));
-            return buff;
+            sprintf(native_name, "%s(%s+%p)", "???", info.dli_fname, (void*)(p - info.dli_fbase));
+            return native_name;
         }
     }
-    return buff;
+    return native_name;
 }
 
 
@@ -157,7 +158,7 @@ void PersonalityAddrLimit32Bit(void)
 
 int IsAddrElfOrFileMapped(uintptr_t addr)
 {
-    return FindElfAddress(my_context, addr) || IsAddrFileMapped(addr, NULL, NULL);
+    return FindElfAddress(my_context, addr) || IsAddrFileMappedNoMemFD(addr);
 }
 
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
@@ -224,14 +225,16 @@ void PrintfFtrace(int prefix, const char* fmt, ...)
         } else {
             sprintf(tmp, "[%s] ", names[box64_is32bits]);
         }
-        write(trace_fd, tmp, strlen(tmp));
+        int w = write(trace_fd, tmp, strlen(tmp));
+        (void)w;
     }
     va_list args;
     va_start(args, fmt);
     vsprintf(tmp, fmt, args);
     fflush(ftrace);
     va_end(args);
-    write(trace_fd, tmp, strlen(tmp));
+    int w = write(trace_fd, tmp, strlen(tmp));
+    (void)w;
 }
 
 void* GetEnv(const char* name)

@@ -1107,6 +1107,28 @@ static void* find_quit_Fct(void* fct)
     printf_log(LOG_NONE, "Warning, no more slot for pulse audio quit callback\n");
     return NULL;
 }
+// pa_context_string_cb
+#define GO(A)                                                               \
+static uintptr_t my_pa_context_string_cb_fct_##A = 0;                       \
+static void my_pa_context_string_cb_##A(void* a, int b, void* c, void* d)   \
+{                                                                           \
+    RunFunctionFmt(my_pa_context_string_cb_fct_##A, "pipp", a, b, c, d);    \
+}
+SUPER()
+#undef GO
+static void* find_pa_context_string_cb_Fct(void* fct)
+{
+    if(!fct) return fct;
+    if(GetNativeFnc((uintptr_t)fct))  return GetNativeFnc((uintptr_t)fct);
+    #define GO(A) if(my_pa_context_string_cb_fct_##A == (uintptr_t)fct) return my_pa_context_string_cb_##A;
+    SUPER()
+    #undef GO
+    #define GO(A) if(my_pa_context_string_cb_fct_##A == 0) {my_pa_context_string_cb_fct_##A = (uintptr_t)fct; return my_pa_context_string_cb_##A; }
+    SUPER()
+    #undef GO
+    printf_log(LOG_NONE, "Warning, no more slot for pulse audio pa_context_string_cb callback\n");
+    return NULL;
+}
 
 #undef SUPER
 
@@ -1249,14 +1271,14 @@ EXPORT void my_pa_context_set_state_callback(x64emu_t* emu, void* context, void*
     my->pa_context_set_state_callback(context, find_state_context_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_default_sink(x64emu_t* emu, void* context, void* name, void* cb, void* data)
+EXPORT void* my_pa_context_set_default_sink(x64emu_t* emu, void* context, void* name, void* cb, void* data)
 {
-    my->pa_context_set_default_sink(context, name, find_success_context_Fct(cb), data);
+    return my->pa_context_set_default_sink(context, name, find_success_context_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_default_source(x64emu_t* emu, void* context, void* name, void* cb, void* data)
+EXPORT void* my_pa_context_set_default_source(x64emu_t* emu, void* context, void* name, void* cb, void* data)
 {
-    my->pa_context_set_default_source(context, name, find_success_context_Fct(cb), data);
+    return my->pa_context_set_default_source(context, name, find_success_context_Fct(cb), data);
 }
 
 EXPORT void* my_pa_context_move_sink_input_by_index(x64emu_t* emu, void* context, uint32_t idx, uint32_t sink_idx, void* cb, void* data)
@@ -1303,14 +1325,14 @@ EXPORT void* my_pa_context_get_source_info_list(x64emu_t* emu, void* context, vo
     return my->pa_context_get_source_info_list(context, find_module_info_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_sink_input_mute(x64emu_t* emu, void* context, uint32_t idx, int mute, void* cb, void* data)
+EXPORT void* my_pa_context_set_sink_input_mute(x64emu_t* emu, void* context, uint32_t idx, int mute, void* cb, void* data)
 {
-    my->pa_context_set_sink_input_mute(context, idx, mute, find_success_context_Fct(cb), data);
+    return my->pa_context_set_sink_input_mute(context, idx, mute, find_success_context_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_sink_input_volume(x64emu_t* emu, void* context, uint32_t idx, void* volume, void* cb, void* data)
+EXPORT void* my_pa_context_set_sink_input_volume(x64emu_t* emu, void* context, uint32_t idx, void* volume, void* cb, void* data)
 {
-    my->pa_context_set_sink_input_volume(context, idx, volume, find_success_context_Fct(cb), data);
+    return my->pa_context_set_sink_input_volume(context, idx, volume, find_success_context_Fct(cb), data);
 }
 
 EXPORT void* my_pa_context_get_sink_info_by_index(x64emu_t* emu, void* context, uint32_t idx, void* cb, void* data)
@@ -1323,19 +1345,19 @@ EXPORT void* my_pa_context_get_source_info_by_index(x64emu_t* emu, void* context
     return my->pa_context_get_source_info_by_index(context, idx, find_module_info_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_source_volume_by_index(x64emu_t* emu, void* context, uint32_t idx, void* volume, void* cb, void* data)
+EXPORT void* my_pa_context_set_source_volume_by_index(x64emu_t* emu, void* context, uint32_t idx, void* volume, void* cb, void* data)
 {
-    my->pa_context_set_source_volume_by_index(context, idx, volume, find_success_context_Fct(cb), data);
+    return my->pa_context_set_source_volume_by_index(context, idx, volume, find_success_context_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_source_mute_by_index(x64emu_t* emu, void* context, uint32_t idx, int mute, void* cb, void* data)
+EXPORT void* my_pa_context_set_source_mute_by_index(x64emu_t* emu, void* context, uint32_t idx, int mute, void* cb, void* data)
 {
-    my->pa_context_set_source_mute_by_index(context, idx, mute, find_success_context_Fct(cb), data);
+    return my->pa_context_set_source_mute_by_index(context, idx, mute, find_success_context_Fct(cb), data);
 }
 
-EXPORT void my_pa_context_set_sink_volume_by_index(x64emu_t* emu, void* context, uint32_t idx, void* volume, void* cb, void* data)
+EXPORT void* my_pa_context_set_sink_volume_by_index(x64emu_t* emu, void* context, uint32_t idx, void* volume, void* cb, void* data)
 {
-    my->pa_context_set_sink_volume_by_index(context, idx, volume, find_success_context_Fct(cb), data);
+    return my->pa_context_set_sink_volume_by_index(context, idx, volume, find_success_context_Fct(cb), data);
 }
 
 EXPORT void* my_pa_context_unload_module(x64emu_t* emu, void* context, uint32_t idx, void* cb, void* data)
@@ -1653,6 +1675,11 @@ EXPORT void my_pa_mainloop_api_once(x64emu_t* emu, void* mainloop, void* cb, voi
 void my_autobridge_mainloop_api(x64emu_t* emu, void* api)
 {
     UpdateautobridgeMainloopAPI(emu, my_lib->w.bridge, api);
+}
+
+EXPORT void* my_pa_context_send_message_to_object(x64emu_t* emu, void* c, void* name, void* msg, void* param, void* f, void* data)
+{
+    return my->pa_context_send_message_to_object(c, name, msg, param, find_pa_context_string_cb_Fct(f), data);
 }
 
 #define PRE_INIT        \

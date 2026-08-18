@@ -33,12 +33,17 @@
 #define STOP_NATIVE_FLAGS(A, B)   A->insts[B].nat_flags_op = NAT_FLAG_OP_UNUSABLE
 #define ARCH_UNALIGNED(A, B) arch_unaligned(A, B)
 extern uint32_t arm64_crc(void* p, uint32_t len);
-#define ARCH_CRC(A, B)  if(cpuext.crc32) return arm64_crc(A, B)
+extern uint32_t arm64_x31_hash(void* p, uint32_t len);
+#define ARCH_CRC(A, B)  if(cpuext.crc32) return arm64_crc(A, B); else return arm64_x31_hash(A, B)
 extern void* create_updateflags();
 #define ARCH_UPDATEFLAGS()      create_updateflags()
+#define ADDITIONNAL_CHECKS()    additionnal_checks(dyn, ninst);
+#define ARCH_CRC_INLINE
+extern void arm64_next_invalid();
 
 #define ARCH_NOP    0b11010101000000110010000000011111
 #define ARCH_UDF    0xcafe
+#define JMPNEXT_SIZE    (4*sizeof(void*))
 #elif defined(LA64)
 
 #define instruction_native_t        instruction_la64_t
@@ -54,21 +59,31 @@ extern void* create_updateflags();
 #include "la64/la64_printer.h"
 #include "la64/dynarec_la64_private.h"
 #include "la64/dynarec_la64_functions.h"
+#include "la64/dynarec_la64_arch.h"
 // Limit here is unconditionnal jump, that is signed 28bits
 #define MAXBLOCK_SIZE ((1 << 27) - 200)
 
 #define RAZ_SPECIFIC(A, N)
 #define UPDATE_SPECIFICS(A)    propagateFpuBarrier(A)
 #define PREUPDATE_SPECIFICS(A) updateNativeFlags(A)
-#define POSTUPDATE_SPECIFICS(A)
+#define POSTUPDATE_SPECIFICS(A) updatePreloads(A)
 
-#define ARCH_SIZE(A)    0
-#define ARCH_FILL(A, B, C)  NULL
-#define ARCH_ADJUST(A, B, C, D) {}
+#define ARCH_SIZE(A)    get_size_arch(A)
+#define ARCH_FILL(A, B, C)  populate_arch(A, B, C)
+#define ARCH_ADJUST(A, B, C, D) adjust_arch(A, B, C, D)
 #define STOP_NATIVE_FLAGS(A, B) {}
-#define ARCH_UNALIGNED(A, B) 0
+#define ARCH_UNALIGNED(A, B) arch_unaligned(A, B)
 extern uint32_t la64_crc(void* p, uint32_t len);
+extern void la64_crc_autocrc(); // same as la64_crc, but not using regular ABI
 #define ARCH_CRC(A, B)       return la64_crc(A, B)
+
+#define ARCH_NOP    (0b0000001101<<22)
+#define ARCH_UDF    0x38600400
+
+#define JMPNEXT_SIZE    (4*sizeof(void*))
+#define ADDITIONNAL_CHECKS()
+#define ARCH_CRC_INLINE
+extern void la64_next_invalid();
 
 #elif defined(RV64)
 
@@ -101,6 +116,52 @@ extern uint32_t la64_crc(void* p, uint32_t len);
 #define ARCH_ADJUST(A, B, C, D) {}
 #define STOP_NATIVE_FLAGS(A, B) {}
 #define ARCH_UNALIGNED(A, B) arch_unaligned(A, B)
+
+#define ARCH_NOP    0b0010011
+#define ARCH_UDF    0xc0001073
+
+#define JMPNEXT_SIZE    (4*sizeof(void*))
+#define ADDITIONNAL_CHECKS()
+
+#elif defined(PPC64LE)
+
+#define instruction_native_t        instruction_ppc64le_t
+#define dynarec_native_t            dynarec_ppc64le_t
+#define extcache_native_t           vmxcache_t
+
+#define ADDITIONNAL_DEFINITION() \
+    int fpuCacheNeedsTransform(dynarec_native_t* dyn, int ninst);
+
+#define OTHER_CACHE() \
+    if (fpuCacheNeedsTransform(dyn, ninst)) ret |= 2;
+
+#include "ppc64le/ppc64le_printer.h"
+#include "ppc64le/dynarec_ppc64le_private.h"
+#include "ppc64le/dynarec_ppc64le_functions.h"
+#include "ppc64le/dynarec_ppc64le_arch.h"
+// Limit here is unconditional branch (I-form), signed 26bits (24-bit field << 2), so ±32MB
+#define MAXBLOCK_SIZE ((1 << 24) - 200)
+
+#define RAZ_SPECIFIC(A, N)
+#define UPDATE_SPECIFICS(A)    propagateFpuBarrier(A)
+#define PREUPDATE_SPECIFICS(A) updateNativeFlags(A)
+#define POSTUPDATE_SPECIFICS(A)
+
+#define ARCH_SIZE(A)    get_size_arch(A)
+#define ARCH_FILL(A, B, C) populate_arch(A, B, C)
+#define ARCH_ADJUST(A, B, C, D) adjust_arch(A, B, C, D)
+#define STOP_NATIVE_FLAGS(A, B) {}
+#define ARCH_UNALIGNED(A, B) arch_unaligned(A, B)
+extern uint32_t ppc64le_fast_hash(void* p, uint32_t len);
+#define ARCH_CRC(A, B)       return ppc64le_fast_hash(A, B)
+
+#define ARCH_NOP    0x60000000  /* ori 0,0,0 */
+#define ARCH_UDF    0x00000000  /* illegal instruction (all zeros) */
+// PPC64LE CreateJmpNext needs 5 instructions (20 bytes) for PC-relative load + branch,
+// so the jmpnext area needs 5 void* slots (40 bytes) instead of the default 4 (32 bytes).
+#define JMPNEXT_SIZE    (5*sizeof(void*))
+#define ADDITIONNAL_CHECKS()
+
 #else
 #error Unsupported platform
 #endif

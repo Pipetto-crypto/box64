@@ -91,12 +91,15 @@ typedef struct extcache_s {
     int8_t              fpu_scratch;    // scratch counter
 } extcache_t;
 
-typedef struct flagcache_s {
-    int                 pending;    // is there a pending flags here, or to check?
-    uint8_t             dfnone;     // if deferred flags is already set to df_none
+typedef enum flagcache_s {
+    status_unk = 0,      // unknown deferred flags status
+    status_set,          // deferred flags set to something (not 0)
+    status_none_pending, // deferred flags set to 0, but still pending the write to x64emu_t
+    status_none,         // deferred flags set to 0, written to x64emu_t
 } flagcache_t;
 
 typedef struct callret_s callret_t;
+typedef struct sep_s sep_t;
 
 typedef struct instruction_rv64_s {
     instruction_x64_t   x64;
@@ -106,7 +109,7 @@ typedef struct instruction_rv64_s {
     int                 size2;      // size of the riscv emitted instruction after pass2
     int                 pred_sz;    // size of predecessor list
     int                 *pred;      // predecessor array
-    uintptr_t           mark[3];
+    uintptr_t           mark[4];
     uintptr_t           markf[2];
     uintptr_t           markseg;
     uintptr_t           marklock;
@@ -120,7 +123,9 @@ typedef struct instruction_rv64_s {
     uint8_t             will_read:1;     // [strongmem] will read from memory
     uint8_t             last_write:1;    // [strongmem] the last write in a SEQ
     uint8_t             lock:1;          // [strongmem] lock semantic
-    uint8_t             df_notneeded;
+    uint8_t             df_needed:1;
+    uint8_t             df_notneeded:1;
+    uint8_t             sep:1;           // opcode is a secondary entry point
     uint8_t             nat_flags_fusion:1;
     uint8_t             nat_flags_nofusion:1;
     uint8_t             nat_flags_carry:1;
@@ -169,7 +174,9 @@ typedef struct dynarec_rv64_s {
     instsize_t*         instsize;
     size_t              insts_size; // size of the instruction size array (calculated)
     int                 callret_size;   // size of the array
-    callret_t*          callrets;   // arrey of callret return, with NOP / UDF depending if the block is clean or dirty
+    int                 sep_size;   // size of the array
+    callret_t*          callrets;   // array of callret return, with NOP / UDF depending if the block is clean or dirty
+    sep_t*              sep;        // array of secondary entry point
     uint8_t             smwrite;    // for strongmem model emulation
     uintptr_t           forward;    // address of the last end of code while testing forward
     uintptr_t           forward_to; // address of the next jump to (to check if everything is ok)
@@ -183,6 +190,7 @@ typedef struct dynarec_rv64_s {
     uint8_t             inst_sew;       // sew inside current instruction, for vsetvli elimination
     uint8_t             inst_vl;        // vl inside current instruction, for vsetvli elimination
     uint8_t             inst_vlmul;     // vlmul inside current instruction
+    uint8_t             is_file_mapped; // if the memory is a mapped file (probably binary, not a memory)
     void*               gdbjit_block;
     uint32_t            need_x87check; // x87 low precision check
     uint32_t            need_dump;     // need to dump the block
@@ -209,6 +217,32 @@ int isTable64(dynarec_rv64_t *dyn, uint64_t val); // return 1 if val already in 
 int Table64(dynarec_rv64_t *dyn, uint64_t val, int pass);  // add a value to table64 (if needed) and gives back the imm19 to use in LDR_literal
 
 void CreateJmpNext(void* addr, void* next);
+
+// While we could theoretically traverse forward to find the flags-consuming x86
+// instruction and get the exact scratch registers to save, this is too complicated.
+// So we went with the simpler approach of saving all scratch registers, this won't
+// add noticeable performance overhead in trace mode.
+#define SPILL_NF_REGISTERS       \
+    do {                         \
+        SUBI(xSP, xSP, 6 * 8);   \
+        SD(x1, xSP, 0 * 8);      \
+        SD(x2, xSP, 1 * 8);      \
+        SD(x3, xSP, 2 * 8);      \
+        SD(x4, xSP, 3 * 8);      \
+        SD(x5, xSP, 4 * 8);      \
+        SD(x6, xSP, 5 * 8);      \
+    } while(0);
+
+#define RESTORE_NF_REGISTERS     \
+    do {                         \
+        LD(x1, xSP, 0 * 8);      \
+        LD(x2, xSP, 1 * 8);      \
+        LD(x3, xSP, 2 * 8);      \
+        LD(x4, xSP, 3 * 8);      \
+        LD(x5, xSP, 4 * 8);      \
+        LD(x6, xSP, 5 * 8);      \
+        ADDI(xSP, xSP, 6 * 8);   \
+    } while(0);
 
 #define GO_TRACE(A, B, s0)       \
     GETIP(addr, s0);             \

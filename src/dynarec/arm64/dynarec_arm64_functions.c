@@ -28,6 +28,11 @@
 // Get a FPU scratch reg
 int fpu_get_scratch(dynarec_arm_t* dyn, int ninst)
 {
+    if(dyn->n.fpu_scratch >= 8) {
+        printf_log(LOG_INFO, "BOX64 Dynarec: out of FPU scratch registers at inst=%d\n", ninst);
+        dyn->abort = 1;
+        return SCRATCH0;
+    }
     int ret = SCRATCH0 + dyn->n.fpu_scratch++;
     if(dyn->n.ymm_used) {
         printf_log(LOG_INFO, "Warning, getting a scratch register after getting some YMM at inst=%d", ninst);
@@ -44,6 +49,11 @@ int fpu_get_scratch(dynarec_arm_t* dyn, int ninst)
 // Get 2 consicutive FPU scratch reg
 int fpu_get_double_scratch(dynarec_arm_t* dyn, int ninst)
 {
+    if(dyn->n.fpu_scratch >= 7) {
+        printf_log(LOG_INFO, "BOX64 Dynarec: out of FPU double scratch registers at inst=%d\n", ninst);
+        dyn->abort = 1;
+        return SCRATCH0;
+    }
     int ret = SCRATCH0 + dyn->n.fpu_scratch;
     if(dyn->n.ymm_used) {
         printf_log(LOG_INFO, "Warning, getting a double scratch register after getting some YMM at inst=%d", ninst);
@@ -76,12 +86,19 @@ void fpu_reset_scratch(dynarec_arm_t* dyn)
     dyn->n.xmm_unneeded = 0;
     dyn->n.ymm_unneeded = 0;
     dyn->n.xmm_removed = 0;
+    dyn->n.xmm_scalar = 0;
+    dyn->n.xmm_scalar_single = 0;
 }
 // Get a x87 double reg
 int fpu_get_reg_x87(dynarec_arm_t* dyn, int ninst, int t, int n)
 {
     int i=X870;
-    while (dyn->n.fpuused[i]) ++i;
+    while (i<32 && dyn->n.fpuused[i]) ++i;
+    if(i==32) {
+        printf_log(LOG_INFO, "BOX64 Dynarec: out of FPU x87 registers at inst=%d\n", ninst);
+        dyn->abort = 1;
+        return X870;
+    }
     if(dyn->n.neoncache[i].t==NEON_CACHE_YMMR || dyn->n.neoncache[i].t==NEON_CACHE_YMMW) {
         // should only happens in step 0...
         dyn->insts[ninst].purge_ymm |= (1<<dyn->n.neoncache[i].n); // mark as purged
@@ -98,22 +115,23 @@ int fpu_get_reg_x87(dynarec_arm_t* dyn, int ninst, int t, int n)
 void fpu_free_reg(dynarec_arm_t* dyn, int reg)
 {
     // TODO: check upper limit?
+    int t = dyn->n.neoncache[reg].t;
+    int n = dyn->n.neoncache[reg].n;
     dyn->n.fpuused[reg] = 0;
-    if(dyn->n.neoncache[reg].t==NEON_CACHE_YMMR || dyn->n.neoncache[reg].t==NEON_CACHE_YMMW) {
-        dyn->n.ymm_removed |= 1<<dyn->n.neoncache[reg].n;
-        if(dyn->n.neoncache[reg].t==NEON_CACHE_YMMW)
-            dyn->n.ymm_write |= 1<<dyn->n.neoncache[reg].n;
-        if(reg>SCRATCH0)
-            dyn->n.ymm_regs |= (8LL+reg-SCRATCH0)<<(dyn->n.neoncache[reg].n*4);
+    if(t==NEON_CACHE_XMMR || t==NEON_CACHE_XMMW) {
+        dyn->n.xmm_removed |= 1<<n;
+        if(t==NEON_CACHE_XMMW)
+            dyn->n.xmm_write |= 1<<n;
+    } else if(t==NEON_CACHE_YMMR || t==NEON_CACHE_YMMW) {
+        dyn->n.ymm_removed |= 1<<n;
+        if(t==NEON_CACHE_YMMW)
+            dyn->n.ymm_write |= 1<<n;
+        if(reg>=SCRATCH0)
+            dyn->n.ymm_regs |= (8LL+reg-SCRATCH0)<<(n*4);
         else
-            dyn->n.ymm_regs |= ((uint64_t)(reg-EMM0))<<(dyn->n.neoncache[reg].n*4);
+            dyn->n.ymm_regs |= ((uint64_t)(reg-EMM0))<<(n*4);
     }
-    if(dyn->n.neoncache[reg].t==NEON_CACHE_XMMR || dyn->n.neoncache[reg].t==NEON_CACHE_XMMW) {
-        dyn->n.xmm_removed |= 1<<dyn->n.neoncache[reg].n;
-        if(dyn->n.neoncache[reg].t==NEON_CACHE_XMMW)
-            dyn->n.xmm_write |= 1<<dyn->n.neoncache[reg].n;
-    }
-    if(dyn->n.neoncache[reg].t!=NEON_CACHE_ST_F && dyn->n.neoncache[reg].t!=NEON_CACHE_ST_D && dyn->n.neoncache[reg].t!=NEON_CACHE_ST_I64)
+    if(t!=NEON_CACHE_ST_F && t!=NEON_CACHE_ST_D && t!=NEON_CACHE_ST_I64)
         dyn->n.neoncache[reg].v = 0;
     if(dyn->n.fpu_scratch && reg==SCRATCH0+dyn->n.fpu_scratch-1)
         --dyn->n.fpu_scratch;
@@ -428,7 +446,7 @@ static int isCacheEmpty(dynarec_native_t* dyn, int ninst) {
     if(dyn->insts[ninst].n.stack_next) {
         return 0;
     }
-    for(int i=0; i<24; ++i)
+    for(int i=0; i<32; ++i)
         if(dyn->insts[ninst].n.neoncache[i].v) {       // there is something at ninst for i
             if(!(
             (dyn->insts[ninst].n.neoncache[i].t==NEON_CACHE_ST_F
@@ -448,13 +466,12 @@ int fpuCacheNeedsTransform(dynarec_arm_t* dyn, int ninst) {
     if((dyn->insts[i2].x64.barrier&BARRIER_FLOAT))
         // if the barrier as already been apply, no transform needed
         return ((dyn->insts[ninst].x64.barrier&BARRIER_FLOAT))?0:(isCacheEmpty(dyn, ninst)?0:1);
-    int ret = 0;
     if(!i2) { // just purge
         if(dyn->insts[ninst].n.stack_next)
             return 1;
         if(dyn->insts[ninst].ymm0_out)
             return 1;
-        for(int i=0; i<32 && !ret; ++i)
+        for(int i=0; i<32; ++i)
             if(dyn->insts[ninst].n.neoncache[i].v) {       // there is something at ninst for i
                 int t = dyn->insts[ninst].n.neoncache[i].t;
                 int n = dyn->insts[ninst].n.neoncache[i].n;
@@ -463,15 +480,15 @@ int fpuCacheNeedsTransform(dynarec_arm_t* dyn, int ninst) {
                 || t==NEON_CACHE_ST_D
                 || t==NEON_CACHE_ST_I64)
                 && n<dyn->insts[ninst].n.stack_pop))
-                    ret = 1;
+                    return 1;
             }
-        return ret;
+        return 0;
     }
     // Check if ninst can be compatible to i2
     if(dyn->insts[ninst].n.stack_next != dyn->insts[i2].n.stack-dyn->insts[i2].n.stack_push) {
         return 1;
     }
-    if(dyn->insts[ninst].ymm0_out && (dyn->insts[ninst].ymm0_out&~dyn->insts[i2].ymm0_in))
+    if(dyn->insts[ninst].ymm0_out && (dyn->insts[ninst].ymm0_out&~dyn->insts[i2].ymm0_in&~dyn->insts[i2].n.ymm_unneeded))
         return 1;
     neoncache_t cache_i2 = dyn->insts[i2].n;
     neoncacheUnwind(&cache_i2);
@@ -483,23 +500,23 @@ int fpuCacheNeedsTransform(dynarec_arm_t* dyn, int ninst) {
             if(!cache_i2.neoncache[i].v) {    // but there is nothing at i2 for i
                 if(((t==NEON_CACHE_XMMR) || (t==NEON_CACHE_XMMW)) && (cache_i2.xmm_unneeded&(1<<n))) { /* nothing*/}
                 else if(((t==NEON_CACHE_YMMR) || (t==NEON_CACHE_YMMW)) && (cache_i2.ymm_unneeded&(1<<n))) { /* nothing*/}
-                else 
-                ret = 1;
+                else
+                    return 1;
             } else if(dyn->insts[ninst].n.neoncache[i].v!=cache_i2.neoncache[i].v) {  // there is something different
                 if(n!=cache_i2.neoncache[i].n) {   // not the same x64 reg
-                    ret = 1;
+                    return 1;
                 }
                 else if((t == NEON_CACHE_XMMR) && cache_i2.neoncache[i].t == NEON_CACHE_XMMW)
                     {/* nothing */ }
                 else if((t == NEON_CACHE_YMMR) && cache_i2.neoncache[i].t == NEON_CACHE_YMMW)
                     {/* nothing */ }
                 else
-                    ret = 1;
+                    return 1;
             }
         } else if(cache_i2.neoncache[i].v)
-            ret = 1;
+            return 1;
     }
-    return ret;
+    return 0;
 }
 
 void neoncacheUnwind(neoncache_t* cache)
@@ -638,49 +655,6 @@ void neoncacheUnwind(neoncache_t* cache)
     cache->ymm_used = 0;
 }
 
-#define F8      *(uint8_t*)(addr++)
-#define F32S64  (uint64_t)(int64_t)*(int32_t*)(addr+=4, addr-4)
-// Get if ED will have the correct parity. Not emitting anything. Parity is 2 for DWORD or 3 for QWORD
-int getedparity(dynarec_arm_t* dyn, int ninst, uintptr_t addr, uint8_t nextop, int parity, int delta)
-{
-    (void)dyn; (void)ninst;
-
-    uint32_t tested = (1<<parity)-1;
-    if((nextop&0xC0)==0xC0)
-        return 0;   // direct register, no parity...
-    if(!(nextop&0xC0)) {
-        if((nextop&7)==4) {
-            uint8_t sib = F8;
-            int sib_reg = (sib>>3)&7;
-            if((sib&0x7)==5) {
-                uint64_t tmp = F32S64;
-                if (sib_reg!=4) {
-                    // if XXXXXX+reg<<N then check parity of XXXXX and N should be enough
-                    return ((tmp&tested)==0 && (sib>>6)>=parity)?1:0;
-                } else {
-                    // just a constant...
-                    return (tmp&tested)?0:1;
-                }
-            } else {
-                if(sib_reg==4 && parity<3)
-                    return 0;   // simple [reg]
-                // don't try [reg1 + reg2<<N], unless reg1 is ESP
-                return ((sib&0x7)==4 && (sib>>6)>=parity)?1:0;
-            }
-        } else if((nextop&7)==5) {
-            uint64_t tmp = F32S64;
-            tmp+=addr+delta;
-            return (tmp&tested)?0:1;
-        } else {
-            return 0;
-        }
-    } else {
-        return 0; //Form [reg1 + reg2<<N + XXXXXX]
-    }
-}
-#undef F8
-#undef F32S64
-
 const char* getCacheName(int t, int n)
 {
     static char buff[20];
@@ -720,22 +694,22 @@ static register_mapping_t register_mappings[] = {
     { "bx", "x13" },
     { "bh", "x13" },
     { "bl", "x13" },
-    { "rsi", "x14" },
-    { "esi", "w14" },
-    { "si", "x14" },
-    { "sil", "x14" },
-    { "rdi", "x15" },
-    { "edi", "w15" },
-    { "di", "x15" },
-    { "dil", "x15" },
-    { "rsp", "x16" },
-    { "esp", "w16" },
-    { "sp", "x16" },
-    { "spl", "x16" },
-    { "rbp", "x17" },
-    { "ebp", "w17" },
-    { "bp", "x17" },
-    { "bpl", "x17" },
+    { "rsp", "x14" },
+    { "esp", "w14" },
+    { "sp", "x14" },
+    { "spl", "x14" },
+    { "rbp", "x15" },
+    { "ebp", "w15" },
+    { "bp", "x15" },
+    { "bpl", "x15" },
+    { "rsi", "x16" },
+    { "esi", "w16" },
+    { "si", "x16" },
+    { "sil", "x16" },
+    { "rdi", "x17" },
+    { "edi", "w17" },
+    { "di", "x17" },
+    { "dil", "x17" },
     { "r8", "x18" },
     { "r8d", "w18" },
     { "r8w", "x18" },
@@ -776,6 +750,11 @@ static const char* df_status[] = {"unknown", "set", "none_pending", "none"};
 void printf_x64_instruction(dynarec_native_t* dyn, zydis_dec_t* dec, instruction_x64_t* inst, const char* name);
 void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t rex)
 {
+    if (dyn->need_dump == 3) {
+        printf_x64_instruction(dyn, rex.is32bits ? my_context->dec32 : my_context->dec, &dyn->insts[ninst].x64, name);
+        if (!BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map))
+            return;
+    }
     if (!dyn->need_dump && !BOX64ENV(dynarec_gdbjit) && !BOX64ENV(dynarec_perf_map)) {
         /*zydis_dec_t* dec = rex.is32bits ? my_context->dec32 : my_context->dec;
         if(dec && !OpcodeOK(dec, dyn->insts[ninst].x64.addr) && !strstr(name, "Illegal")) {
@@ -786,13 +765,13 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
     }
 
     static char buf[4096];
-    int length = sprintf(buf, "barrier=%d state=%d/%s(%s->%s)/%d, set=%X/%X, use=%X, need=%X/%X, sm=%d(%d/%d/%d)",
+    int length = sprintf(buf, "barrier=%d state=%d/%s(%s->%s)/%c, set=%X/%X, use=%X, need=%X/%X, sm=%d(%d/%d/%d)",
         dyn->insts[ninst].x64.barrier,
         dyn->insts[ninst].x64.state_flags,
         df_status[dyn->f],
         df_status[dyn->insts[ninst].f_entry],
         df_status[dyn->insts[ninst].f_exit],
-        dyn->insts[ninst].df_notneeded,
+        dyn->insts[ninst].df_needed?'N':(dyn->insts[ninst].df_notneeded?'U':'-'),
         dyn->insts[ninst].x64.set_flags,
         dyn->insts[ninst].x64.gen_flags,
         dyn->insts[ninst].x64.use_flags,
@@ -805,8 +784,8 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
         else
             length += sprintf(buf + length, " NF:%d", dyn->insts[ninst].nat_flags_op);
     }
-    if (dyn->insts[ninst].use_nat_flags || dyn->insts[ninst].set_nat_flags || dyn->insts[ninst].need_nat_flags) {
-        length += sprintf(buf + length, " nf:%hhx/%hhx/%hhx", dyn->insts[ninst].set_nat_flags, dyn->insts[ninst].use_nat_flags, dyn->insts[ninst].need_nat_flags);
+    if (dyn->insts[ninst].use_nat_flags || dyn->insts[ninst].set_nat_flags || dyn->insts[ninst].need_nat_flags || dyn->insts[ninst].nat_flags_in) {
+        length += sprintf(buf + length, " nf:%hhx/%hhx/%hhx->%hhx", dyn->insts[ninst].set_nat_flags, dyn->insts[ninst].use_nat_flags, dyn->insts[ninst].nat_flags_in, dyn->insts[ninst].need_nat_flags);
     }
     if (dyn->insts[ninst].invert_carry)
         length += sprintf(buf + length, " CI");
@@ -859,11 +838,17 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
             }
         length += sprintf(buf + length, ")%s", (dyn->need_dump > 1) ? "\e[0;32m" : "");
     }
-    if (dyn->insts[ninst].n.xmm_used || dyn->insts[ninst].n.xmm_unneeded) {
-        length += sprintf(buf + length, " xmmUsed=%04x/unneeded=%04x", dyn->insts[ninst].n.xmm_used, dyn->insts[ninst].n.xmm_unneeded);
+    if (dyn->insts[ninst].n.xmm_used || dyn->insts[ninst].n.xmm_unneeded || dyn->insts[ninst].n.xmm_needed) {
+        length += sprintf(buf + length, " xmmUsed=%04x/needed=%04x/unneeded=%04x", dyn->insts[ninst].n.xmm_used, dyn->insts[ninst].n.xmm_needed, dyn->insts[ninst].n.xmm_unneeded);
     }
-    if (dyn->insts[ninst].n.ymm_used || dyn->insts[ninst].n.ymm_unneeded) {
-        length += sprintf(buf + length, " ymmUsed=%04x/unneeded=%04x", dyn->insts[ninst].n.ymm_used, dyn->insts[ninst].n.ymm_unneeded);
+    if (dyn->insts[ninst].n.xmmh_used || dyn->insts[ninst].n.xmmh_needed || dyn->insts[ninst].n.xmmh_unneeded) {
+        length += sprintf(buf + length, " xmmHused=%04x/needed=%04x/unneeded=%04x", dyn->insts[ninst].n.xmmh_used, dyn->insts[ninst].n.xmmh_needed, dyn->insts[ninst].n.xmmh_unneeded);
+    }
+    if (dyn->insts[ninst].n.xmms_used || dyn->insts[ninst].n.xmms_needed || dyn->insts[ninst].n.xmms_unneeded) {
+        length += sprintf(buf + length, " xmmSused=%04x/needed=%04x/unneeded=%04x", dyn->insts[ninst].n.xmms_used, dyn->insts[ninst].n.xmms_needed, dyn->insts[ninst].n.xmms_unneeded);
+    }
+    if (dyn->insts[ninst].n.ymm_used || dyn->insts[ninst].n.ymm_unneeded || dyn->insts[ninst].n.ymm_needed) {
+        length += sprintf(buf + length, " ymmUsed=%04x/needed=%04x/unneeded=%04x", dyn->insts[ninst].n.ymm_used, dyn->insts[ninst].n.ymm_needed, dyn->insts[ninst].n.ymm_unneeded);
     }
     if (dyn->ymm_zero || dyn->insts[ninst].ymm0_add || dyn->insts[ninst].ymm0_sub || dyn->insts[ninst].ymm0_out) {
         length += sprintf(buf + length, " ymm0=(%04x/%04x+%04x-%04x=%04x)", dyn->ymm_zero, dyn->insts[ninst].ymm0_in, dyn->insts[ninst].ymm0_add, dyn->insts[ninst].ymm0_sub, dyn->insts[ninst].ymm0_out);
@@ -880,7 +865,9 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
     if (dyn->insts[ninst].n.combined1 || dyn->insts[ninst].n.combined2) {
         length += sprintf(buf + length, " %s:%d/%d", dyn->insts[ninst].n.swapped ? "SWP" : "CMB", dyn->insts[ninst].n.combined1, dyn->insts[ninst].n.combined2);
     }
-    if (dyn->need_dump) {
+    if(dyn->insts[ninst].x64.self_loop)
+        length += sprintf(buf + length, " self-loop");
+    if (dyn->need_dump && dyn->need_dump != 3) {
         printf_x64_instruction(dyn, rex.is32bits ? my_context->dec32 : my_context->dec, &dyn->insts[ninst].x64, name);
         dynarec_log(LOG_NONE, "%s%p: %d emitted opcodes, inst=%d, %s%s\n",
             (dyn->need_dump > 1) ? "\e[32m" : "",
@@ -901,8 +888,8 @@ void inst_name_pass3(dynarec_native_t* dyn, int ninst, const char* name, rex_t r
         }
         dyn->gdbjit_block = GdbJITBlockAddLine(dyn->gdbjit_block, (dyn->native_start + dyn->insts[ninst].address), inst_name);
     }
-    if (BOX64ENV(dynarec_perf_map) && BOX64ENV(dynarec_perf_map_fd) != -1) {
-        writePerfMap(dyn->insts[ninst].x64.addr, dyn->native_start + dyn->insts[ninst].address, dyn->insts[ninst].size / 4, name);
+    if (BOX64ENV(dynarec_perf_map) && (BOX64ENV(dynarec_perf_map_fd) != -1) && dyn->insts[ninst].size) {
+        writePerfMap(dyn->insts[ninst].x64.addr, dyn->native_start + dyn->insts[ninst].address, dyn->insts[ninst].size, name);
     }
     if(length>sizeof(buf)) printf_log(LOG_NONE, "Warning: buf to small in inst_name_pass3 (%d vs %zd)\n", length, sizeof(buf));
 }
@@ -942,20 +929,21 @@ static void mmx_reset(neoncache_t* n)
         n->mmxcache[i] = -1;
 }
 
-static void sse_reset(neoncache_t* n)
+static void sse_reset(neoncache_t* n, int use_ymm)
 {
     for (int i=0; i<16; ++i)
         n->ssecache[i].v = -1;
-    for (int i=0; i<32; ++i)
-        if(n->neoncache[i].t==NEON_CACHE_YMMR || n->neoncache[i].t==NEON_CACHE_YMMW)
-            n->neoncache[i].v = 0;
+    if(use_ymm)
+        for (int i=0; i<32; ++i)
+            if(n->neoncache[i].t==NEON_CACHE_YMMR || n->neoncache[i].t==NEON_CACHE_YMMW)
+                n->neoncache[i].v = 0;
 }
 
 void fpu_reset(dynarec_native_t* dyn)
 {
     x87_reset(&dyn->n);
     mmx_reset(&dyn->n);
-    sse_reset(&dyn->n);
+    sse_reset(&dyn->n, dyn->use_ymm);
     fpu_reset_reg(dyn);
     dyn->ymm_zero = 0;
 }
@@ -964,7 +952,7 @@ void fpu_reset_ninst(dynarec_native_t* dyn, int ninst)
 {
     x87_reset(&dyn->insts[ninst].n);
     mmx_reset(&dyn->insts[ninst].n);
-    sse_reset(&dyn->insts[ninst].n);
+    sse_reset(&dyn->insts[ninst].n, dyn->use_ymm);
     fpu_reset_reg_neoncache(&dyn->insts[ninst].n);
 
 }
@@ -991,27 +979,23 @@ uint8_t mark_natflag(dynarec_arm_t* dyn, int ninst, uint8_t flag, int before)
     return flag;
 }
 
-uint8_t flag2native(uint8_t flags)
+uint8_t flag2native(uint8_t flags, int vf_is_p)
 {
     uint8_t ret = 0;
     #ifdef ARM64
     if(flags&X_ZF) ret|=NF_EQ;
     if(flags&X_SF) ret|=NF_SF;
-    if(flags&X_OF) ret|=NF_VF;
+    if(!vf_is_p)
+        if(flags&X_OF) ret|=NF_VF;
     if(flags&X_CF) ret|=NF_CF;
+    if(vf_is_p)
+        if(flags&X_PF) ret|=NF_PF_V;    // but no opcode can generate both NF_VF & NF_PF_V at the same time!
     #else
     // no native flags on rv64 or la64
     #endif
     return ret;
 }
-
-int flagIsNative(uint8_t flags)
-{
-    if(flags&(X_AF|X_PF)) return 0;
-    return 1;
-}
-
-static uint8_t getNativeFlagsUsed(dynarec_arm_t* dyn, int start, uint8_t flags)
+static uint8_t getNativeFlagsUsed(dynarec_arm_t* dyn, int start, uint8_t flags, int vf_is_p)
 {
     // propagate and check wich flags are actually used
     uint8_t used_flags = 0;
@@ -1059,21 +1043,21 @@ static uint8_t getNativeFlagsUsed(dynarec_arm_t* dyn, int start, uint8_t flags)
         }
         if(ninst!=start && dyn->insts[ninst].x64.use_flags) {
             // some flags not compatible with native, partial use not allowed
-            if(flag2native(dyn->insts[ninst].x64.use_flags)!=dyn->insts[ninst].use_nat_flags)
+            if(flag2native(dyn->insts[ninst].x64.use_flags, vf_is_p)!=dyn->insts[ninst].use_nat_flags)
                 return 0;
             // check if flags are used, but not the natives ones
             //if(dyn->insts[ninst].use_nat_flags&~used_flags)
             //    return 0;
         }
         // check if flags are generated without native option
-        if((start!=ninst) && dyn->insts[ninst].x64.gen_flags && (flag2native(dyn->insts[ninst].x64.gen_flags&dyn->insts[ninst].x64.need_after)&used_flags)) {
-            if(used_flags&~flag2native(dyn->insts[ninst].x64.gen_flags&dyn->insts[ninst].x64.need_after))
+        if((start!=ninst) && dyn->insts[ninst].x64.gen_flags && (flag2native(dyn->insts[ninst].x64.gen_flags&dyn->insts[ninst].x64.need_after, vf_is_p)&used_flags)) {
+            if(used_flags&~flag2native(dyn->insts[ninst].x64.gen_flags&dyn->insts[ninst].x64.need_after, vf_is_p))
                 return 0;   // partial covert, not supported for now (TODO: this might be fixable)
             else
                 return nat_flags_used?used_flags:0;  // full covert... End of propagation
         }
         // check if flags are still needed
-        if(!(flag2native(dyn->insts[ninst].x64.need_after)&flags))
+        if(!(flag2native(dyn->insts[ninst].x64.need_after, vf_is_p)&flags))
             return nat_flags_used?used_flags:0;
         // check if flags are destroyed, cancel the use then
         if(dyn->insts[ninst].nat_flags_op && (start!=ninst))
@@ -1099,16 +1083,19 @@ static void propagateNativeFlags(dynarec_arm_t* dyn, int start)
 {
     int ninst = start;
     // those are the flags generated by the opcode and used later on
-    uint8_t flags = dyn->insts[ninst].set_nat_flags&flag2native(dyn->insts[ninst].x64.need_after);
+    int vf_is_p = (dyn->insts[ninst].set_nat_flags&NF_PF_V)?1:0;
+    uint8_t flags = dyn->insts[ninst].set_nat_flags&flag2native(dyn->insts[ninst].x64.need_after, vf_is_p);
     //check if they are actualy used before starting
 //printf_log(LOG_INFO, "propagateNativeFlags called for start=%d, flags=%x, will need:%x\n", start, flags, flag2native(dyn->insts[ninst].x64.need_after));
     if(!flags) return;
     // also check if some native flags are used but not genereated here
-    if(flag2native(dyn->insts[ninst].x64.use_flags)&~flags) return;
-    uint8_t used_flags = getNativeFlagsUsed(dyn, start, flags);
+    if(flag2native(dyn->insts[ninst].x64.use_flags, vf_is_p)&~flags) return;
+    if(flag2native(dyn->insts[ninst].x64.need_after, vf_is_p)&~flags) return;
+    uint8_t used_flags = getNativeFlagsUsed(dyn, start, flags, vf_is_p);
 //printf_log(LOG_INFO, " will use:%x, carry:%d, generate inverted carry:%d\n", used_flags, used_flags&NF_CF, dyn->insts[ninst].gen_inverted_carry);
     if(!used_flags) return; // the flags wont be used, so just cancel
     int nc = dyn->insts[ninst].gen_inverted_carry?0:1;
+    int oldnc = nc;
     int carry = used_flags&NF_CF;
     // propagate
     while(ninst<dyn->size) {
@@ -1122,17 +1109,17 @@ static void propagateNativeFlags(dynarec_arm_t* dyn, int start)
             return;
         }
         // check if flags are generated without native option
-        if((start!=ninst) && dyn->insts[ninst].x64.gen_flags && (flag2native(dyn->insts[ninst].x64.gen_flags&dyn->insts[ninst].x64.need_after)&used_flags))
+        if((start!=ninst) && dyn->insts[ninst].x64.gen_flags && (flag2native(dyn->insts[ninst].x64.gen_flags&dyn->insts[ninst].x64.need_after, vf_is_p)&used_flags))
             return;
         // mark the opcode
-        uint8_t use_flags = flag2native(dyn->insts[ninst].x64.need_before|dyn->insts[ninst].x64.need_after);
-        if(dyn->insts[ninst].x64.use_flags) use_flags |= flag2native(dyn->insts[ninst].x64.use_flags);  // should not change anything
+        uint8_t use_flags = flag2native(dyn->insts[ninst].x64.need_before|dyn->insts[ninst].x64.need_after, vf_is_p);
+        if(dyn->insts[ninst].x64.use_flags) use_flags |= flag2native(dyn->insts[ninst].x64.use_flags, vf_is_p);  // should not change anything
 //printf_log(LOG_INFO, " marking ninst=%d with %x | %x&%x => %x\n", ninst, dyn->insts[ninst].need_nat_flags, used_flags, use_flags, dyn->insts[ninst].need_nat_flags | (used_flags&use_flags));
         dyn->insts[ninst].need_nat_flags |= used_flags&use_flags;
         if(carry) dyn->insts[ninst].normal_carry = nc;
         if(carry && dyn->insts[ninst].invert_carry) nc = 0;
         // check if flags are still needed
-        if(!(flag2native(dyn->insts[ninst].x64.need_after)&used_flags))
+        if(!(flag2native(dyn->insts[ninst].x64.need_after, vf_is_p)&used_flags))
             return;
         // go next
         if(!dyn->insts[ninst].x64.has_next) {
@@ -1144,6 +1131,10 @@ static void propagateNativeFlags(dynarec_arm_t* dyn, int start)
                 return;
         } else
             ++ninst;
+        if(ninst<dyn->size) {
+            dyn->insts[ninst].nat_flags_in |= used_flags&use_flags;
+            if(carry) dyn->insts[ninst].normal_carry_in = oldnc;
+        }
     }
 }
 
@@ -1153,7 +1144,7 @@ void updateNativeFlags(dynarec_native_t* dyn)
         return;
     // forward check if native flags are used
     for(int ninst=0; ninst<dyn->size; ++ninst)
-        if(flag2native(dyn->insts[ninst].x64.gen_flags) && (dyn->insts[ninst].nat_flags_op==NAT_FLAG_OP_TOUCH)) {
+        if(flag2native(dyn->insts[ninst].x64.gen_flags,(dyn->insts[ninst].set_nat_flags&NF_PF_V)?1:0) && (dyn->insts[ninst].nat_flags_op==NAT_FLAG_OP_TOUCH)) {
             propagateNativeFlags(dyn, ninst);
         }
 }
@@ -1183,7 +1174,7 @@ int nativeFlagsNeedsTransform(dynarec_arm_t* dyn, int ninst)
         flags_after = dyn->insts[jmp].before_nat_flags;
         nc_after = dyn->insts[jmp].normal_carry_before;
     }
-    uint8_t flags_x86 = flag2native(dyn->insts[jmp].x64.need_before);
+    uint8_t flags_x86 = flag2native(dyn->insts[jmp].x64.need_before, (dyn->insts[jmp].before_nat_flags&NF_PF_V)?1:0);
     flags_x86 &= ~flags_after;
     if((flags_before&NF_CF) && (flags_after&NF_CF) && (nc_before!=nc_after))
         return 1;
@@ -1222,34 +1213,123 @@ static uint32_t getXYMMMask(dynarec_arm_t* dyn, int ninst)
     return ret;
 }
 
-static void propagateXYMMUneeded(dynarec_arm_t* dyn, int ninst, uint16_t mask_x, uint16_t mask_y)
+static void propagateXYMMNeeded(dynarec_arm_t* dyn, int ninst, uint16_t mask_x, uint16_t mask_y, uint16_t mask_xh, uint16_t mask_xs)
 {
-    if(!ninst) return;
-    ninst = getNominalPred(dyn, ninst);
     while(ninst>=0) {
-        mask_x &= ~dyn->insts[ninst].n.xmm_used;
-        mask_y &= ~dyn->insts[ninst].n.ymm_used;
-        if(!mask_x && !mask_y) return; // used, value is needed
-        if(dyn->insts[ninst].x64.barrier&BARRIER_FLOAT) return; // barrier, value is needed
+        // removed unneeded regs
         mask_x &= ~dyn->insts[ninst].n.xmm_unneeded;
         mask_y &= ~dyn->insts[ninst].n.ymm_unneeded;
-        if(!mask_x && !mask_y) return; // already handled
-        if(dyn->insts[ninst].x64.jmp) return;   // stop when a jump is detected, that gets too complicated
-        dyn->insts[ninst].n.xmm_unneeded |= mask_x; // flags
-        dyn->insts[ninst].n.ymm_unneeded |= mask_y; // flags
-        ninst = getNominalPred(dyn, ninst); // continue
+        mask_xh &= ~dyn->insts[ninst].n.xmmh_unneeded;
+        mask_xs &= ~dyn->insts[ninst].n.xmms_unneeded;
+        // removed already needed from mask
+        mask_x &= ~dyn->insts[ninst].n.xmm_needed;
+        mask_y &= ~dyn->insts[ninst].n.ymm_needed;
+        mask_xh &= ~dyn->insts[ninst].n.xmmh_needed;
+        mask_xs &= ~dyn->insts[ninst].n.xmms_needed;
+        // already handled
+        if(!mask_x && !mask_y && !mask_xh && !mask_xs) return;
+        // added the unneeded value
+        dyn->insts[ninst].n.xmm_needed |= mask_x;
+        dyn->insts[ninst].n.ymm_needed |= mask_y;
+        dyn->insts[ninst].n.xmmh_needed |= mask_xh;
+        dyn->insts[ninst].n.xmms_needed |= mask_xs;
+        for(int i=1; i<dyn->insts[ninst].pred_sz; ++i) {
+            int j = dyn->insts[ninst].pred[i];
+            // barrier or callret, value is needed
+            if(!(dyn->insts[j].x64.barrier&BARRIER_FLOAT)
+              && !(dyn->insts[j].x64.has_callret))
+                propagateXYMMNeeded(dyn, j, mask_x, mask_y, mask_xh, mask_xs);
+        }
+        if(dyn->insts[ninst].pred_sz)
+            ninst = dyn->insts[ninst].pred[0];
+        else
+            ninst = -1;
+        if(ninst>=0)
+            if((dyn->insts[ninst].x64.barrier&BARRIER_FLOAT)
+              || (dyn->insts[ninst].x64.has_callret))
+                return;
+    }
+}
+
+static void propagateXYMMUneeded(dynarec_arm_t* dyn, int ninst, uint16_t mask_x, uint16_t mask_y, uint16_t mask_xh, uint16_t mask_xs)
+{
+    while(ninst>=0) {
+        // removed needed regs
+        mask_x &= ~dyn->insts[ninst].n.xmm_needed;
+        mask_y &= ~dyn->insts[ninst].n.ymm_needed;
+        mask_xh &= ~dyn->insts[ninst].n.xmmh_needed;
+        mask_xs &= ~dyn->insts[ninst].n.xmms_needed;
+        // removed already unneeded from mask
+        mask_x &= ~dyn->insts[ninst].n.xmm_unneeded;
+        mask_y &= ~dyn->insts[ninst].n.ymm_unneeded;
+        mask_xh &= ~dyn->insts[ninst].n.xmmh_unneeded;
+        mask_xs &= ~dyn->insts[ninst].n.xmms_unneeded;
+        // already handled
+        if(!mask_x && !mask_y && !mask_xh && !mask_xs) return;
+        // barrier or callret, value is needed
+        if(dyn->insts[ninst].x64.barrier&BARRIER_FLOAT) return;
+        if(dyn->insts[ninst].x64.has_callret) return;
+        // added the unneeded value
+        dyn->insts[ninst].n.xmm_unneeded |= mask_x;
+        dyn->insts[ninst].n.ymm_unneeded |= mask_y;
+        dyn->insts[ninst].n.xmmh_unneeded |= mask_xh;
+        dyn->insts[ninst].n.xmms_unneeded |= mask_xs;
+        for(int i=1; i<dyn->insts[ninst].pred_sz; ++i)
+            propagateXYMMUneeded(dyn, dyn->insts[ninst].pred[i], mask_x, mask_y, mask_xh, mask_xs);
+        if(dyn->insts[ninst].pred_sz)
+            ninst = dyn->insts[ninst].pred[0];
+        else
+            ninst = -1;
     }
 }
 
 void updateUneeded(dynarec_arm_t* dyn)
 {
+    propagate_nodf(dyn);
+
     if(!dyn->use_xmm && !dyn->use_ymm)
         return;
+    // Upper-64 liveness of the low 16 XMM, seeded here and propagated by the same
+    // needed/unneeded passes below used for whole-xmm and the ymm upper-128 lanes.
+    // A scalar SD op touches only the low 64, so it sits in xmm_scalar and is masked
+    // out of xmmh_used; every full-width reader keeps its bit and pins the upper lane
+    // live. An op may zero the upper in place (skipping the x86 upper-preserve) only
+    // where xmmh_unneeded proves the lane dead.
+    // xmms is the same, one dword lower: the upper-96 [127:32] used by scalar-single ops.
+    // A scalar SD op still reads [63:32], so only scalar-single ops (xmm_scalar_single) are
+    // masked out of xmms_used. An SS op may zero the upper-96 in place only where xmms_unneeded
+    // proves it dead.
     for(int ninst=0; ninst<dyn->size; ++ninst) {
-        if(dyn->insts[ninst].n.xmm_unneeded || dyn->insts[ninst].n.ymm_unneeded)
-            propagateXYMMUneeded(dyn, ninst, dyn->insts[ninst].n.xmm_unneeded, dyn->insts[ninst].n.ymm_unneeded);
-        if(dyn->insts[ninst].df_notneeded)
-            propagate_nodf(dyn, ninst);
+        dyn->insts[ninst].n.xmmh_used = dyn->insts[ninst].n.xmm_used & ~dyn->insts[ninst].n.xmm_scalar;
+        dyn->insts[ninst].n.xmmh_unneeded = dyn->insts[ninst].n.xmm_unneeded;
+        dyn->insts[ninst].n.xmms_used = dyn->insts[ninst].n.xmm_used & ~dyn->insts[ninst].n.xmm_scalar_single;
+        dyn->insts[ninst].n.xmms_unneeded = dyn->insts[ninst].n.xmm_unneeded;
+    }
+    // first propagate the needed regs: those which are used and are not unneeded
+    for(int ninst=dyn->size-1; ninst>=0; --ninst) {
+        uint16_t xmm_needed = dyn->insts[ninst].n.xmm_used&~dyn->insts[ninst].n.xmm_unneeded;
+        uint16_t ymm_needed = dyn->insts[ninst].n.ymm_used&~dyn->insts[ninst].n.ymm_unneeded;
+        uint16_t xmmh_needed = dyn->insts[ninst].n.xmmh_used&~dyn->insts[ninst].n.xmmh_unneeded;
+        uint16_t xmms_needed = dyn->insts[ninst].n.xmms_used&~dyn->insts[ninst].n.xmms_unneeded;
+        // an unresolved exit (float barrier or jump out of the block) can reach code
+        // that reads the full registers, so pin every lane live there, upper-64/96 included
+        if((dyn->insts[ninst].x64.barrier&BARRIER_FLOAT) || (dyn->insts[ninst].x64.jmp && (dyn->insts[ninst].x64.jmp_insts==-1)))
+        {
+            if(dyn->use_xmm) xmm_needed = 0xffff;
+            if(dyn->use_ymm) ymm_needed = 0xffff;
+            if(dyn->use_xmm) xmmh_needed = 0xffff;
+            if(dyn->use_xmm) xmms_needed = 0xffff;
+        }
+        if(xmm_needed || ymm_needed || xmmh_needed || xmms_needed)
+            propagateXYMMNeeded(dyn, ninst, xmm_needed, ymm_needed, xmmh_needed, xmms_needed);
+
+    }
+    // then proagate the unneeded one: those which are not needed (not used anymore and will be overwritten)
+    for(int ninst=dyn->size-1; ninst>=0; --ninst) {
+        if(dyn->insts[ninst].n.xmm_unneeded || dyn->insts[ninst].n.ymm_unneeded || dyn->insts[ninst].n.xmmh_unneeded || dyn->insts[ninst].n.xmms_unneeded) {
+            for(int i=0; i<dyn->insts[ninst].pred_sz; ++i)
+                propagateXYMMUneeded(dyn, dyn->insts[ninst].pred[i], dyn->insts[ninst].n.xmm_unneeded, dyn->insts[ninst].n.ymm_unneeded, dyn->insts[ninst].n.xmmh_unneeded, dyn->insts[ninst].n.xmms_unneeded);
+        }
     }
     // try to add some preload of XYMM on jump were it would make sense
     for(int ninst=0; ninst<dyn->size; ++ninst)
@@ -1299,7 +1379,7 @@ void tryEarlyFpuBarrier(dynarec_arm_t* dyn, int last_fpu_used, int ninst)
                 }
                 // we will stop there, not trying to guess too much thing
                 if((usefull && (i+1)!=ninst)) {
-                    if(BOX64ENV(dynarec_dump) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", i+1, ninst);
+                    if((BOX64ENV(dynarec_dump) && BOX64ENV(dynarec_dump) != 3) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", i+1, ninst);
                     dyn->insts[i+1].x64.barrier|=BARRIER_FLOAT;
                 }
                 return;
@@ -1309,7 +1389,7 @@ void tryEarlyFpuBarrier(dynarec_arm_t* dyn, int last_fpu_used, int ninst)
         for(int pred=0; pred<dyn->insts[i].pred_sz; ++pred) {
             if(dyn->insts[i].pred[pred]<=last_fpu_used) {
                 if(usefull && ((i+1)!=ninst)) {
-                    if(BOX64ENV(dynarec_dump) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", i+1, ninst);
+                    if((BOX64ENV(dynarec_dump) && BOX64ENV(dynarec_dump) != 3) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", i+1, ninst);
                     dyn->insts[i+1].x64.barrier|=BARRIER_FLOAT;
                 }
                 return;
@@ -1319,7 +1399,7 @@ void tryEarlyFpuBarrier(dynarec_arm_t* dyn, int last_fpu_used, int ninst)
             usefull = 1;
     }
     if(usefull) {
-        if(BOX64ENV(dynarec_dump) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", last_fpu_used, ninst);
+        if((BOX64ENV(dynarec_dump) && BOX64ENV(dynarec_dump) != 3) || BOX64ENV(dynarec_log)>1) dynarec_log(LOG_NONE, "Putting early Float Barrier in %d for %d\n", last_fpu_used, ninst);
         dyn->insts[last_fpu_used+1].x64.barrier|=BARRIER_FLOAT;
     }
 }
@@ -1416,6 +1496,7 @@ void updateYmm0s(dynarec_arm_t* dyn, int ninst, int max_ninst_reached)
             }
         } else if (can_incr) {
             // We always have ninst == max_ninst_reached when can_incr == 1
+            dyn->insts[ninst].ymm0_out = dyn->insts[ninst].ymm0_add & ~dyn->insts[ninst].ymm0_sub;
             ++max_ninst_reached;
         } else {
             // We didn't update anything, we can leave
@@ -1429,6 +1510,7 @@ void updateYmm0s(dynarec_arm_t* dyn, int ninst, int max_ninst_reached)
 // AVX helpers
 void avx_mark_zero(dynarec_arm_t* dyn, int ninst, int reg)
 {
+    dyn->use_ymm = 1;
     dyn->ymm_zero |= (1<<reg);
 }
 
@@ -1448,6 +1530,7 @@ int is_avx_zero_unset(dynarec_arm_t* dyn, int ninst, int reg)
 
 void avx_mark_zero_reset(dynarec_arm_t* dyn, int ninst)
 {
+    dyn->use_ymm = 1;
     dyn->ymm_zero = 0;
 }
 
@@ -1467,7 +1550,7 @@ static int ymm_preload_reg(dynarec_arm_t* dyn, int ninst, int last, int ymm)
     while((ninst<last) && (i!=-1)) {
         // check if the reg is always free
         if(!(!dyn->insts[ninst].n.neoncache[i].v ||
-            (dyn->insts[ninst].n.neoncache[i].n==ymm 
+            (dyn->insts[ninst].n.neoncache[i].n==ymm
                 && (dyn->insts[ninst].n.neoncache[i].t==NEON_CACHE_YMMR || dyn->insts[ninst].n.neoncache[i].t==NEON_CACHE_YMMW))))
             i = -1; // nope
         else

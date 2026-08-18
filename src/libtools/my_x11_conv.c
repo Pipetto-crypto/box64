@@ -35,7 +35,7 @@ void* getDisplay(void* d)
         if(((&my32_Displays_32[i])==d) || (my32_Displays_64[i]==d)) {
             return my32_Displays_64[i];
         }
-    printf_log(LOG_INFO, "BOX32: Warning, 32bits Display %p not found\n", d);
+    printf_log(LOG_INFO, "Warning, 32bits Display %p not found\n", d);
     return d;
 }
 
@@ -240,7 +240,7 @@ void* addDisplay(void* d)
         }
     }
     if(!ret) {
-        printf_log(LOG_INFO, "BOX32: No more slot available for libX11 Display!");
+        printf_log(LOG_INFO, "No more slot available for libX11 Display!");
         return d;
     }
 
@@ -1498,8 +1498,6 @@ void* inplace_XRRMonitorInfo_enlarge(void* a, int n)
         src+=n-1;
         dst+=n-1;
         for(int i=n-1; i>=0; --i, --src, --dst) {
-            for(int j=dst->noutput-1; j>=0; --j)
-                ((unsigned long*)dst->outputs)[j] = from_ulong(dst->outputs[j]);
             dst->outputs = from_ptrv(src->outputs);
             dst->mheight = src->mheight;
             dst->mwidth = src->mwidth;
@@ -1511,6 +1509,8 @@ void* inplace_XRRMonitorInfo_enlarge(void* a, int n)
             dst->automatic = src->automatic;
             dst->primary = src->primary;
             dst->name = from_ulong(src->name);
+            for(int j=dst->noutput-1; j>=0; --j)
+                dst->outputs[j] = from_ulong(((ulong_t*)dst->outputs)[j]);
         }
     }
     return a;

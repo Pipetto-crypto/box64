@@ -25,7 +25,7 @@ EXPORT void* my___tls_get_addr(x64emu_t* emu, void* p)
 {
     my_tls_t *t = (my_tls_t*)p;
     tlsdatasize_t* ptr = emu->tlsdata;
-    if (!ptr) {
+    if (!ptr || ptr->tlssize != emu->context->tlssize || ptr->n_elfs != emu->context->elfsize) {
         refreshTLSData(emu);
         ptr = emu->tlsdata;
     }
@@ -41,7 +41,9 @@ void stSetup(box64context_t* context)
 #ifdef STATICBUILD
 #include <link.h>
 extern void* __libc_enable_secure;
+#ifndef PPC64LE
 extern void* __stack_chk_guard;
+#endif
 //extern void* __pointer_chk_guard;
 //extern void* _rtld_global;
 //extern void* _rtld_global_ro;
