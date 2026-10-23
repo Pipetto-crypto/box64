@@ -2714,19 +2714,25 @@ GOM(__udivti3, HFHH)    //%noE
 
 #ifdef ANDROID
 GOM(__libc_init, vFEpppp)
+GOW(__loader_add_thread_local_dtor, vFp)
+GOW(__loader_remove_thread_local_dtor, vFp)
 GO(__errno, pFv)
 GO(android_set_abort_message, vFp)
 GO(res_mkquery, iFipiipippi)
 GO(ns_parserr, iFpuip)
 GO(ns_initparse, iFpip)
+GO(__strlen_chk, LFpL)
 #else
 // Those symbols don't exist in non-Android builds
+//GOW(__loader_add_thread_local_dtor, vFp)
+//GOW(__loader_remove_thread_local_dtor, vFp)
 //GOM(__libc_init, 
 //GO(__errno, 
 //GO(android_set_abort_message, vFp)
 //GO(res_mkquery, iFipiipippi)
 //GO(ns_parserr, iFpuip)
 //GO(ns_initparse, iFpip)
+//GO(__strlen_chk, LFpL)
 #endif
 #ifdef STATICBUILD
 GO(dummy_pFLp, pFLp)
