@@ -18,7 +18,7 @@ GO(av_find_input_format, pFp)   // return AVInputFormat* wich might need wrappin
 //GOM(av_find_program_from_stream, pFEppi)
 //GOM(av_fmt_ctx_get_duration_estimation_method, uFEp)
 GO(avformat_alloc_context, pFv) // return AVFormatContext* wich might needs some wrapping?
-//GOM(avformat_alloc_output_context2, iFEpppp)
+GO(avformat_alloc_output_context2, iFpppp)
 GO(avformat_close_input, vFp)
 GO(avformat_configuration, pFv)
 DATA(av_format_ffversion, 8) // Warning: failed to confirm
@@ -56,7 +56,7 @@ GO(av_get_frame_filename2, iFpipii)
 //GOM(av_get_packet, iFEppi)
 //GOM(av_guess_codec, uFEppppi)
 //GOM(av_guess_format, pFEppp)
-//GOM(av_guess_frame_rate, UFEppp)
+GO(av_guess_frame_rate, UFppp)
 //GOM(av_guess_sample_aspect_ratio, UFEppp)
 GO(av_hex_dump, vFSpi)
 GO(av_hex_dump_log, vFpipi)

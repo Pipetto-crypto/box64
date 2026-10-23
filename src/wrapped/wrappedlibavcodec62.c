@@ -18,9 +18,9 @@
 #include "emu/x64emu_private.h"
 #include "myalign.h"
 
-const char* libavcodec58Name = "libavcodec.so.58";
+const char* libavcodec62Name = "libavcodec.so.62";
 
-#define LIBNAME libavcodec58
+#define LIBNAME libavcodec62
 
 //#define ADDED_FUNCTIONS()                   \
 
@@ -35,16 +35,19 @@ GO(2)   \
 GO(3)   \
 GO(4)
 
-// will allow wrapped lib if and only if libavutil.so.56 && libavformat.so.58 are also available!
+/* This is not a reliable mechanism on Android to determine if a library is present */
+#ifndef ANDROID
+// will allow wrapped lib if and only if libavutil.so.60 && libavformat.so.62 are also available!
 #define PRE_INIT \
     if (BOX64ENV(nogtk)) return -2;                                     \
     {                                                                   \
-        void* h = dlopen("libavutil.so.56", RTLD_LAZY | RTLD_GLOBAL);   \
+        void* h = dlopen("libavutil.so.60", RTLD_LAZY | RTLD_GLOBAL);   \
         if(!h) return -2;                                               \
         else dlclose(h);                                                \
-        h = dlopen("libavformat.so.58", RTLD_LAZY | RTLD_GLOBAL);       \
+        h = dlopen("libavformat.so.62", RTLD_LAZY | RTLD_GLOBAL);       \
         if(!h) return -2;                                               \
         else dlclose(h);                                                \
     }
+#endif
 
 #include "wrappedlib_init.h"

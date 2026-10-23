@@ -20,16 +20,16 @@
 #include "emu/x64emu_private.h"
 #include "myalign.h"
 
-const char* libavutil56Name = "libavutil.so.56";
+const char* libavutil60Name = "libavutil.so.60";
 
-#define LIBNAME libavutil56
+#define LIBNAME libavutil60
 
 #define ADDED_FUNCTIONS()                   \
     GO(av_malloc, pFL_t)                    \
     GO(av_mallocz, pFL_t)                   \
     GO(av_realloc, pFpL_t)                  \
 
-#include "generated/wrappedlibavutil56types.h"
+#include "generated/wrappedlibavutil60types.h"
 
 #include "wrappercallback.h"
 
@@ -48,7 +48,7 @@ static void my_log_callback_##A(void* a, int b, void* c, va_list d)     \
     x64_va_list_t null_va = {0};                                        \
     char* p = NULL;                                                     \
     (void)!vasprintf(&p, c, d);                                         \
-    RunFunctionFmt(my_log_callback_fct_##A, "pipp", a, b, d, null_va);  \
+    RunFunctionFmt(my_log_callback_fct_##A, "pipp", a, b, p, null_va);  \
     free(p);                                                            \
 }
 SUPER()
@@ -63,7 +63,7 @@ static void* find_log_callback_Fct(void* fct)
     #define GO(A) if(my_log_callback_fct_##A == 0) {my_log_callback_fct_##A = (uintptr_t)fct; return my_log_callback_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 log_callback callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 log_callback callback\n");
     return NULL;
 }
 // alloc ...
@@ -85,7 +85,7 @@ static void* find_alloc_Fct(void* fct)
     #define GO(A) if(my_alloc_fct_##A == 0) {my_alloc_fct_##A = (uintptr_t)fct; return my_alloc_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 alloc callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 alloc callback\n");
     return NULL;
 }
 // func1 ...
@@ -107,7 +107,7 @@ static void* find_func1_Fct(void* fct)
     #define GO(A) if(my_func1_fct_##A == 0) {my_func1_fct_##A = (uintptr_t)fct; return my_func1_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 func1 callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 func1 callback\n");
     return NULL;
 }
 // func2 ...
@@ -129,7 +129,7 @@ static void* find_func2_Fct(void* fct)
     #define GO(A) if(my_func2_fct_##A == 0) {my_func2_fct_##A = (uintptr_t)fct; return my_func2_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 func2 callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 func2 callback\n");
     return NULL;
 }
 // worker ...
@@ -151,7 +151,7 @@ static void* find_worker_Fct(void* fct)
     #define GO(A) if(my_worker_fct_##A == 0) {my_worker_fct_##A = (uintptr_t)fct; return my_worker_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 worker callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 worker callback\n");
     return NULL;
 }
 // main ...
@@ -173,7 +173,7 @@ static void* find_main_Fct(void* fct)
     #define GO(A) if(my_main_fct_##A == 0) {my_main_fct_##A = (uintptr_t)fct; return my_main_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 main callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 main callback\n");
     return NULL;
 }
 // free ...
@@ -195,7 +195,7 @@ static void* find_free_Fct(void* fct)
     #define GO(A) if(my_free_fct_##A == 0) {my_free_fct_##A = (uintptr_t)fct; return my_free_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavutil56 free callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavutil60 free callback\n");
     return NULL;
 }
 
@@ -309,16 +309,19 @@ EXPORT void* my_av_buffer_create(x64emu_t* emu, void* data, int size, void* f, v
     return my->av_buffer_create(data, size, find_free_Fct(f), opaque, flags);
 }
 
-// will allow wrapped lib if and only if libavformat.so.58 && libavcodec.so.58 are also available!
+/* This is not a reliable mechanism on Android to determine if a library is present */
+#ifndef ANDROID
+// will allow wrapped lib if and only if libavformat.so.62 && libavcodec.so.62 are also available!
 #define PRE_INIT \
     if (BOX64ENV(nogtk)) return -2;                                     \
     {                                                                   \
-        void* h = dlopen("libavformat.so.58", RTLD_LAZY | RTLD_GLOBAL); \
+        void* h = dlopen("libavformat.so.62", RTLD_LAZY | RTLD_GLOBAL); \
         if(!h) return -2;                                               \
         else dlclose(h);                                                \
-        h = dlopen("libavcodec.so.58", RTLD_LAZY | RTLD_GLOBAL);        \
+        h = dlopen("libavcodec.so.62", RTLD_LAZY | RTLD_GLOBAL);        \
         if(!h) return -2;                                               \
         else dlclose(h);                                                \
     }
+#endif
 
 #include "wrappedlib_init.h"

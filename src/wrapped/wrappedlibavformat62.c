@@ -18,13 +18,13 @@
 #include "emu/x64emu_private.h"
 #include "myalign.h"
 
-const char* libavformat58Name = "libavformat.so.58";
+const char* libavformat62Name = "libavformat.so.62";
 
-#define LIBNAME libavformat58
+#define LIBNAME libavformat62
 
 #define ADDED_FUNCTIONS()                   \
 
-#include "generated/wrappedlibavformat58types.h"
+#include "generated/wrappedlibavformat62types.h"
 
 #include "wrappercallback.h"
 
@@ -54,7 +54,7 @@ static void* find_read_packet_Fct(void* fct)
     #define GO(A) if(my_read_packet_fct_##A == 0) {my_read_packet_fct_##A = (uintptr_t)fct; return my_read_packet_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavformat58 read_packet callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavformat62 read_packet callback\n");
     return NULL;
 }
 // write_packet ...
@@ -76,7 +76,7 @@ static void* find_write_packet_Fct(void* fct)
     #define GO(A) if(my_write_packet_fct_##A == 0) {my_write_packet_fct_##A = (uintptr_t)fct; return my_write_packet_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavformat58 write_packet callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavformat62 write_packet callback\n");
     return NULL;
 }
 // seek ...
@@ -98,7 +98,7 @@ static void* find_seek_Fct(void* fct)
     #define GO(A) if(my_seek_fct_##A == 0) {my_seek_fct_##A = (uintptr_t)fct; return my_seek_##A; }
     SUPER()
     #undef GO
-    printf_log(LOG_NONE, "Warning, no more slot for libavformat58 seek callback\n");
+    printf_log(LOG_NONE, "Warning, no more slot for libavformat62 seek callback\n");
     return NULL;
 }
 
@@ -110,16 +110,19 @@ EXPORT void* my_avio_alloc_context(x64emu_t* emu, void* buffer, int buffer_size,
     return my->avio_alloc_context(buffer, buffer_size, write_flag, opaque, find_read_packet_Fct(read_packet), find_write_packet_Fct(write_packet), find_seek_Fct(seek));
 }
 
-// will allow wrapped lib if and only if libavutil.so.56 && libavcodec.so.58 are also available!
+/* This is not a reliable mechanism on Android to determine if a library is present */
+#ifndef ANDROID
+// will allow wrapped lib if and only if libavutil.so.60 && libavcodec.so.62 are also available!
 #define PRE_INIT \
     if (BOX64ENV(nogtk)) return -2;                                     \
     {                                                                   \
-        void* h = dlopen("libavutil.so.56", RTLD_LAZY | RTLD_GLOBAL);   \
+        void* h = dlopen("libavutil.so.60", RTLD_LAZY | RTLD_GLOBAL);   \
         if(!h) return -2;                                               \
         else dlclose(h);                                                \
-        h = dlopen("libavcodec.so.58", RTLD_LAZY | RTLD_GLOBAL);        \
+        h = dlopen("libavcodec.so.62", RTLD_LAZY | RTLD_GLOBAL);        \
         if(!h) return -2;                                               \
         else dlclose(h);                                                \
     }
+#endif
 
 #include "wrappedlib_init.h"
