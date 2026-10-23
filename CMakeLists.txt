@@ -874,6 +874,7 @@ endif()
 if(ANDROID)
     list(APPEND WRAPPEDS
         "${BOX64_ROOT}/src/wrapped/wrappedandroidshmem.c"
+        "${BOX64_ROOT}/src/wrapped/wrappedandroidsysvshm.c"
         "${BOX64_ROOT}/src/wrapped/wrappedandroidspawn.c"
         "${BOX64_ROOT}/src/wrapped/wrappedandroid.c"
     )

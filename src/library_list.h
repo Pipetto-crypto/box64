@@ -417,6 +417,7 @@ GO("liblapack.so.3", liblapack)
 GO("liblapack.so", liblapack)
 #ifdef ANDROID
 GO("libandroid-shmem.so", androidshmem)
+GO("libandroid-sysvshm.so", androidsysvshm)
 GO("libandroid-spawn.so", androidspawn)
 GO("libandroid.so", android)
 #endif
